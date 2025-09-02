@@ -1,0 +1,46 @@
+{
+  "name": "okx-hk-proxy-server",
+  "version": "1.0.0",
+  "description": "OKX API代理服务器 - 部署在香港服务器",
+  "main": "hk_server_proxy.js",
+  "scripts": {
+    "start": "node hk_server_proxy.js",
+    "dev": "nodemon hk_server_proxy.js",
+    "pm2:start": "pm2 start hk_server_proxy.js --name okx-proxy",
+    "pm2:stop": "pm2 stop okx-proxy",
+    "pm2:restart": "pm2 restart okx-proxy",
+    "pm2:logs": "pm2 logs okx-proxy"
+  },
+  "keywords": [
+    "okx",
+    "proxy",
+    "api",
+    "cryptocurrency",
+    "trading"
+  ],
+  "author": "OKX Proxy Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "http-proxy-middleware": "^2.0.6",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^6.7.0",
+    "helmet": "^6.1.5",
+    "node-fetch": "^3.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/okx-hk-proxy"
+  },
+  "bugs": {
+    "url": "https://github.com/your-repo/okx-hk-proxy/issues"
+  },
+  "homepage": "https://github.com/your-repo/okx-hk-proxy#readme"
+}

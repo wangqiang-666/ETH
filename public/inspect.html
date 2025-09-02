@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>数据与指标诊断面板</title>
+  <link rel="icon" type="image/svg+xml" href="/eth-logo.svg" />
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin: 0; background: #f5f7fb; color: #2c3e50; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .header { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.06); margin-bottom: 16px; }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+    .card { background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+    .card h3 { margin: 0 0 10px; font-size: 16px; color: #1f2d3d; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .toolbar input, .toolbar select { padding: 8px 10px; border: 1px solid #e1e4ea; border-radius: 8px; }
+    .btn { background: #2f80ed; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; font-size: 13px; }
+    .kv div { padding: 4px 0; border-bottom: 1px dashed #eef2f7; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; background: #0b1020; color: #e2e8f0; padding: 10px; border-radius: 10px; overflow: auto; max-height: 300px; }
+    .ok { color: #10b981; font-weight: 600; }
+    .warn { color: #f59e0b; font-weight: 600; }
+    .err { color: #ef4444; font-weight: 600; }
+    details summary { cursor: pointer; user-select: none; }
+    /* 新增：状态样式与微型进度提示 */
+    .status { color: #6b7280; font-size: 12px; margin-left: 8px; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 6px; font-size: 12px; }
+    .badge.ok { background: #ecfdf5; color: #065f46; }
+    .badge.warn { background: #fffbeb; color: #92400e; }
+    .badge.err { background: #fef2f2; color: #991b1b; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { width: 12px; height: 12px; border: 2px solid #c7d2fe; border-top-color: #4f46e5; border-radius: 50%; display: inline-block; animation: spin 0.8s linear infinite; margin-right: 6px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>数据与指标诊断面板</h2>
+      <p style="color:#6b7280; margin:6px 0 12px;">展示分析所用的所有关键数据、指标与参数，帮助定位数据异常（如 24h 涨跌幅）。</p>
+      <div class="toolbar">
+        <label>交易对</label>
+        <input id="symbol" value="ETH-USDT-SWAP" />
+        <label>周期</label>
+        <select id="interval">
+          <option value="1m">1m</option>
+          <option value="3m">3m</option>
+          <option value="5m">5m</option>
+          <option value="15m">15m</option>
+          <option value="1H">1H</option>
+        </select>
+        <label>根数</label>
+        <input id="limit" type="number" value="120" min="50" max="1000" />
+        <button id="refresh" class="btn">刷新</button>
+        <label><input id="auto" type="checkbox" checked /> 自动每30秒刷新</label>
+        <!-- 新增：刷新状态与倒计时提示 -->
+        <span id="loadingTip" class="status" style="display:none"><span class="spinner"></span>刷新中...</span>
+        <span id="lastUpdated" class="status"></span>
+        <span id="countdown" class="status"></span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h3>市场 Ticker <span id="tickerStatus" class="badge warn" style="display:none"></span></h3>
+        <div id="tickerKv" class="kv"></div>
+        <details style="margin-top:8px">
+          <summary>市场Ticker原始JSON</summary>
+          <pre id="tickerRaw" class="mono"></pre>
+        </details>
+      </div>
+
+      <div class="card">
+        <h3>K线与校验 <span id="klineStatus" class="badge warn" style="display:none"></span></h3>
+        <div id="klineKv" class="kv"></div>
+        <details style="margin-top:8px">
+          <summary>K线/校验原始JSON</summary>
+          <pre id="klineRaw" class="mono"></pre>
+        </details>
+      </div>
+
+      <div class="card">
+        <h3>交叉核验与关键指标 <span id="indStatus" class="badge warn" style="display:none"></span></h3>
+        <div id="indKv" class="kv"></div>
+        <details style="margin-top:8px">
+          <summary>指标原始 JSON</summary>
+          <pre id="indRaw" class="mono"></pre>
+        </details>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px;">
+      <div class="card">
+        <h3>策略分析参数 <span id="analysisStatus" class="badge warn" style="display:none"></span></h3>
+        <div id="analysisKv" class="kv"></div>
+        <details style="margin-top:8px">
+          <summary>Analysis 原始 JSON</summary>
+          <pre id="analysisRaw" class="mono"></pre>
+        </details>
+      </div>
+
+      <div class="card">
+        <h3>实时绩效 <span id="perfStatus" class="badge warn" style="display:none"></span></h3>
+        <div id="perfKv" class="kv"></div>
+        <details style="margin-top:8px">
+          <summary>Performance 原始 JSON</summary>
+          <pre id="perfRaw" class="mono"></pre>
+        </details>
+      </div>
+
+      <div class="card">
+        <h3>系统配置 <span id="configStatus" class="badge warn" style="display:none"></span></h3>
+        <div id="configKv" class="kv"></div>
+        <details style="margin-top:8px">
+          <summary>Config 原始 JSON</summary>
+          <pre id="configRaw" class="mono"></pre>
+        </details>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px;">
+      <div class="card">
+        <h3>数据服务健康与性能 <span id="svcStatus" class="badge warn" style="display:none"></span></h3>
+        <div id="svcKv" class="kv"></div>
+        <details style="margin-top:8px">
+          <summary>健康/性能/缓存原始 JSON</summary>
+          <pre id="svcRaw" class="mono"></pre>
+        </details>
+      </div>
+
+      <div class="card">
+        <h3>聚合原始数据</h3>
+        <pre id="allRaw" class="mono" style="max-height:600px"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let timer = null;
+    let countdownTimer = null;
+    const autoIntervalMs = 30000;
+    let loading = false; // 并发保护
+    const rawPayloads = {}; // 存放各面板原始数据，供 details 展开时序列化
+    let currentLoadCtrl = null; // 新增：每次刷新使用的全局 AbortController
+
+    // ===== 通用工具函数（全局可用）=====
+    async function getJson(url, timeoutMs = 5000, retries = 1, opts = {}) {
+      const extSignal = opts && opts.signal; // 外部取消信号（用于刷新时中断上一轮）
+      const maxTimeout = 30000;
+      const doFetch = async (toMs) => {
+        const ctrl = new AbortController();
+        const id = setTimeout(() => ctrl.abort(), Math.min(Math.max(toMs, 3000), maxTimeout));
+        const combined = extSignal ? anySignal(ctrl.signal, extSignal) : ctrl.signal; // 合并信号
+        try {
+          const res = await fetch(url, { signal: combined });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const ct = res.headers.get('content-type') || '';
+          if (ct.includes('application/json')) return await res.json();
+          const text = await res.text();
+          try { return JSON.parse(text); } catch { return { raw: text }; }
+        } finally {
+          clearTimeout(id);
+        }
+      };
+      let attempt = 0;
+      let curTimeout = timeoutMs;
+      while (true) {
+        try {
+          return await doFetch(curTimeout);
+        } catch (e) {
+          // 若是因为“新一轮刷新”触发的外部取消，静默抛出专用错误，供上层识别
+          if (extSignal && extSignal.aborted) {
+            const cancelErr = new Error('CanceledByNewLoad');
+            cancelErr.name = 'CanceledByNewLoad';
+            throw cancelErr;
+          }
+          const isAbort = (e && (e.name === 'AbortError' || /aborted/i.test(String(e.message))));
+          if (attempt < retries && isAbort) {
+            attempt += 1;
+            curTimeout = Math.min(Math.floor(curTimeout * 2), 30000);
+            continue;
+          }
+          if (isAbort) {
+            const err = new Error(`Timeout after ${curTimeout}ms: ${url}`);
+            err.name = 'TimeoutError';
+            throw err;
+          }
+          throw e;
+        }
+      }
+    }
+    
+    // 新增：将两个 AbortSignal 合并为一个（任一取消都会传播）
+    function anySignal(a, b) {
+      if (a && !b) return a;
+      if (b && !a) return b;
+      if (!a && !b) return undefined;
+      const ctrl = new AbortController();
+      const onAbortA = () => { if (!ctrl.signal.aborted) ctrl.abort(a.reason || new Error('aborted')); };
+      const onAbortB = () => { if (!ctrl.signal.aborted) ctrl.abort(b.reason || new Error('aborted')); };
+      a.addEventListener('abort', onAbortA);
+      b.addEventListener('abort', onAbortB);
+      if (a.aborted) onAbortA();
+      if (b.aborted) onAbortB();
+      return ctrl.signal;
+    }
+    
+    // 新增：sleep 工具（用于退避等场景的节流）
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    function pct(x) {
+      if (typeof x !== 'number' || !isFinite(x)) return '—';
+      return (x * 100).toFixed(2) + '%';
+    }
+    function pctp(x) {
+      if (typeof x !== 'number' || !isFinite(x)) return '—';
+      return x.toFixed(2) + '%';
+    }
+    function money(x) {
+      if (typeof x !== 'number' || !isFinite(x)) return '—';
+      return '$' + x.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function formatUSDT(x) {
+      if (typeof x !== 'number' || !isFinite(x)) return '—';
+      const abs = Math.abs(x);
+      if (abs >= 1e9) return '$' + (x / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return '$' + (x / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return '$' + (x / 1e3).toFixed(2) + 'K';
+      return '$' + x.toFixed(2);
+    }
+    function kv(el, obj) {
+      if (!el || !obj || typeof obj !== 'object') return;
+      const html = Object.entries(obj).map(([k, v]) => `
+        <div>${k}</div>
+        <div>${v}</div>
+      `).join('');
+      el.innerHTML = html;
+    }
+    function safeStringify(obj, space = 2) {
+      const seen = new WeakSet();
+      return JSON.stringify(obj, (k, v) => {
+        if (typeof v === 'bigint') return v.toString();
+        if (typeof v === 'object' && v !== null) {
+          if (seen.has(v)) return '[Circular]';
+          seen.add(v);
+        }
+        return v;
+      }, space);
+    }
+    function bindLazyForPre(preId, payloadKey) {
+      const pre = $(preId);
+      if (!pre) return;
+      const det = pre.closest('details');
+      if (!det) return;
+      const fill = () => {
+        const data = rawPayloads[payloadKey];
+        pre.textContent = safeStringify(data, 2);
+      };
+      det.addEventListener('toggle', () => {
+        if (det.open) fill();
+      });
+    }
+    function fmtTs(ts) {
+      if (ts == null) return '—';
+      let ms = Number(ts);
+      if (!isFinite(ms)) {
+        const parsed = Date.parse(ts);
+        if (!isFinite(parsed)) return String(ts);
+        ms = parsed;
+      }
+      const d = new Date(ms);
+      if (!isFinite(d.getTime())) return String(ts);
+      try {
+        return d.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
+      } catch (_) {
+        return d.toISOString().replace('T', ' ').replace('Z', ' UTC');
+      }
+    }
+
+    // 新增：卡片状态与全局状态工具
+    function setBadge(id, type, text) {
+      const el = $(id);
+      if (!el) return;
+      el.style.display = text ? 'inline-block' : 'none';
+      el.className = `badge ${type || ''}`.trim();
+      el.textContent = text || '';
+    }
+    function setLoadingUI(isLoading) {
+      $('loadingTip').style.display = isLoading ? 'inline' : 'none';
+      $('refresh').disabled = isLoading;
+      $('refresh').textContent = isLoading ? '刷新中…' : '刷新';
+      if (isLoading) {
+        // 清除倒计时显示
+        $('countdown').textContent = '';
+      }
+    }
+    function setLastUpdated(ts) {
+      $('lastUpdated').textContent = ts ? `上次更新：${fmtTs(ts)}` : '';
+    }
+    function startCountdown(ms) {
+      clearInterval(countdownTimer);
+      let remain = Math.floor(ms / 1000);
+      $('countdown').textContent = `将于 ${remain}s 后自动刷新`;
+      countdownTimer = setInterval(() => {
+        remain -= 1;
+        if (remain <= 0) {
+          $('countdown').textContent = '正在自动刷新…';
+          clearInterval(countdownTimer);
+        } else {
+          $('countdown').textContent = `将于 ${remain}s 后自动刷新`;
+        }
+      }, 1000);
+    }
+
+    // 新增：Ticker 渲染工具
+    function renderTickerCard(tData, badgeType, badgeText) {
+      const t = tData || {};
+      kv($('tickerKv'), {
+        '现价 Price': money(t.price),
+        '24小时涨跌幅 24h Change': (typeof t.change24h === 'number') ? pctp(t.change24h) : '—',
+        '24h最高 High24h': money(t.high24h),
+        '24h最低 Low24h': money(t.low24h),
+        '成交量(张) Volume (Contracts)': (typeof t.volume === 'number') ? t.volume : '—',
+        '24h成交额(USDT) 24h Turnover (USDT)': (typeof t.volume === 'number' && typeof t.price === 'number') ? formatUSDT(t.volume * t.price * 0.1) : '—',
+        '时间戳 Timestamp': (t.timestamp != null) ? `${fmtTs(t.timestamp)} (${t.timestamp})` : '—'
+      });
+      setBadge('tickerStatus', badgeType, badgeText);
+    }
+
+    // 新增：K线卡片渲染（可接受 ticker 作为估算均量美元的参考价）
+    function renderKlineCard(diag, ticker) {
+      const kl = diag?.klineValidation || {};
+      const issues = (kl.issues || []).length;
+      const metrics = kl.metrics || {};
+      kv($('klineKv'), {
+        '有效 Valid': kl.valid ? 'true' : 'false',
+        '包含错误 HasErrors': kl.hasErrors ? 'true' : 'false',
+        '问题数量 IssuesCount': issues,
+        '条数 Count': metrics.count,
+        '开始时间 Start': (metrics.startTs != null) ? `${fmtTs(metrics.startTs)} (${metrics.startTs})` : '—',
+        '结束时间 End': (metrics.endTs != null) ? `${fmtTs(metrics.endTs)} (${metrics.endTs})` : '—',
+        '缺口 Gaps': metrics.gaps,
+        '重复 Duplicates': metrics.duplicates,
+        '异常值 Outliers': metrics.outliers,
+        '均价 AvgPrice': (typeof metrics.avgPrice === 'number') ? money(metrics.avgPrice) : '—',
+        '均量 AvgVolume': (function(){
+          if (typeof metrics.avgVol !== 'number') return '—';
+          const base = metrics.avgVol.toFixed(2) + ' 张';
+          const px = (typeof metrics.avgPrice === 'number') ? metrics.avgPrice
+            : (typeof (ticker?.data?.price) === 'number' ? ticker.data.price
+            : (typeof (diag?.crossChecks?.tickerPrice) === 'number' ? diag.crossChecks.tickerPrice : null));
+          if (typeof px === 'number' && isFinite(px)) {
+            const usd = metrics.avgVol * px * 0.1;
+            return `${base} (≈ ${formatUSDT(usd)})`;
+          }
+          return base;
+        })()
+      });
+      setBadge('klineStatus', diag?.error ? 'err' : (kl.valid === false ? 'warn' : 'ok'), diag?.error ? `错误：${String(diag.error).slice(0,80)}` : (kl.valid === false ? '校验未通过' : '已更新'));
+    }
+
+    // 新增：交叉核验与指标卡片渲染（可在缺少 ticker/k24 的情况下部分渲染）
+    function renderIndCard(diag, ticker, k24) {
+      const cc = diag?.crossChecks || {};
+      const ind = diag?.indicators || {};
+      const cur = ind.current || {};
+
+      // 计算基于 1H K线的 24h 涨跌幅
+      let computed24hPct = null; // 小数
+      try {
+        const arr = Array.isArray(k24?.data) ? k24.data : (Array.isArray(k24) ? k24 : []);
+        if (Array.isArray(arr) && arr.length >= 2) {
+          const closeAt = (bar) => (typeof bar?.close === 'number') ? bar.close : (Array.isArray(bar) ? Number(bar[4]) : NaN);
+          const first = closeAt(arr[0]);
+          const last = closeAt(arr[arr.length - 1]);
+          if (isFinite(first) && isFinite(last) && first > 0) {
+            computed24hPct = (last - first) / first;
+          }
+        }
+      } catch (_) {}
+
+      const tickerPctPercent = (typeof ticker?.data?.change24h === 'number') ? ticker.data.change24h : null; // 百分数
+      const computedPctPercent = (typeof computed24hPct === 'number') ? (computed24hPct * 100) : null; // 百分数
+      const diffAbsPercent = (typeof tickerPctPercent === 'number' && typeof computedPctPercent === 'number') ? Math.abs(tickerPctPercent - computedPctPercent) : null;
+      const within2pct = (typeof diffAbsPercent === 'number') ? (diffAbsPercent <= 2) : null;
+
+      kv($('indKv'), {
+        '最新收盘价 LastClose': typeof cc.lastClose === 'number' ? cc.lastClose.toFixed(4) : '—',
+        'Ticker价格 TickerPrice': typeof cc.tickerPrice === 'number' ? cc.tickerPrice.toFixed(4) : '—',
+        'Ticker与收盘相对差 Ticker vs Close Δ%': (typeof cc.tickerVsLastClosePct === 'number') ? pctp(cc.tickerVsLastClosePct) : '—',
+        '是否在2%容差内 Within 2% Tolerance': (cc.within2PctTolerance === true ? 'true' : 'false'),
+        'RSI': typeof cur.rsi === 'number' ? cur.rsi.toFixed(2) : '—',
+        'MACD': cur.macd ? `macd=${cur.macd.macd?.toFixed?.(4)} signal=${cur.macd.signal?.toFixed?.(4)} hist=${cur.macd.histogram?.toFixed?.(4)}` : '—',
+        '布林带 Bollinger': cur.bollinger ? `upper=${cur.bollinger.upper?.toFixed?.(4)} mid=${cur.bollinger.middle?.toFixed?.(4)} lower=${cur.bollinger.lower?.toFixed?.(4)}` : '—',
+        'EMA12': typeof cur.ema12 === 'number' ? cur.ema12.toFixed(4) : '—',
+        'EMA26': typeof cur.ema26 === 'number' ? cur.ema26.toFixed(4) : '—',
+        'ATR': typeof cur.atr === 'number' ? cur.atr.toFixed(4) : '—',
+        'Ticker 24h涨跌幅 Ticker 24h Change': (typeof tickerPctPercent === 'number') ? pctp(tickerPctPercent) : '—',
+        '基于1H计算的24h涨跌幅 24h Change from 1H': (typeof computedPctPercent === 'number') ? pctp(computedPctPercent) : '—',
+        '两者绝对差 Abs Diff': (typeof diffAbsPercent === 'number') ? pctp(diffAbsPercent) : '—',
+        '是否在2%容差内 Within 2% Tolerance': (within2pct === null) ? '—' : (within2pct ? 'true' : 'false')
+      });
+
+      const hasTicker = !!(ticker && ticker.data && !ticker.error);
+      const hasK24 = !!(k24 && !k24.error && (Array.isArray(k24.data) || Array.isArray(k24)));
+      const badgeType = (diag?.error) ? 'err' : (hasTicker && hasK24 ? 'ok' : 'warn');
+      const badgeText = (diag?.error) ? '部分数据错误' : (hasTicker && hasK24 ? '已更新' : '部分已更新');
+      setBadge('indStatus', badgeType, badgeText);
+    }
+
+    // 新增：数据服务健康与性能卡片渲染
+    function renderSvcCard(diag) {
+      const svc = {
+        health: diag?.health,
+        performance: diag?.performance,
+        cache: diag?.cache,
+      };
+      kv($('svcKv'), {
+        '主链路连通 Primary Connected': svc.health?.current?.primaryConnected ? 'true' : 'false',
+        '备链路连通 Backup Connected': svc.health?.current?.backupConnected ? 'true' : 'false',
+        '错误率 Error Rate': (typeof svc.performance?.current?.errorRate === 'number') ? pct(svc.performance.current.errorRate) : '—',
+        '响应时间 Response Time (ms)': (typeof svc.performance?.current?.responseTime === 'number') ? svc.performance.current.responseTime : '—',
+        '网络延迟 Network Latency (ms)': (typeof svc.performance?.current?.networkLatency === 'number') ? svc.performance.current.networkLatency : '—',
+        '缓存命中率 Cache Hit Rate': (typeof svc.performance?.current?.cacheHitRate === 'number') ? (svc.performance.current.cacheHitRate + '%') : '—',
+        '总请求数 Total Requests': svc.performance?.totalRequests ?? '—',
+        '总错误数 Total Errors': svc.performance?.totalErrors ?? '—'
+      });
+      const svcError = !!diag?.error;
+      setBadge('svcStatus', svcError ? 'err' : 'ok', svcError ? `错误：${String(diag.error).slice(0,80)}` : '已更新');
+    }
+
+    // ===== 工具函数结束 =====
+
+     async function load() {
+      if (loading) return; // 防重入
+      loading = true;
+      setLoadingUI(true);
+      setBadge('tickerStatus', 'warn', '加载中…');
+      setBadge('klineStatus', 'warn', '加载中…');
+      setBadge('indStatus', 'warn', '加载中…');
+      setBadge('analysisStatus', 'warn', '加载中…');
+      setBadge('perfStatus', 'warn', '加载中…');
+      setBadge('configStatus', 'warn', '加载中…');
+      setBadge('svcStatus', 'warn', '加载中…');
+
+      // 新增：每次刷新生成新的控制器，并中断上一轮未完成请求
+      if (currentLoadCtrl) { try { currentLoadCtrl.abort(new Error('NewLoad')); } catch (_) {} }
+      currentLoadCtrl = new AbortController();
+      const extSignal = currentLoadCtrl.signal;
+
+      const symbol = $('symbol').value.trim();
+      const interval = $('interval').value;
+      const limit = parseInt($('limit').value) || 120;
+      try {
+
+        // 第一批：先拿诊断（较重），其余接口稍后发，避免瞬时尖峰
+        const diagResp = await getJson(`/api/diagnostics/validate?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`, 20000, 1, { signal: extSignal });
+        const diag = (diagResp && typeof diagResp === 'object' && 'data' in diagResp) ? (diagResp.data || {}) : diagResp;
+
+        // 先落入原始数据及部分渲染
+        rawPayloads.diag = diag;
+        rawPayloads.indicators = diag?.indicators;
+        rawPayloads.svc = { health: diag?.health, performance: diag?.performance, cache: diag?.cache };
+
+        // 先用 diag 渲染 K线与服务卡片，指标卡片先做部分渲染
+        let ticker = null;
+        let k24 = null;
+        renderKlineCard(diag, ticker);
+        renderIndCard(diag, ticker, k24);
+        renderSvcCard(diag);
+
+        // 第二批：并发请求其余接口，分别完成分别渲染
+        const analysisP = (async () => {
+          try {
+            const res = await getJson('/api/strategy/analysis', 15000, 1, { signal: extSignal });
+            rawPayloads.analysis = res;
+            const a = res?.data || {};
+            const s = a.signal || {};
+            const strength = (typeof s.strength === 'number') ? s.strength : (typeof s.strength?.combined === 'number' ? (s.strength.combined/100) : null);
+            const confidence = (typeof s.confidence === 'number') ? s.confidence : (typeof s.strength?.confidence === 'number' ? s.strength.confidence : res?.recommendation?.confidence);
+            kv($('analysisKv'), {
+              '信号类型 Signal Type': s.type || s.signal || res?.recommendation?.action || '—',
+              '信号强度 Signal Strength': (typeof strength === 'number') ? pct(strength) : '—',
+              '置信度 Confidence': (typeof confidence === 'number') ? pct(confidence) : '—',
+              '目标价/现价 Target/Price': (typeof s.price === 'number') ? s.price.toFixed(2) : (typeof s.targetPrice === 'number' ? s.targetPrice.toFixed(2) : '—'),
+              '止损 Stop Loss': (typeof s.stopLoss === 'number') ? s.stopLoss.toFixed(2) : '—',
+              '止盈 Take Profit': (typeof s.takeProfit === 'number') ? s.takeProfit.toFixed(2) : '—',
+              '建议动作 Recommendation': res?.recommendation?.action || '—',
+              '建议置信度 Rec. Confidence': (typeof res?.recommendation?.confidence === 'number') ? pct(res.recommendation.confidence) : '—'
+            });
+            setBadge('analysisStatus', 'ok', '已更新');
+          } catch (err) {
+            rawPayloads.analysis = { error: err?.message || String(err || 'unknown error') };
+            setBadge('analysisStatus', 'err', `错误：${String(err?.message || err).slice(0,80)}`);
+          }
+        })();
+
+        const perfP = (async () => {
+          try {
+            const res = await getJson('/api/strategy/performance', 15000, 1, { signal: extSignal });
+            rawPayloads.perf = res;
+            const p = res?.data || {};
+            kv($('perfKv'), {
+              '累计收益率 Total PnL%': (typeof p.totalPnlPercent === 'number') ? pct(p.totalPnlPercent) : '—',
+              '胜率 Win Rate': (typeof p.winRate === 'number') ? pct(p.winRate) : '—',
+              '利润因子 Profit Factor': p.profitFactor ?? '—',
+              '夏普比率 Sharpe Ratio': p.sharpeRatio ?? '—',
+              '最大回撤 Max Drawdown': (typeof p.maxDrawdown === 'number') ? pct(p.maxDrawdown) : '—',
+              '总交易次数 Total Trades': p.totalTrades ?? '—',
+              '最后更新时间 Last Updated': (p.lastUpdated != null) ? `${fmtTs(p.lastUpdated)} (${p.lastUpdated})` : '—'
+            });
+            setBadge('perfStatus', 'ok', '已更新');
+          } catch (err) {
+            rawPayloads.perf = { error: err?.message || String(err || 'unknown error') };
+            setBadge('perfStatus', 'err', `错误：${String(err?.message || err).slice(0,80)}`);
+          }
+        })();
+
+        const cfgP = (async () => {
+          try {
+            const res = await getJson('/api/config', 15000, 0, { signal: extSignal });
+            rawPayloads.cfg = res;
+            const c = res?.data || {};
+            kv($('configKv'), {
+              '交易标的 Symbol': c?.trading?.symbol || '—',
+              '最大杠杆 Max Leverage': c?.trading?.maxLeverage ?? '—',
+              '单日亏损限制 Daily Loss Limit': (typeof c?.trading?.dailyLossLimit === 'number') ? pct(c.trading.dailyLossLimit) : '—',
+              '止损 Stop Loss': (typeof c?.trading?.stopLoss === 'number') ? pct(c.trading.stopLoss) : '—',
+              '止盈 Take Profit': (typeof c?.trading?.takeProfit === 'number') ? pct(c.trading.takeProfit) : '—',
+              '信号阈值 Signal Threshold': c?.trading?.signalThreshold ?? '—',
+              'Web端口 Web Port': c?.webServer?.port ?? '—',
+              '代理地址 Proxy URL': c?.proxy?.url || '—',
+              '已启用代理 Proxy Enabled': c?.proxy?.enabled ? 'true' : 'false'
+            });
+            setBadge('configStatus', 'ok', '已更新');
+          } catch (err) {
+            rawPayloads.cfg = { error: err?.message || String(err || 'unknown error') };
+            setBadge('configStatus', 'err', `错误：${String(err?.message || err).slice(0,80)}`);
+          }
+        })();
+
+        // ticker 与 k24：完成即渲染，并推动指标卡片的补全
+        const tickerP = (async () => {
+          try {
+            const res = await getJson(`/api/market/ticker?symbol=${encodeURIComponent(symbol)}`, 15000, 1, { signal: extSignal });
+            ticker = res;
+            rawPayloads.ticker = res;
+            if (res && res.data) {
+              renderTickerCard(res.data, 'ok', '已更新');
+              // K线卡片中均量的美元估算可能依赖价格，得到后再刷新一次
+              renderKlineCard(diag, ticker);
+              // 指标卡片补全 24h 对比
+              renderIndCard(diag, ticker, k24);
+            }
+          } catch (err) {
+            // 使用回退数据：优先 crossChecks.tickerPrice 其次 lastClose
+            const fallbackPrice = (typeof (diag?.crossChecks?.tickerPrice) === 'number')
+              ? diag.crossChecks.tickerPrice
+              : (typeof (diag?.crossChecks?.lastClose) === 'number' ? diag.crossChecks.lastClose : undefined);
+            const fallback = { price: fallbackPrice, change24h: undefined, timestamp: Date.now() };
+            rawPayloads.tickerFallback = { reason: err?.message || 'unavailable', used: fallback };
+            renderTickerCard(fallback, 'warn', '使用备用价格');
+          }
+        })();
+
+        const k24Url = `/api/market/kline?symbol=${encodeURIComponent(symbol)}&interval=1H&limit=25`;
+        const k24P = (async () => {
+          try {
+            const res = await getJson(k24Url, 18000, 1, { signal: extSignal });
+            k24 = res;
+            // 补充到服务原始数据
+            rawPayloads.svc = { ...(rawPayloads.svc||{}), kline24h: res };
+            // 指标卡片补全 24h 对比
+            renderIndCard(diag, ticker, k24);
+          } catch (err) {
+            // 标记但不中断整体流程
+            rawPayloads.svc = { ...(rawPayloads.svc||{}), kline24h: { error: err?.message || String(err||'unknown error') } };
+            renderIndCard(diag, ticker, null);
+          }
+        })();
+
+        // 等待所有并发项结束后，再进行聚合原始数据与“上次更新”标记
+        await Promise.allSettled([analysisP, perfP, cfgP, tickerP, k24P]);
+
+        // 聚合原始
+        const ric = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
+        ric(() => {
+          if (currentLoadCtrl && currentLoadCtrl.signal !== extSignal) return; // 新一轮刷新则放弃
+          const all = { diag, analysis: rawPayloads.analysis, perf: rawPayloads.perf, cfg: rawPayloads.cfg, ticker, k24 };
+          rawPayloads.all = all;
+          $('allRaw').textContent = JSON.stringify(all, null, 2);
+        });
+
+        setLastUpdated(Date.now());
+      } catch (e) {
+        console.error(e);
+        // 改为顶部状态显示，而非弹窗
+        setLastUpdated(null);
+        setBadge('tickerStatus', 'err', '加载失败');
+        setBadge('klineStatus', 'err', '加载失败');
+        setBadge('indStatus', 'err', '加载失败');
+        setBadge('analysisStatus', 'err', '加载失败');
+        setBadge('perfStatus', 'err', '加载失败');
+        setBadge('configStatus', 'err', '加载失败');
+        setBadge('svcStatus', 'err', '加载失败');
+      } finally {
+        loading = false;
+        setLoadingUI(false);
+        // 自动刷新倒计时
+        if ($('auto').checked) startCountdown(autoIntervalMs);
+        // 若本次控制器仍是当前控制器，则释放
+        if (currentLoadCtrl && extSignal === currentLoadCtrl.signal) {
+          currentLoadCtrl = null;
+        }
+       }
+     }
+
+    $('refresh').onclick = load;
+    $('auto').onchange = function() {
+      if (this.checked) {
+        if (timer) clearInterval(timer);
+        timer = setInterval(load, autoIntervalMs);
+        startCountdown(autoIntervalMs);
+      } else if (timer) {
+        clearInterval(timer);
+        clearInterval(countdownTimer);
+        $('countdown').textContent = '';
+        timer = null;
+      }
+    };
+
+    window.onload = () => {
+      // 绑定 details 的延迟渲染
+      bindLazyForPre('tickerRaw', 'ticker');
+      bindLazyForPre('klineRaw', 'diag');
+      bindLazyForPre('indRaw', 'indicators');
+      bindLazyForPre('analysisRaw', 'analysis');
+      bindLazyForPre('perfRaw', 'perf');
+      bindLazyForPre('configRaw', 'cfg');
+      bindLazyForPre('svcRaw', 'svc');
+    
+      load();
+      timer = setInterval(load, autoIntervalMs);
+      startCountdown(autoIntervalMs);
+    };
+  </script>
+</body>
+</html>
