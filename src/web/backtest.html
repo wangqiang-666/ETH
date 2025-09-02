@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETH策略回测系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .main-content {
+            padding: 30px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            padding: 25px;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            background: #f9f9f9;
+        }
+        
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+        }
+        
+        .form-col {
+            flex: 1;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        input, select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-right: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        }
+        
+        .results {
+            margin-top: 30px;
+            padding: 25px;
+            background: white;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .results h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+        
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 4px solid #3498db;
+        }
+        
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .metric-label {
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+        
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .success {
+            background: #27ae60;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        pre {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 ETH策略回测系统</h1>
+            <p>智能量化交易策略回测与性能分析平台</p>
+        </div>
+        
+        <div class="main-content">
+            <!-- 回测配置 -->
+            <div class="section">
+                <h2>📊 回测配置</h2>
+                <form id="backtestForm">
+                    <div class="form-row">
+                        <div class="form-col">
+                            <label for="initialCapital">初始资金 (USDT)</label>
+                            <input type="number" id="initialCapital" value="10000" min="1000" step="100">
+                        </div>
+                        <div class="form-col">
+                            <label for="maxPositionSize">最大仓位比例</label>
+                            <input type="number" id="maxPositionSize" value="0.1" min="0.01" max="1" step="0.01">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-col">
+                            <label for="slippage">滑点 (%)</label>
+                            <input type="number" id="slippage" value="0.1" min="0" max="5" step="0.01">
+                        </div>
+                        <div class="form-col">
+                            <label for="commission">手续费 (%)</label>
+                            <input type="number" id="commission" value="0.1" min="0" max="5" step="0.01">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-col">
+                            <label for="startDate">开始日期</label>
+                            <input type="date" id="startDate" value="2024-01-01">
+                        </div>
+                        <div class="form-col">
+                            <label for="endDate">结束日期</label>
+                            <input type="date" id="endDate" value="2024-12-31">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-col">
+                            <label for="riskFreeRate">无风险利率</label>
+                            <input type="number" id="riskFreeRate" value="0.02" min="0" max="0.1" step="0.001">
+                        </div>
+                        <div class="form-col">
+                            <label for="benchmark">基准</label>
+                            <select id="benchmark">
+                                <option value="ETH">ETH</option>
+                                <option value="BTC">BTC</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- 操作按钮 -->
+            <div class="section">
+                <h2>🎯 操作控制</h2>
+                <button class="btn" onclick="runBacktest()">🚀 运行回测</button>
+                <button class="btn btn-success" onclick="generateReport()">📈 生成报告</button>
+                <button class="btn btn-warning" onclick="loadTemplate()">📋 加载模板</button>
+            </div>
+            
+            <!-- 结果显示 -->
+            <div id="results" class="results hidden">
+                <h3>📊 回测结果</h3>
+                <div id="metricsGrid" class="metric-grid"></div>
+                <div id="detailedResults"></div>
+            </div>
+            
+            <!-- 状态显示 -->
+            <div id="status"></div>
+        </div>
+    </div>
+    
+    <script>
+        let currentBacktestResult = null;
+
+        // 通用请求助手：支持超时与指数退避重试
+        async function requestJsonWithRetry(url, options = {}, cfg = { retries: 2, timeoutMs: 8000, backoffMs: 700 }) {
+            let attempt = 0;
+            let lastErr;
+            while (attempt <= (cfg.retries ?? 0)) {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 8000);
+                try {
+                    const res = await fetch(url, { cache: 'no-store', ...options, signal: controller.signal });
+                    clearTimeout(timeout);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return await res.json();
+                } catch (e) {
+                    clearTimeout(timeout);
+                    lastErr = e;
+                    if (attempt === (cfg.retries ?? 0)) break;
+                    const delay = (cfg.backoffMs ?? 700) * Math.pow(2, attempt);
+                    await new Promise(r => setTimeout(r, delay));
+                }
+                attempt++;
+            }
+            throw lastErr;
+        }
+
+        // 运行回测
+        async function runBacktest() {
+            const form = document.getElementById('backtestForm');
+            const formData = new FormData(form);
+            
+            const config = {
+                initialCapital: parseFloat(formData.get('initialCapital')),
+                maxPositionSize: parseFloat(formData.get('maxPositionSize')),
+                slippage: parseFloat(formData.get('slippage')) / 100,
+                commission: parseFloat(formData.get('commission')) / 100,
+                startDate: formData.get('startDate'),
+                endDate: formData.get('endDate'),
+                riskFreeRate: parseFloat(formData.get('riskFreeRate')),
+                benchmark: formData.get('benchmark')
+            };
+            
+            // 模拟信号数据
+            const signals = generateMockSignals();
+            const marketData = generateMockMarketData();
+            
+            showStatus('正在运行回测...', 'loading');
+            
+            try {
+                const data = await requestJsonWithRetry('/api/backtest/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ config, signals, marketData })
+                }, { retries: 2, timeoutMs: 15000, backoffMs: 1000 });
+                
+                if (data.success) {
+                    currentBacktestResult = data.result;
+                    displayResults(data.result);
+                    showStatus('回测完成！', 'success');
+                } else {
+                    showStatus('回测失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showStatus('请求失败: ' + (error?.message || error), 'error');
+            }
+        }
+        
+        // 生成性能报告
+        async function generateReport() {
+            if (!currentBacktestResult) {
+                showStatus('请先运行回测', 'error');
+                return;
+            }
+            
+            showStatus('正在生成报告...', 'loading');
+            
+            try {
+                const data = await requestJsonWithRetry('/api/backtest/performance-report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ backtestResult: currentBacktestResult })
+                }, { retries: 2, timeoutMs: 12000, backoffMs: 900 });
+                
+                if (data.success) {
+                    displayReport(data.report);
+                    showStatus('报告生成完成！', 'success');
+                } else {
+                    showStatus('报告生成失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showStatus('请求失败: ' + (error?.message || error), 'error');
+            }
+        }
+        
+        // 加载配置模板
+        async function loadTemplate() {
+            try {
+                const data = await requestJsonWithRetry('/api/backtest/config-template', {}, { retries: 2, timeoutMs: 6000, backoffMs: 700 });
+                
+                if (data.success) {
+                    const template = data.template;
+                    document.getElementById('initialCapital').value = template.initialCapital;
+                    document.getElementById('maxPositionSize').value = template.maxPositionSize;
+                    document.getElementById('slippage').value = template.slippage * 100;
+                    document.getElementById('commission').value = template.commission * 100;
+                    document.getElementById('startDate').value = template.startDate.split('T')[0];
+                    document.getElementById('endDate').value = template.endDate.split('T')[0];
+                    document.getElementById('riskFreeRate').value = template.riskFreeRate;
+                    document.getElementById('benchmark').value = template.benchmark;
+                    
+                    showStatus('模板加载成功！', 'success');
+                } else {
+                    showStatus('模板加载失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showStatus('请求失败: ' + (error?.message || error), 'error');
+            }
+        }
+    </script>
+        
+        function displayResults(result) {
+            const resultsDiv = document.getElementById('results');
+            const metricsGrid = document.getElementById('metricsGrid');
+            const detailedResults = document.getElementById('detailedResults');
+            
+            resultsDiv.classList.remove('hidden');
+            
+            // 显示关键指标
+            const metrics = [
+                { label: '总收益率', value: (result.summary.totalReturn * 100).toFixed(2) + '%' },
+                { label: '年化收益率', value: (result.summary.annualizedReturn * 100).toFixed(2) + '%' },
+                { label: '最大回撤', value: (result.summary.maxDrawdown * 100).toFixed(2) + '%' },
+                { label: '夏普比率', value: result.summary.sharpeRatio.toFixed(3) },
+                { label: '胜率', value: (result.summary.winRate * 100).toFixed(1) + '%' },
+                { label: '交易次数', value: result.summary.totalTrades }
+            ];
+            
+            metricsGrid.innerHTML = metrics.map(metric => `
+                <div class="metric-card">
+                    <div class="metric-value">${metric.value}</div>
+                    <div class="metric-label">${metric.label}</div>
+                </div>
+            `).join('');
+            
+            // 显示详细结果
+            detailedResults.innerHTML = `
+                <h4>详细统计</h4>
+                <pre>${JSON.stringify(result, null, 2)}</pre>
+            `;
+        }
+        
+        // 显示报告
+        function displayReport(report) {
+            const detailedResults = document.getElementById('detailedResults');
+            detailedResults.innerHTML = `
+                <h4>性能分析报告</h4>
+                <pre>${JSON.stringify(report, null, 2)}</pre>
+            `;
+        }
+        
+        // 显示状态
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = type;
+            statusDiv.textContent = message;
+            
+            if (type === 'success' || type === 'error') {
+                setTimeout(() => {
+                    statusDiv.textContent = '';
+                    statusDiv.className = '';
+                }, 5000);
+            }
+        }
+        
+        // 生成模拟信号数据
+        function generateMockSignals() {
+            const signals = [];
+            const startDate = new Date('2024-01-01');
+            const endDate = new Date('2024-12-31');
+            
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + Math.floor(Math.random() * 7) + 1)) {
+                if (Math.random() > 0.7) { // 30%概率生成信号
+                    signals.push({
+                        timestamp: new Date(d).toISOString(),
+                        symbol: 'ETH-USDT-SWAP',
+                        type: Math.random() > 0.5 ? 'LONG' : 'SHORT',
+                        strength: Math.random() * 0.8 + 0.2,
+                        price: 2000 + Math.random() * 1000,
+                        confidence: Math.random() * 0.5 + 0.5,
+                        stopLoss: null,
+                        takeProfit: null,
+                        metadata: {
+                            source: 'mock',
+                            indicators: {}
+                        }
+                    });
+                }
+            }
+            
+            return signals;
+        }
+        
+        // 生成模拟市场数据
+        function generateMockMarketData() {
+            const marketData = [];
+            const startDate = new Date('2024-01-01');
+            const endDate = new Date('2024-12-31');
+            let price = 2000;
+            
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                price += (Math.random() - 0.5) * 100;
+                price = Math.max(1000, Math.min(4000, price));
+                
+                marketData.push({
+                    timestamp: new Date(d).toISOString(),
+                    symbol: 'ETH-USDT-SWAP',
+                    price: price,
+                    volume: Math.random() * 1000000,
+                    high24h: price * 1.05,
+                    low24h: price * 0.95,
+                    change24h: (Math.random() - 0.5) * 10 // 百分数（-5% ~ +5%）
+                });
+            }
+            
+            return marketData;
+        }
+        
+        // 页面加载时设置默认日期
+        window.onload = function() {
+            const today = new Date();
+            const oneYearAgo = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
+            
+            document.getElementById('startDate').value = oneYearAgo.toISOString().split('T')[0];
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+        };
+    </script>
+</body>
+</html>

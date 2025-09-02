@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETH合约策略分析系统</title>
+    <link rel="icon" type="image/svg+xml" href="/eth-logo.svg" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 3em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 15px;
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .status-bar {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 25px;
+            border: 2px solid rgba(102, 126, 234, 0.2);
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #27ae60;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.15);
+        }
+        
+        .card h2 {
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+-        .card-icon {
+-            font-size: 1.8em;
+-        }
++        .card-icon {
++            width: 22px;
++            height: 22px;
++            display: inline-block;
++            vertical-align: -4px;
++            background: url('/eth-logo.svg') no-repeat center/contain;
++        }
+        
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric {
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .metric-label {
+            font-size: 0.9em;
+            color: #7f8c8d;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+            margin: 5px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(52, 152, 219, 0.3);
+        }
+        
+        /* 顶部右侧诊断面板按钮 */
+        .inspect-fab {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+        
+        .signal-display {
+            padding: 20px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .signal-strength {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .strength-bar {
+            flex: 1;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .strength-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #27ae60 0%, #f39c12 50%, #e74c3c 100%);
+            transition: width 0.3s;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            margin-top: 30px;
+        }
+        
+        .footer p {
+            color: #7f8c8d;
+            margin-bottom: 15px;
+        }
+        
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .footer-links a {
+            color: #3498db;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.3s;
+        }
+        
+        .footer-links a:hover {
+            color: #2980b9;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #7f8c8d;
+        }
+        
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        
+        .success {
+            background: #27ae60;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        
+        /* 新增：行情卡片内联状态提示 */
+        .inline-status { font-size: 12px; color: #7f8c8d; margin-top: 8px; }
+        .inline-status.ok { color: #27ae60; }
+        .inline-status.warn { color: #f39c12; }
+        .inline-status.err { color: #e74c3c; }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .status-bar {
+                gap: 15px;
+            }
+            
+            .main-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .metric-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="inspect-fab">
+        <button class="btn" onclick="openInspect()">数据与指标诊断面板</button>
+    </div>
+    <div class="container">
+        <div class="header">
+            <h1 style="display:flex;align-items:center;gap:10px;justify-content:center">
+                <img src="/eth-logo.svg" alt="ETH" width="36" height="36" style="transform: translateY(4px);"/>
+                 ETH合约策略分析系统
+             </h1>
+            <p>基于机器学习的智能量化交易策略分析平台</p>
+            
+            <div class="status-bar">
+                <div class="status-item">
+                    <div class="status-dot"></div>
+                    <span>系统运行中</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot"></div>
+                    <span>策略引擎</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot"></div>
+                    <span>ML分析</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot"></div>
+                    <span>风险管理</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="main-grid">
+            <!-- 实时策略分析 -->
+            <div class="card">
+                <h2><span class="card-icon">📊</span>实时策略分析</h2>
+                <div id="currentSignal" class="signal-display">
+                    <div class="loading">正在获取最新信号...</div>
+                </div>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="signalStrength">--</div>
+                        <div class="metric-label">信号强度</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="confidence">--</div>
+                        <div class="metric-label">置信度</div>
+                    </div>
+                </div>
+                <button class="btn" onclick="refreshSignal()">🔄 刷新信号</button>
+            </div>
+            
+            <!-- 策略性能 -->
+            <div class="card">
+                <h2><span class="card-icon">📈</span>策略性能</h2>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="totalReturn">--</div>
+                        <div class="metric-label">总收益率</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="winRate">--</div>
+                        <div class="metric-label">胜率</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="sharpeRatio">--</div>
+                        <div class="metric-label">夏普比率</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="maxDrawdown">--</div>
+                        <div class="metric-label">最大回撤</div>
+                    </div>
+                </div>
+                <button class="btn btn-success" onclick="viewPerformance()">📊 详细报告</button>
+            </div>
+            
+            <!-- 风险管理 -->
+            <div class="card">
+                <h2><span class="card-icon">🛡️</span>风险管理</h2>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="riskScore">--</div>
+                        <div class="metric-label">风险评分</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="positionSize">--</div>
+                        <div class="metric-label">建议仓位</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="stopLoss">--</div>
+                        <div class="metric-label">止损价位</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="takeProfit">--</div>
+                        <div class="metric-label">止盈价位</div>
+                    </div>
+                </div>
+                <button class="btn btn-warning" onclick="viewRiskManagement()">⚙️ 风险设置</button>
+            </div>
+            
+            <!-- 回测分析 -->
+            <div class="card">
+                <h2><span class="card-icon">🔬</span>回测分析</h2>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value">历史验证</div>
+                        <div class="metric-label">策略有效性</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">多维分析</div>
+                        <div class="metric-label">性能评估</div>
+                    </div>
+                </div>
+                -                <a href="/backtest" class="btn">🚀 开始回测</a>
+                +                <a href="/backtest" class="btn"><img src="/eth-logo.svg" alt="ETH" width="16" height="16" style="vertical-align:-3px;margin-right:6px"/> 开始回测</a>
+                <button class="btn btn-success" onclick="viewBacktestHistory()">📋 历史记录</button>
+            </div>
+            
+            <!-- 市场数据 -->
+            <div class="card">
+                <h2><span class="card-icon">💹</span>市场数据</h2>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="currentPrice">--</div>
+                        <div class="metric-label">当前价格</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="priceChange">--</div>
+                        <div class="metric-label">今日涨跌幅(UTC+8)</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="volume">--</div>
+                        <div class="metric-label">24h成交额(USDT)</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="volatility">--</div>
+                        <div class="metric-label">波动率</div>
+                    </div>
+                </div>
+                <div id="marketInlineStatus" class="inline-status warn">正在初始化...</div>
+                <button class="btn" onclick="refreshMarketData()">🔄 刷新数据</button>
+            </div>
+            
+            <!-- 系统控制 -->
+            <div class="card">
+                <h2><span class="card-icon">⚙️</span>系统控制</h2>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="systemStatus">运行中</div>
+                        <div class="metric-label">系统状态</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="uptime">--</div>
+                        <div class="metric-label">运行时间</div>
+                    </div>
+                </div>
+                <button class="btn btn-success" onclick="startStrategy()">▶️ 启动策略</button>
+                <button class="btn btn-danger" onclick="stopStrategy()">⏹️ 停止策略</button>
+                <button class="btn btn-warning" onclick="restartStrategy()">🔄 重启策略</button>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>ETH合约策略分析系统 - 基于机器学习的智能量化交易平台</p>
+            <div class="footer-links">
+                <a href="/api/strategy/status">API状态</a>
+                <a href="/api/risk/status">风险管理</a>
+                <a href="/backtest">回测分析</a>
+                <a href="/api/config">系统配置</a>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let updateInterval;
+        let lastMarketOk = false;
+        let lastMarketUpdate = 0;
+
+        // 工具函数：打开诊断页
+        function openInspect() {
+            window.open('/inspect.html','_blank');
+        }
+
+        // 数字格式化（USDT）
+        function formatUSDT(val) {
+            if (typeof val !== 'number' || !isFinite(val)) return '—';
+            const abs = Math.abs(val);
+            if (abs >= 1e9) return (val / 1e9).toFixed(2) + 'B USDT';
+            if (abs >= 1e6) return (val / 1e6).toFixed(2) + 'M USDT';
+            if (abs >= 1e3) return (val / 1e3).toFixed(2) + 'K USDT';
+            return val.toFixed(2) + ' USDT';
+        }
+
+        // 时间格式化 HH:MM:SS
+        function fmtTime(ts) {
+            const d = new Date(ts);
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+        
+        // 请求工具：支持超时与指数退避重试
+        async function requestJsonWithRetry(url, options = {}, cfg = { retries: 2, timeoutMs: 5000, backoffMs: 600 }) {
+            let attempt = 0;
+            let lastErr;
+            while (attempt <= (cfg.retries ?? 0)) {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 5000);
+                try {
+                    const res = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+                    clearTimeout(timeout);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return await res.json();
+                } catch (e) {
+                    clearTimeout(timeout);
+                    lastErr = e;
+                    // 更新内联状态为重试中
+                    const st = document.getElementById('marketInlineStatus');
+                    if (st) {
+                        st.className = 'inline-status warn';
+                        st.textContent = '连接不稳定，正在重试...';
+                    }
+                    if (attempt === (cfg.retries ?? 0)) break;
+                    const delay = (cfg.backoffMs ?? 600) * Math.pow(2, attempt);
+                    await new Promise(r => setTimeout(r, delay));
+                }
+                attempt++;
+            }
+            throw lastErr;
+        }
+        
+        // 页面加载时初始化
+        window.onload = function() {
+            // 优先加载“市场数据”，提升首屏感知速度
+            loadMarketData();
+            loadSystemStatus();
+            loadLatestSignal();
+            loadPerformanceData();
+            
+            // 启动自动更新
+            updateInterval = setInterval(() => {
+                loadLatestSignal();
+                loadMarketData();
+                updateUptime();
+            }, 30000); // 30秒更新一次
+        };
+        
+        // 加载系统状态
+        async function loadSystemStatus() {
+            try {
+                const response = await fetch('/api/strategy/status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('systemStatus').textContent = 
+                        data.data.isRunning ? '运行中' : '已停止';
+                }
+            } catch (error) {
+                console.error('加载系统状态失败:', error);
+            }
+        }
+        
+        // 加载最新信号
+        async function loadLatestSignal() {
+            try {
+                const response = await fetch('/api/strategy/analysis');
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                    const s = data.data.signal || {};
+                    const type = s.type || s.signal || (data.recommendation && data.recommendation.action) || '—';
+                    
+                    // 兼容多种强度结构：数值(0-1)或对象{ combined:0-100 }
+                    let strengthVal = 0;
+                    if (typeof s.strength === 'number') {
+                        strengthVal = s.strength;
+                    } else if (s.strength && typeof s.strength.combined === 'number') {
+                        strengthVal = s.strength.combined;
+                    }
+                    if (strengthVal > 1) strengthVal = strengthVal / 100; // 归一化到[0,1]
+                    
+                    // 兼容多来源的置信度
+                    let confidence = null;
+                    if (typeof s.confidence === 'number') {
+                        confidence = s.confidence;
+                    } else if (s.strength && typeof s.strength.confidence === 'number') {
+                        confidence = s.strength.confidence;
+                    } else if (data.recommendation && typeof data.recommendation.confidence === 'number') {
+                        confidence = data.recommendation.confidence;
+                    }
+                    
+                    // 价格：优先使用 signal.price -> targetPrice -> market.price -> 支撑位
+                    let price = null;
+                    if (typeof s.price === 'number') {
+                        price = s.price;
+                    } else if (typeof s.targetPrice === 'number') {
+                        price = s.targetPrice;
+                    } else if (data.data.market && typeof data.data.market.price === 'number') {
+                        price = data.data.market.price;
+                    } else if (data.data.marketAnalysis && typeof data.data.marketAnalysis.support === 'number') {
+                        price = data.data.marketAnalysis.support;
+                    }
+                    
+                    const signalDiv = document.getElementById('currentSignal');
+                    const strengthPct = isFinite(strengthVal) ? (strengthVal * 100) : 0;
+                    const priceText = typeof price === 'number' ? price.toFixed(2) : '--';
+                    const confText = typeof confidence === 'number' ? (confidence * 100).toFixed(1) + '%' : '--';
+                    
+                    signalDiv.innerHTML = `
+                        <div class="signal-strength">
+                            <strong>${type}</strong>
+                            <div class="strength-bar">
+                                <div class="strength-fill" style="width: ${Math.max(0, Math.min(100, strengthPct))}%"></div>
+                            </div>
+                            <span>${isFinite(strengthPct) ? strengthPct.toFixed(1) : '--'}%</span>
+                        </div>
+                        <p>价格: $${priceText} | 置信度: ${confText}</p>
+                    `;
+                    
+                    document.getElementById('signalStrength').textContent =
+                        isFinite(strengthPct) ? strengthPct.toFixed(1) + '%' : '--';
+                    document.getElementById('confidence').textContent = confText;
+                        
+                    // 更新风险管理数据（带健壮性检查）
+                    if (data.data.riskManagement) {
+                        const risk = data.data.riskManagement;
+                        if (typeof risk.riskScore === 'number') document.getElementById('riskScore').textContent = risk.riskScore.toFixed(1);
+                        if (typeof risk.positionSize === 'number') document.getElementById('positionSize').textContent = 
+                            (risk.positionSize * 100).toFixed(1) + '%';
+                        if (typeof risk.stopLoss === 'number') document.getElementById('stopLoss').textContent = '$' + risk.stopLoss.toFixed(2);
+                        if (typeof risk.takeProfit === 'number') document.getElementById('takeProfit').textContent = '$' + risk.takeProfit.toFixed(2);
+                    }
+                } else {
+                    document.getElementById('currentSignal').innerHTML = 
+                        '<div class="loading">暂无信号数据</div>';
+                }
+            } catch (error) {
+                console.error('加载信号失败:', error);
+                document.getElementById('currentSignal').innerHTML = 
+                    '<div class="error">信号加载失败</div>';
+            }
+        }
+        
+        // 加载性能数据
+        async function loadPerformanceData() {
+            try {
+                const response = await fetch('/api/strategy/performance');
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                    const perf = data.data;
+                    document.getElementById('totalReturn').textContent = 
+                        (perf.totalPnlPercent * 100).toFixed(2) + '%';
+                    document.getElementById('winRate').textContent = 
+                        (perf.winRate * 100).toFixed(1) + '%';
+                    document.getElementById('sharpeRatio').textContent = 
+                        perf.sharpeRatio.toFixed(2);
+                    document.getElementById('maxDrawdown').textContent = 
+                        (perf.maxDrawdown * 100).toFixed(2) + '%';
+                }
+            } catch (error) {
+                console.error('加载性能数据失败:', error);
+            }
+        }
+        
+        // 加载市场数据（增加重试与超时处理 + 内联状态提示）
+        async function loadMarketData() {
+            const priceEl = document.getElementById('currentPrice');
+            const changeElLegacy = document.getElementById('priceChange');
+            const changeSodEl = document.getElementById('marketChangeSod');
+            // const changeEl = document.querySelector('#market-change'); // 已移除
+            const volumeEl = document.getElementById('volume');
+            const volEl = document.getElementById('volatility');
+            const statusEl = document.getElementById('marketInlineStatus');
+            if (statusEl) {
+                statusEl.className = 'inline-status warn';
+                statusEl.textContent = '正在更新...';
+            }
+            try {
+                // 降低首屏等待：将超时从5s降到2.5s，重试从2次降到1次，并减小退避
+                const data = await requestJsonWithRetry('/api/market/ticker', {}, { retries: 1, timeoutMs: 2500, backoffMs: 500 });
+                if (data.success && data.data) {
+                    const market = data.data;
+                    if (typeof market.price === 'number') priceEl.textContent = '$' + market.price.toFixed(2);
+                    // 统一仅展示 今日涨跌幅(UTC+8)
+                    let sodPct = null;
+                    if (typeof market.changeFromSodUtc8 === 'number') {
+                        sodPct = market.changeFromSodUtc8; // 首选：API字段
+                    } else if (typeof market.sodUtc8 === 'number' && typeof market.last === 'number' && market.sodUtc8 > 0) {
+                        sodPct = ((market.last - market.sodUtc8) / market.sodUtc8) * 100; // 回退：基于sodUtc8
+                    }
+                    if (changeElLegacy) {
+                        if (sodPct === null || !isFinite(sodPct)) {
+                            changeElLegacy.textContent = '—';
+                            changeElLegacy.style.color = '#6b7280';
+                            changeElLegacy.title = '今日涨跌幅(UTC+8)暂无数据';
+                        } else {
+                            changeElLegacy.textContent = sodPct.toFixed(2) + '%';
+                            changeElLegacy.style.color = sodPct >= 0 ? '#10b981' : '#ef4444';
+                            changeElLegacy.title = '今日涨跌幅(UTC+8)：优先使用API字段changeFromSodUtc8；回退(last-sodUtc8)/sodUtc8。';
+                        }
+                    }
+                    const turnoverUSDT = (typeof market.volume === 'number' && typeof market.price === 'number') ? (market.volume * market.price * 0.1) : NaN;
+                    volumeEl.textContent = formatUSDT(turnoverUSDT);
+                    const volText = (typeof market.volatility === 'number') ? (market.volatility * 100).toFixed(2) + '%' : '—';
+                    volEl.textContent = volText;
+            
+                    lastMarketOk = true;
+                    lastMarketUpdate = Date.now();
+                    if (statusEl) {
+                        statusEl.className = 'inline-status ok';
+                        statusEl.textContent = '在线 · 已更新 ' + fmtTime(lastMarketUpdate);
+                    }
+                }
+            } catch (error) {
+                console.error('加载市场数据失败:', error);
+                // 不清空已有数值，改为提示离线并提供重试
+                if (statusEl) {
+                    statusEl.className = 'inline-status err';
+                    statusEl.innerHTML = '离线 · 获取失败，<a href="#" onclick="refreshMarketData(); return false;">点击重试</a>' + (lastMarketUpdate ? (' · 上次更新 ' + fmtTime(lastMarketUpdate)) : '');
+                }
+            }
+        }
+        
+        // 更新运行时间
+        function updateUptime() {
+            // 简单的运行时间计算
+            const startTime = localStorage.getItem('systemStartTime');
+            if (!startTime) {
+                localStorage.setItem('systemStartTime', Date.now());
+                return;
+            }
+            
+            const uptime = Date.now() - parseInt(startTime);
+            const hours = Math.floor(uptime / (1000 * 60 * 60));
+            const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
+            
+            document.getElementById('uptime').textContent = `${hours}h ${minutes}m`;
+        }
+        
+        // 刷新信号
+        function refreshSignal() {
+            loadLatestSignal();
+        }
+        
+        // 刷新市场数据
+        function refreshMarketData() {
+            loadMarketData();
+        }
+        
+        // 查看性能报告
+        function viewPerformance() {
+            window.open('/api/strategy/performance', '_blank');
+        }
+        
+        // 查看风险管理
+        function viewRiskManagement() {
+            window.open('/api/risk/status', '_blank');
+        }
+        
+        // 查看回测历史
+        function viewBacktestHistory() {
+            alert('回测历史功能开发中...');
+        }
+        
+        // 启动策略
+        async function startStrategy() {
+            try {
+                const response = await fetch('/api/strategy/start', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('策略启动成功！');
+                    loadSystemStatus();
+                } else {
+                    alert('策略启动失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+        
+        // 停止策略
+        async function stopStrategy() {
+            try {
+                const response = await fetch('/api/strategy/stop', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('策略已停止！');
+                    loadSystemStatus();
+                } else {
+                    alert('策略停止失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+        
+        // 重启策略
+        async function restartStrategy() {
+            if (confirm('确定要重启策略吗？')) {
+                await stopStrategy();
+                setTimeout(() => {
+                    startStrategy();
+                }, 2000);
+            }
+        }
+        
+        // 页面卸载时清理
+        window.onbeforeunload = function() {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+        };
+    </script>
+</body>
+</html>
