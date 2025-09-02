@@ -110,16 +110,13 @@
             gap: 10px;
         }
         
--        .card-icon {
--            font-size: 1.8em;
--        }
-+        .card-icon {
-+            width: 22px;
-+            height: 22px;
-+            display: inline-block;
-+            vertical-align: -4px;
-+            background: url('/eth-logo.svg') no-repeat center/contain;
-+        }
+        .card-icon {
+            width: 22px;
+            height: 22px;
+            display: inline-block;
+            vertical-align: -4px;
+            background: url('/eth-logo.svg') no-repeat center/contain;
+        }
         
         .metric-grid {
             display: grid;
@@ -413,8 +410,7 @@
                         <div class="metric-label">性能评估</div>
                     </div>
                 </div>
-                -                <a href="/backtest" class="btn">🚀 开始回测</a>
-                +                <a href="/backtest" class="btn"><img src="/eth-logo.svg" alt="ETH" width="16" height="16" style="vertical-align:-3px;margin-right:6px"/> 开始回测</a>
+                <a href="/backtest" class="btn"><img src="/eth-logo.svg" alt="ETH" width="16" height="16" style="vertical-align:-3px;margin-right:6px"/> 开始回测</a>
                 <button class="btn btn-success" onclick="viewBacktestHistory()">📋 历史记录</button>
             </div>
             
