@@ -474,21 +474,34 @@
           try {
             const res = await getJson('/api/strategy/analysis', 15000, 1, { signal: extSignal });
             rawPayloads.analysis = res;
-            const a = res?.data || {};
-            const s = a.signal || {};
-            const strength = (typeof s.strength === 'number') ? s.strength : (typeof s.strength?.combined === 'number' ? (s.strength.combined/100) : null);
-            const confidence = (typeof s.confidence === 'number') ? s.confidence : (typeof s.strength?.confidence === 'number' ? s.strength.confidence : res?.recommendation?.confidence);
+            const a = res?.data ?? null;
+            // 统一渲染：即使无数据也渲染骨架字段
+            const s = a?.signal || {};
+            const rec = a?.recommendation || {};
+            const strength = (typeof s?.strength?.combined === 'number')
+              ? (s.strength.combined / 100)
+              : (typeof s?.strength === 'number' ? s.strength : null);
+            const confidence = (typeof s?.strength?.confidence === 'number')
+              ? s.strength.confidence
+              : (typeof rec?.confidence === 'number' ? rec.confidence : (typeof s?.confidence === 'number' ? s.confidence : null));
             kv($('analysisKv'), {
-              '信号类型 Signal Type': s.type || s.signal || res?.recommendation?.action || '—',
+              '状态 Status': a ? '就绪' : '暂无数据',
+              '信号类型 Signal Type': s.signal || rec.action || '—',
               '信号强度 Signal Strength': (typeof strength === 'number') ? pct(strength) : '—',
               '置信度 Confidence': (typeof confidence === 'number') ? pct(confidence) : '—',
-              '目标价/现价 Target/Price': (typeof s.price === 'number') ? s.price.toFixed(2) : (typeof s.targetPrice === 'number' ? s.targetPrice.toFixed(2) : '—'),
+              '建议动作 Recommendation': rec.action || '—',
+              '建议紧迫度 Urgency': rec.urgency || '—',
+              '时间框 Timeframe': s.timeframe || rec.timeframe || '—',
+              '目标价 Target Price': (typeof s.targetPrice === 'number') ? s.targetPrice.toFixed(2) : '—',
               '止损 Stop Loss': (typeof s.stopLoss === 'number') ? s.stopLoss.toFixed(2) : '—',
               '止盈 Take Profit': (typeof s.takeProfit === 'number') ? s.takeProfit.toFixed(2) : '—',
-              '建议动作 Recommendation': res?.recommendation?.action || '—',
-              '建议置信度 Rec. Confidence': (typeof res?.recommendation?.confidence === 'number') ? pct(res.recommendation.confidence) : '—'
+              '建议仓位 Position Size': (typeof s.positionSize === 'number') ? pct(s.positionSize) : '—',
+              '风险分数 Risk Score': (typeof a?.riskManagement?.riskScore === 'number') ? a.riskManagement.riskScore.toFixed(2) : '—',
+              '杠杆 Leverage': (typeof a?.riskManagement?.leverage === 'number') ? String(a.riskManagement.leverage) : '—',
+              '预期胜率 Expected Win Rate': (typeof a?.performance?.expectedWinRate === 'number') ? pct(a.performance.expectedWinRate) : '—',
+              '风险回报 Risk/Reward': (typeof a?.performance?.riskRewardRatio === 'number') ? a.performance.riskRewardRatio.toFixed(2) : '—'
             });
-            setBadge('analysisStatus', 'ok', '已更新');
+            setBadge('analysisStatus', a ? 'ok' : 'warn', a ? '已更新' : '暂无数据');
           } catch (err) {
             rawPayloads.analysis = { error: err?.message || String(err || 'unknown error') };
             setBadge('analysisStatus', 'err', `错误：${String(err?.message || err).slice(0,80)}`);

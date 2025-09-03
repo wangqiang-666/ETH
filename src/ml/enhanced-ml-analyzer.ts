@@ -598,6 +598,12 @@ export class EnhancedMLAnalyzer {
         features.push(marketData.fundingRate);
       }
     }
+
+    // 新增：情绪特征（FGI），按 0-1 归一化（受配置开关控制）
+    if (config.ml.features.sentiment?.fgi) {
+      const fgiNormalized = (marketData.fgiScore ?? 50) / 100;
+      features.push(fgiNormalized);
+    }
     
     return features;
   }
@@ -721,7 +727,10 @@ export class EnhancedMLAnalyzer {
     const riskScore = Math.min(10, Math.max(1, volatility * 200 + (1 - confidence) * 5));
     
     // 生成推理说明
-    const reasoning = this.generateEnhancedReasoning(prediction, indicators, confidence);
+    const reasoning = this.generateEnhancedReasoning(prediction, indicators, confidence) +
+      (config.ml.features.sentiment?.fgi && typeof marketData.fgiScore === 'number'
+        ? `• FGI 情绪指数: ${marketData.fgiScore} / 100\n`
+        : '');
     
     return {
       prediction: signal,
@@ -732,7 +741,7 @@ export class EnhancedMLAnalyzer {
       reasoning,
       features: {
         technicalScore: this.calculateTechnicalScore(indicators),
-        sentimentScore: 0.5, // 暂时固定值
+        sentimentScore: typeof marketData.fgiScore === 'number' ? marketData.fgiScore : 50,
         volumeScore: Math.min(1, marketData.volume / 1000000),
         momentumScore: Math.abs(priceChange) * 10
       }
@@ -794,7 +803,7 @@ export class EnhancedMLAnalyzer {
       reasoning: '机器学习分析失败，使用备用分析',
       features: {
         technicalScore: 0.5,
-        sentimentScore: 0.5,
+        sentimentScore: typeof marketData.fgiScore === 'number' ? marketData.fgiScore : 0.5,
         volumeScore: 0.5,
         momentumScore: 0.5
       }

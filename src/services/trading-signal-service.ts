@@ -4,6 +4,7 @@ import { EnhancedOKXDataService } from './enhanced-okx-data-service';
 import { MarketData } from '../ml/ml-analyzer';
 import { config } from '../config';
 import { riskManagementService } from './risk-management-service';
+import axios from 'axios';
 
 // 交易信号输出结果
 export interface TradingSignalOutput {
@@ -187,6 +188,19 @@ export class TradingSignalService {
       
       // 获取资金费率
       const fundingRate = await this.okxDataService.getFundingRate(symbol);
+
+      // 可选：获取 FGI 情绪指数（0-100）
+      let fgiScore: number | undefined = undefined;
+      if (config.ml.features.sentiment?.fgi) {
+        try {
+          const score = await this.fetchFGIScore();
+          if (typeof score === 'number' && !Number.isNaN(score)) {
+            fgiScore = Math.max(0, Math.min(100, score));
+          }
+        } catch (e) {
+          console.warn('获取FGI失败，忽略情绪特征:', e instanceof Error ? e.message : e);
+        }
+      }
       
       // 构建市场数据
       const marketData: MarketData = {
@@ -197,7 +211,8 @@ export class TradingSignalService {
         high24h: ticker.high24h,
         low24h: ticker.low24h,
         change24h: ticker.change24h,
-        fundingRate: fundingRate || undefined
+        fundingRate: fundingRate || undefined,
+        ...(typeof fgiScore === 'number' ? { fgiScore } : {})
       };
       
       return marketData;
@@ -896,6 +911,30 @@ export class TradingSignalService {
    最佳入场: ${signal.timing.optimalEntry}
    预期持仓: ${signal.timing.expectedDuration}
 `;
+  }
+
+  // 获取恐惧与贪婪指数（FGI），返回 0-100；失败返回 null
+  private async fetchFGIScore(): Promise<number | null> {
+    try {
+      const url = process.env.FGI_API_URL || 'https://api.alternative.me/fng/?limit=1&format=json';
+      const resp = await axios.get(url, { timeout: config.okx?.timeout ?? 30000 });
+      const data = (resp?.data && (resp.data.data || resp.data.result || resp.data.items)) || resp?.data?.data;
+
+      // 常见返回结构: { data: [{ value: "34", value_classification: "Fear", ... }] }
+      if (Array.isArray(data) && data.length > 0) {
+        const v = (data[0].value ?? data[0].score ?? data[0].index ?? data[0].fgi);
+        const num = typeof v === 'string' ? parseFloat(v) : Number(v);
+        return Number.isFinite(num) ? num : null;
+      }
+
+      // 其他兜底：若直接是 { value: ... }
+      const v = resp?.data?.value ?? resp?.data?.score ?? resp?.data?.index;
+      const num = typeof v === 'string' ? parseFloat(v) : Number(v);
+      return Number.isFinite(num) ? num : null;
+    } catch (error) {
+      console.warn('请求FGI接口失败:', error instanceof Error ? error.message : String(error));
+      return null;
+    }
   }
 }
  

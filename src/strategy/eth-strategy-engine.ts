@@ -3,6 +3,7 @@ import type { MarketData, KlineData } from '../services/okx-data-service';
 import { EnhancedOKXDataService } from '../services/enhanced-okx-data-service';
 import { MLAnalyzer } from '../ml/ml-analyzer';
 import { config } from '../config';
+import axios from 'axios';
 import NodeCache from 'node-cache';
 import { riskManagementService, RiskAssessment, PositionRisk, PortfolioRisk } from '../services/risk-management-service';
 
@@ -56,6 +57,12 @@ export interface Position {
   leverage: number;
   stopLoss: number;
   takeProfit: number;
+  // 新增：分批止盈目标与命中标记
+  tp1?: number;
+  tp2?: number;
+  tp3?: number;
+  tp1Hit?: boolean;
+  tp2Hit?: boolean;
   timestamp: number;
   strategyId: string;
 }
@@ -71,7 +78,8 @@ export interface TradeRecord {
   pnl?: number;
   pnlPercent?: number;
   timestamp: number;
-  strategySignal: SmartSignalResult;
+  // 允许可选，便于内部部分减仓时复用
+  strategySignal?: SmartSignalResult;
   duration?: number; // 持仓时长（毫秒）
 }
 
@@ -280,6 +288,17 @@ export class ETHStrategyEngine {
           ]);
           marketData.fundingRate = fundingRate || 0;
           marketData.openInterest = openInterest || 0;
+          // 新增：可选获取 FGI 情绪指数
+          if (config.ml?.features?.sentiment?.fgi) {
+            try {
+              const score = await fetchFGIScore();
+              if (typeof score === 'number' && Number.isFinite(score)) {
+                marketData.fgiScore = Math.max(0, Math.min(100, score));
+              }
+            } catch (e) {
+              console.warn('FGI fetch failed in strategy engine:', e instanceof Error ? e.message : e);
+            }
+          }
           this.cache.set(cacheKey, marketData, 30); // 30秒缓存
         }
       } catch (error) {
@@ -293,7 +312,9 @@ export class ETHStrategyEngine {
 
   // 获取K线数据
   private async getKlineData(): Promise<KlineData[]> {
-    const cacheKey = 'kline_data';
+    const interval = (config.strategy as any)?.primaryInterval || '1m';
+    const limit = (config.strategy as any)?.klineLimit || 200;
+    const cacheKey = `kline_data_${interval}_${limit}`;
     let klineData = this.cache.get<KlineData[]>(cacheKey);
     
     if (!klineData) {
@@ -301,8 +322,8 @@ export class ETHStrategyEngine {
         // 仅使用增强数据服务（强制代理）
         klineData = await this.enhancedDataService.getKlineData(
           config.trading.defaultSymbol,
-          '1m',
-          200
+          interval,
+          limit
         );
         if (klineData && klineData.length > 0) {
           this.cache.set(cacheKey, klineData, 60); // 1分钟缓存
@@ -396,14 +417,37 @@ export class ETHStrategyEngine {
       }
     }
 
-    // 新开仓逻辑 - 考虑风险评估
+    // 1H入场过滤规则：趋势方向/强度、综合强度阈值、高波动过滤
+    const ef = (config.strategy as any)?.entryFilters || {};
+    const combined = signalResult.strength.combined || 0;
+    const trendDir = signalResult.metadata.trendDirection;
+    const trendStrength = signalResult.metadata.trendStrength || 0;
+    const highVol = (signalResult.metadata.volatility || 0) >= 0.7;
+
+    const trendOkLong = !ef.trendFilter || (trendDir === 'UP' && trendStrength >= 5);
+    const trendOkShort = !ef.trendFilter || (trendDir === 'DOWN' && trendStrength >= 5);
+
+    const strengthOkLong = combined >= (ef.minCombinedStrengthLong ?? 65);
+    const strengthOkShort = combined >= (ef.minCombinedStrengthShort ?? 65);
+
+    const volOk = !highVol || (ef.allowHighVolatilityEntries === true) || combined >= ((ef.minCombinedStrengthLong ?? 65) + 10);
+
+    // 新增：BOLL过滤（基于分析器元数据），避免追涨杀跌与窄带震荡
+    const bollPos = signalResult.metadata?.bollingerPosition;
+    const bandwidth = signalResult.metadata?.bollingerBandwidth;
+    const bollOkLong = (typeof bollPos !== 'number') ? true : (bollPos <= 0.35);
+    const bollOkShort = (typeof bollPos !== 'number') ? true : (bollPos >= 0.65);
+    const squeeze = (typeof bandwidth === 'number') ? (bandwidth < 0.02) : false;
+    const squeezeOk = !squeeze || combined >= ((ef.minCombinedStrengthLong ?? 65) + 10);
+
+    // 新开仓逻辑 - 考虑风险评估与过滤器
     if (!this.currentPosition && signalResult.strength.confidence >= config.strategy.signalThreshold && riskAssessment.riskLevel !== 'EXTREME') {
-      if (signalResult.signal === 'STRONG_BUY' || signalResult.signal === 'BUY') {
+      if ((signalResult.signal === 'STRONG_BUY' || signalResult.signal === 'BUY') && trendOkLong && strengthOkLong && volOk && bollOkLong && squeezeOk) {
         action = 'OPEN_LONG';
-        urgency = signalResult.signal === 'STRONG_BUY' && riskAssessment.riskLevel === 'LOW' ? 'HIGH' : 'MEDIUM';
-      } else if (signalResult.signal === 'STRONG_SELL' || signalResult.signal === 'SELL') {
+        urgency = (signalResult.signal === 'STRONG_BUY' && riskAssessment.riskLevel === 'LOW' && combined >= 75) ? 'HIGH' : 'MEDIUM';
+      } else if ((signalResult.signal === 'STRONG_SELL' || signalResult.signal === 'SELL') && trendOkShort && strengthOkShort && volOk && bollOkShort && squeezeOk) {
         action = 'OPEN_SHORT';
-        urgency = signalResult.signal === 'STRONG_SELL' && riskAssessment.riskLevel === 'LOW' ? 'HIGH' : 'MEDIUM';
+        urgency = (signalResult.signal === 'STRONG_SELL' && riskAssessment.riskLevel === 'LOW' && combined >= 75) ? 'HIGH' : 'MEDIUM';
       }
     }
 
@@ -451,9 +495,14 @@ export class ETHStrategyEngine {
       }
     }
 
-    // 时间止损（持仓超过24小时且亏损）
+    // 时间止损优化（1H）：
     const holdingTime = Date.now() - position.timestamp;
-    if (holdingTime > 24 * 60 * 60 * 1000 && pnlPercent < -2) {
+    // 6小时仍处于显著亏损时先减仓，降低回撤
+    if (holdingTime > 6 * 60 * 60 * 1000 && pnlPercent < -0.5) {
+      return { close: false, reduce: true, confidence: 0.7, urgency: 'MEDIUM' };
+    }
+    // 12小时仍为亏损则直接平仓
+    if (holdingTime > 12 * 60 * 60 * 1000 && pnlPercent < -1) {
       return { close: true, reduce: false, confidence: 0.6, urgency: 'MEDIUM' };
     }
 
@@ -475,13 +524,39 @@ export class ETHStrategyEngine {
     // 使用风险管理服务推荐的杠杆
     const recommendedLeverage = riskAssessment.recommendedLeverage;
     
+    // 新增：根据情绪与布林带极端位置调整仓位与杠杆（风险权重）
+    const fgi = marketData.fgiScore;
+    const bollPosAdj = signalResult.metadata?.bollingerPosition;
+    const bollBandwidth = signalResult.metadata?.bollingerBandwidth;
+
+    let sentimentAdj = 1.0;
+    if (typeof fgi === 'number') {
+      if (fgi <= 20 || fgi >= 80) sentimentAdj *= 0.8;       // 极端情绪，降权20%
+      else if (fgi <= 40 || fgi >= 60) sentimentAdj *= 0.9;   // 较极端，降权10%
+    }
+    if (typeof bollPosAdj === 'number') {
+      if ((signalResult.signal === 'BUY' || signalResult.signal === 'STRONG_BUY') && bollPosAdj > 0.8) sentimentAdj *= 0.85; // 上轨附近不追多
+      if ((signalResult.signal === 'SELL' || signalResult.signal === 'STRONG_SELL') && bollPosAdj < 0.2) sentimentAdj *= 0.85; // 下轨附近不追空
+    }
+
+    const finalPositionSize = Math.max(0.01, adjustedPositionSize * sentimentAdj);
+
+    // 杠杆调整
+    let leverage = recommendedLeverage;
+    if (typeof fgi === 'number' && (fgi <= 20 || fgi >= 80)) {
+      leverage = Math.max(1, Math.floor(leverage * 0.7)); // 极端情绪下调杠杆
+    }
+    if (typeof bollBandwidth === 'number' && bollBandwidth < 0.02) {
+      leverage = Math.max(1, Math.floor(leverage * 0.8)); // 窄带震荡降低杠杆
+    }
+
     // 计算最大损失
-    const maxLoss = adjustedPositionSize * config.risk.stopLossPercent / 100;
+    const maxLoss = finalPositionSize * config.risk.stopLossPercent;
     
     return {
       maxLoss,
-      positionSize: Math.max(0.01, adjustedPositionSize),
-      leverage: recommendedLeverage,
+      positionSize: finalPositionSize,
+      leverage,
       stopLoss: riskAssessment.stopLossPrice,
       takeProfit: riskAssessment.takeProfitPrice,
       riskScore: riskAssessment.riskScore
@@ -572,6 +647,48 @@ export class ETHStrategyEngine {
         timestamp: Date.now()
       });
     }
+
+    // 新增：情绪（FGI）极端警告
+    const fgi = typeof (marketData as any).fgiScore === 'number' ? (marketData as any).fgiScore as number : undefined;
+    if (typeof fgi === 'number' && Number.isFinite(fgi)) {
+      if (fgi <= 10) {
+        alerts.push({ level: 'CRITICAL', message: `极度恐惧(FGI=${fgi.toFixed(0)})：谨慎抄底，控制杠杆/仓位`, timestamp: Date.now() });
+      } else if (fgi <= 20) {
+        alerts.push({ level: 'WARNING', message: `恐惧(FGI=${fgi.toFixed(0)})：避免追空，优先等待确认`, timestamp: Date.now() });
+      }
+      if (fgi >= 90) {
+        alerts.push({ level: 'CRITICAL', message: `极度贪婪(FGI=${fgi.toFixed(0)})：防止顶部追多，收紧风控`, timestamp: Date.now() });
+      } else if (fgi >= 80) {
+        alerts.push({ level: 'WARNING', message: `贪婪(FGI=${fgi.toFixed(0)})：提高止盈纪律，谨防回撤`, timestamp: Date.now() });
+      }
+    }
+
+    // 新增：布林带位置/带宽预警
+    const meta = signalResult.metadata || {} as any;
+    const bp = typeof meta.bollingerPosition === 'number' ? meta.bollingerPosition as number : undefined; // 0~1
+    const bw = typeof meta.bollingerBandwidth === 'number' ? meta.bollingerBandwidth as number : undefined; // 相对宽度
+
+    if (typeof bp === 'number' && Number.isFinite(bp)) {
+      if (bp <= 0.05) {
+        alerts.push({ level: 'CRITICAL', message: '价格贴近布林下轨，存在加速下破或技术性反弹的双向风险', timestamp: Date.now() });
+      } else if (bp <= 0.2) {
+        alerts.push({ level: 'WARNING', message: '价格靠近布林下轨，做空需防反弹，做多需等待确认', timestamp: Date.now() });
+      }
+      if (bp >= 0.95) {
+        alerts.push({ level: 'CRITICAL', message: '价格贴近布林上轨，存在冲顶回落或趋势加速的双向风险', timestamp: Date.now() });
+      } else if (bp >= 0.8) {
+        alerts.push({ level: 'WARNING', message: '价格靠近布林上轨，追多需谨慎，关注背离/放量', timestamp: Date.now() });
+      }
+    }
+
+    if (typeof bw === 'number' && Number.isFinite(bw)) {
+      // Squeeze 收缩与扩张阈值可根据经验/品种调整
+      if (bw <= 0.02) {
+        alerts.push({ level: 'WARNING', message: '布林带极度收窄（Squeeze），或将迎来方向性突破，注意仓位控制', timestamp: Date.now() });
+      } else if (bw >= 0.08) {
+        alerts.push({ level: 'WARNING', message: '布林带显著扩张，当前波动率较高，止损需更紧或仓位更小', timestamp: Date.now() });
+      }
+    }
     
     // 低置信度警告
     if (signalResult.strength.confidence < 0.5) {
@@ -641,6 +758,13 @@ export class ETHStrategyEngine {
     const marketData = await this.getMarketData();
     if (!marketData) return;
 
+    // 计算分批止盈目标（基于初始TP距离）
+    const sign = side === 'LONG' ? 1 : -1;
+    const baseDistance = Math.abs(riskManagement.takeProfit - marketData.price);
+    const tp1 = marketData.price + sign * baseDistance * 0.6; // 先行落袋为安，提高胜率
+    const tp2 = riskManagement.takeProfit;                     // 原始目标
+    const tp3 = marketData.price + sign * baseDistance * 1.2;  // 拉伸目标
+
     const position: Position = {
       symbol: config.trading.defaultSymbol,
       side,
@@ -651,7 +775,12 @@ export class ETHStrategyEngine {
       unrealizedPnlPercent: 0,
       leverage: riskManagement.leverage,
       stopLoss: riskManagement.stopLoss,
-      takeProfit: riskManagement.takeProfit,
+      takeProfit: tp2,
+      tp1,
+      tp2,
+      tp3,
+      tp1Hit: false,
+      tp2Hit: false,
       timestamp: Date.now(),
       strategyId: `strategy_${Date.now()}`
     };
@@ -672,7 +801,7 @@ export class ETHStrategyEngine {
     
     this.tradeHistory.push(tradeRecord);
     
-    console.log(`Opened ${side} position: ${position.size} at ${position.entryPrice} (Risk Level: ${riskAssessment.riskLevel})`);
+    console.log(`Opened ${side} position: ${position.size} at ${position.entryPrice} (TP1=${tp1.toFixed(2)}, TP2=${tp2.toFixed(2)}, TP3=${tp3.toFixed(2)}) (Risk Level: ${riskAssessment.riskLevel})`);
   }
 
   // 平仓
@@ -724,7 +853,7 @@ export class ETHStrategyEngine {
   // 减仓
   private async reducePosition(
     reductionRatio: number,
-    strategyResult: StrategyResult
+    strategyResult?: StrategyResult
   ): Promise<void> {
     if (!this.currentPosition) return;
 
@@ -750,7 +879,7 @@ export class ETHStrategyEngine {
       pnl,
       pnlPercent: (pnl / (position.entryPrice * reduceSize)) * 100,
       timestamp: Date.now(),
-      strategySignal: strategyResult.signal
+      strategySignal: strategyResult?.signal
     };
     
     this.tradeHistory.push(tradeRecord);
@@ -769,6 +898,56 @@ export class ETHStrategyEngine {
     position.currentPrice = marketData.price;
     position.unrealizedPnl = this.calculatePnL(position, marketData.price);
     position.unrealizedPnlPercent = (position.unrealizedPnl / (position.entryPrice * position.size)) * 100;
+    
+    // 命中TP1：减仓50%并将止损上移至保本
+    if (!position.tp1Hit && position.tp1 !== undefined) {
+      const hitTp1 = (position.side === 'LONG' && marketData.price >= position.tp1) ||
+                     (position.side === 'SHORT' && marketData.price <= position.tp1);
+      if (hitTp1) {
+        const latest = this.getLatestAnalysis();
+        if (latest) {
+          await this.reducePosition(0.5, latest);
+        } else {
+          await this.reducePosition(0.5);
+        }
+        // 上移止损到保本
+        if (position.side === 'LONG') {
+          position.stopLoss = Math.max(position.stopLoss, position.entryPrice);
+        } else {
+          position.stopLoss = Math.min(position.stopLoss, position.entryPrice);
+        }
+        position.tp1Hit = true;
+        console.log('TP1 reached: moved stop to breakeven');
+      }
+    }
+
+    // 命中TP2：对剩余仓位再减仓50%，并将止损抬到TP1锁定利润
+    if (position.tp1Hit && !position.tp2Hit && position.tp2 !== undefined) {
+      const hitTp2 = (position.side === 'LONG' && marketData.price >= position.tp2) ||
+                     (position.side === 'SHORT' && marketData.price <= position.tp2);
+      if (hitTp2) {
+        const latest = this.getLatestAnalysis();
+        if (latest) {
+          await this.reducePosition(0.5, latest);
+        } else {
+          await this.reducePosition(0.5);
+        }
+        // 将止损抬到TP1位置
+        if (position.tp1 !== undefined) {
+          if (position.side === 'LONG') {
+            position.stopLoss = Math.max(position.stopLoss, position.tp1);
+          } else {
+            position.stopLoss = Math.min(position.stopLoss, position.tp1);
+          }
+        }
+        // 更新剩余仓位的止盈到 TP3，让利润奔跑
+        if (position.tp3 !== undefined) {
+          position.takeProfit = position.tp3;
+        }
+        position.tp2Hit = true;
+        console.log('TP2 reached: tightened stop to TP1 and set TP to TP3');
+      }
+    }
     
     // 分析持仓风险
     const positionRisk = riskManagementService.analyzePositionRisk(position, marketData.price);
@@ -939,3 +1118,25 @@ export class ETHStrategyEngine {
 
 // 导出单例实例
 export const ethStrategyEngine = new ETHStrategyEngine();
+
+// 新增：获取恐惧与贪婪指数（FGI），返回 0-100；失败返回 null
+async function fetchFGIScore(): Promise<number | null> {
+  try {
+    const url = process.env.FGI_API_URL || 'https://api.alternative.me/fng/?limit=1&format=json';
+    const resp = await axios.get(url, { timeout: config.okx.timeout || 30000 });
+    const data = (resp?.data && (resp.data.data || resp.data.result || resp.data.items)) || resp?.data?.data;
+
+    if (Array.isArray(data) && data.length > 0) {
+      const v = (data[0].value ?? data[0].score ?? data[0].index ?? data[0].fgi);
+      const num = typeof v === 'string' ? parseFloat(v) : Number(v);
+      return Number.isFinite(num) ? num : null;
+    }
+
+    const v = resp?.data?.value ?? resp?.data?.score ?? resp?.data?.index;
+    const num = typeof v === 'string' ? parseFloat(v) : Number(v);
+    return Number.isFinite(num) ? num : null;
+  } catch (error) {
+    console.warn('请求FGI接口失败:', error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}

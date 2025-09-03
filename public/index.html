@@ -38,6 +38,7 @@
         .header h1 {
             font-size: 3em;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 15px;
@@ -258,6 +259,24 @@
             border-radius: 10px;
             margin: 10px 0;
         }
+        /* 新增：推荐卡片样式 */
+        .trading-recommendation {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            border: 1px solid #eef2f7;
+        }
+        .trading-recommendation .row {
+            display: flex;
+            justify-content: space-between;
+            margin: 6px 0;
+            font-size: 14px;
+            color: #555;
+        }
+        .trading-recommendation .key { color: #7f8c8d; }
+        .trading-recommendation .val { color: #2c3e50; font-weight: 600; }
+        .trading-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
         
         .success {
             background: #27ae60;
@@ -268,10 +287,11 @@
         }
         
         /* 新增：行情卡片内联状态提示 */
-        .inline-status { font-size: 12px; color: #7f8c8d; margin-top: 8px; }
+        .inline-status { display: inline-block; font-size: 12px; color: #7f8c8d; margin-top: 8px; }
         .inline-status.ok { color: #27ae60; }
         .inline-status.warn { color: #f39c12; }
         .inline-status.err { color: #e74c3c; }
+        .card h2 .inline-status { margin-left: auto; margin-top: 0; }
         
         @media (max-width: 768px) {
             .container {
@@ -330,6 +350,62 @@
         </div>
         
         <div class="main-grid">
+            <!-- 市场数据 -->
+            <div class="card">
+                <h2><span class="card-icon">💹</span>市场数据 <span id="marketInlineStatus" class="inline-status warn">正在初始化...</span></h2>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="currentPrice">--</div>
+                        <div class="metric-label">当前价格</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="priceChange">--</div>
+                        <div class="metric-label">今日涨跌幅(UTC+8)</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="volume">--</div>
+                        <div class="metric-label">24h成交额(USDT)</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="volatility">--</div>
+                        <div class="metric-label">波动率</div>
+                    </div>
+                    
+                </div>
+            </div>
+            <!-- 开单推荐 -->
+            <div class="card">
+                <h2><span class="card-icon">🎯</span>开单推荐</h2>
+                <div class="trading-recommendation" id="tradingRecommendation">
+                    <div class="loading">正在获取推荐信号...</div>
+                </div>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="recommendedAction">--</div>
+                        <div class="metric-label">推荐操作</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="entryPrice">--</div>
+                        <div class="metric-label">入场价位</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="recommendedLeverage">--</div>
+                        <div class="metric-label">推荐杠杆</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="positionSizeRecommend">--</div>
+                        <div class="metric-label">建议仓位</div>
+                    </div>
+                </div>
+                <div class="trading-buttons">
+                    <button class="btn btn-success" onclick="openLongPosition()">📈 做多 (LONG)</button>
+                    <button class="btn btn-danger" onclick="openShortPosition()">📉 做空 (SHORT)</button>
+                </div>
+                <div style="margin-top: 15px; font-size: 12px; color: #666; text-align: center;">
+                    建议仅供参考，请注意风险控制
+                </div>
+            </div>
+
             <!-- 实时策略分析 -->
             <div class="card">
                 <h2><span class="card-icon">📊</span>实时策略分析</h2>
@@ -413,49 +489,6 @@
                 <a href="/backtest" class="btn"><img src="/eth-logo.svg" alt="ETH" width="16" height="16" style="vertical-align:-3px;margin-right:6px"/> 开始回测</a>
                 <button class="btn btn-success" onclick="viewBacktestHistory()">📋 历史记录</button>
             </div>
-            
-            <!-- 市场数据 -->
-            <div class="card">
-                <h2><span class="card-icon">💹</span>市场数据</h2>
-                <div class="metric-grid">
-                    <div class="metric">
-                        <div class="metric-value" id="currentPrice">--</div>
-                        <div class="metric-label">当前价格</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value" id="priceChange">--</div>
-                        <div class="metric-label">今日涨跌幅(UTC+8)</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value" id="volume">--</div>
-                        <div class="metric-label">24h成交额(USDT)</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value" id="volatility">--</div>
-                        <div class="metric-label">波动率</div>
-                    </div>
-                </div>
-                <div id="marketInlineStatus" class="inline-status warn">正在初始化...</div>
-                <button class="btn" onclick="refreshMarketData()">🔄 刷新数据</button>
-            </div>
-            
-            <!-- 系统控制 -->
-            <div class="card">
-                <h2><span class="card-icon">⚙️</span>系统控制</h2>
-                <div class="metric-grid">
-                    <div class="metric">
-                        <div class="metric-value" id="systemStatus">运行中</div>
-                        <div class="metric-label">系统状态</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value" id="uptime">--</div>
-                        <div class="metric-label">运行时间</div>
-                    </div>
-                </div>
-                <button class="btn btn-success" onclick="startStrategy()">▶️ 启动策略</button>
-                <button class="btn btn-danger" onclick="stopStrategy()">⏹️ 停止策略</button>
-                <button class="btn btn-warning" onclick="restartStrategy()">🔄 重启策略</button>
-            </div>
         </div>
         
         <div class="footer">
@@ -533,24 +566,28 @@
             loadSystemStatus();
             loadLatestSignal();
             loadPerformanceData();
+            loadTradeRecommendation();
             
             // 启动自动更新
             updateInterval = setInterval(() => {
                 loadLatestSignal();
                 loadMarketData();
                 updateUptime();
+                loadTradeRecommendation();
             }, 30000); // 30秒更新一次
         };
         
-        // 加载系统状态
+        // 加载系统状态（容错：元素不存在时跳过）
         async function loadSystemStatus() {
             try {
                 const response = await fetch('/api/strategy/status');
                 const data = await response.json();
                 
                 if (data.success) {
-                    document.getElementById('systemStatus').textContent = 
-                        data.data.isRunning ? '运行中' : '已停止';
+                    const el = document.getElementById('systemStatus');
+                    if (el) {
+                        el.textContent = data.data.isRunning ? '运行中' : '已停止';
+                    }
                 }
             } catch (error) {
                 console.error('加载系统状态失败:', error);
@@ -810,6 +847,66 @@
                 clearInterval(updateInterval);
             }
         };
+        // 新增：加载开单推荐（脚本内）
+        async function loadTradeRecommendation() {
+            const container = document.getElementById('tradingRecommendation');
+            if (!container) return;
+            container.innerHTML = '<div class="loading">正在获取推荐信号...</div>';
+            try {
+                const res = await fetch('/api/strategy/analysis');
+                const json = await res.json();
+                if (!json.success || !json.data) {
+                    container.innerHTML = '<div class="error">暂无推荐数据</div>';
+                    return;
+                }
+                const d = json.data;
+                const rec = d.recommendation || {};
+                const rm = d.riskManagement || {};
+                const market = d.market || d.marketAnalysis || {};
+                const action = rec.action || 'HOLD';
+                const entry = (d.signal && d.signal.price) || market.price || market.support || '--';
+                const leverage = rm.leverage || (d.signal && d.signal.metadata && d.signal.metadata.leverage) || '--';
+                const posSize = (typeof rm.positionSize === 'number') ? (rm.positionSize * 100).toFixed(1) + '%' : '--';
+                const tp = rm.takeProfit || (d.signal && d.signal.pricing && d.signal.pricing.takeProfit) || '--';
+                const sl = rm.stopLoss || (d.signal && d.signal.pricing && d.signal.pricing.stopLoss) || '--';
+                const conf = (typeof rec.confidence === 'number') ? (rec.confidence * 100).toFixed(1) + '%' : '--';
+                
+                container.innerHTML = `
+                    <div class="row"><span class="key">推荐操作</span><span class="val">${action}</span></div>
+                    <div class="row"><span class="key">入场价位</span><span class="val">${typeof entry === 'number' ? '$' + entry.toFixed(2) : entry}</span></div>
+                    <div class="row"><span class="key">推荐杠杆</span><span class="val">${typeof leverage === 'number' ? leverage + 'x' : leverage}</span></div>
+                    <div class="row"><span class="key">建议仓位</span><span class="val">${posSize}</span></div>
+                    <div class="row"><span class="key">止盈/止损</span><span class="val">${typeof tp === 'number' ? '$' + tp.toFixed(2) : tp} / ${typeof sl === 'number' ? '$' + sl.toFixed(2) : sl}</span></div>
+                    <div class="row"><span class="key">置信度</span><span class="val">${conf}</span></div>
+                `;
+                
+                const actionEl = document.getElementById('recommendedAction');
+                const entryEl = document.getElementById('entryPrice');
+                const levEl = document.getElementById('recommendedLeverage');
+                const posEl = document.getElementById('positionSizeRecommend');
+                if (actionEl) actionEl.textContent = action;
+                if (entryEl) entryEl.textContent = (typeof entry === 'number') ? '$' + entry.toFixed(2) : String(entry);
+                if (levEl) levEl.textContent = (typeof leverage === 'number') ? leverage + 'x' : String(leverage);
+                if (posEl) posEl.textContent = posSize;
+                
+                window.__lastRecommendation = { action, entry, leverage, posSize, tp, sl, conf };
+            } catch (err) {
+                console.error('加载开单推荐失败:', err);
+                container.innerHTML = '<div class="error">推荐加载失败</div>';
+            }
+        }
+
+        // 新增：开多/开空按钮（演示提示）
+        function openLongPosition() {
+            const rec = window.__lastRecommendation || {};
+            alert(`准备开多:\n入场: ${formatPrice(rec.entry)}\n杠杆: ${formatLev(rec.leverage)}\n止盈: ${formatPrice(rec.tp)} / 止损: ${formatPrice(rec.sl)}\n仓位: ${rec.posSize || '--'}`);
+        }
+        function openShortPosition() {
+            const rec = window.__lastRecommendation || {};
+            alert(`准备开空:\n入场: ${formatPrice(rec.entry)}\n杠杆: ${formatLev(rec.leverage)}\n止盈: ${formatPrice(rec.tp)} / 止损: ${formatPrice(rec.sl)}\n仓位: ${rec.posSize || '--'}`);
+        }
+        function formatPrice(v){ return (typeof v === 'number') ? ('$' + v.toFixed(2)) : (v || '--'); }
+        function formatLev(v){ return (typeof v === 'number') ? (v + 'x') : (v || '--'); }
     </script>
 </body>
 </html>
