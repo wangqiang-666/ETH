@@ -1,8 +1,9 @@
 import { Matrix } from 'ml-matrix';
 import * as ss from 'simple-statistics';
-import { TechnicalIndicatorResult } from '../indicators/technical-indicators';
+import { TechnicalIndicatorResult, TechnicalIndicatorAnalyzer } from '../indicators/technical-indicators';
 import { config } from '../config';
 import { EnhancedMLAnalyzer } from './enhanced-ml-analyzer';
+import { enhancedOKXDataService } from '../services/enhanced-okx-data-service';
 
 // 简单的线性回归模型
 class SimpleLinearRegression {
@@ -91,6 +92,8 @@ export interface MarketData {
   sodUtc8Price?: number; // raw base used for day-based
   fundingRate?: number;
   openInterest?: number;
+  // 新增：恐惧与贪婪指数（0-100），用于情绪特征
+  fgiScore?: number;
 }
 
 // 机器学习分析器类
@@ -122,8 +125,12 @@ export class MLAnalyzer {
         this.enhancedAnalyzer = new EnhancedMLAnalyzer();
       } else {
         console.log('📊 使用基础机器学习模型...');
-        // 生成一些模拟历史数据用于训练
-        this.generateTrainingData();
+        // 优先使用真实历史数据进行初始化训练
+        if (config.ml?.local?.useRealHistoricalTraining) {
+          await this.generateTrainingDataFromReal();
+        } else {
+          this.generateTrainingData();
+        }
         
         // 训练模型
         this.trainModels();
@@ -138,6 +145,141 @@ export class MLAnalyzer {
   }
 
   // 生成训练数据
+
+  // 在线学习 - 使用新数据更新模型
+  // 辅助方法
+  private async generateTrainingDataFromReal(): Promise<void> {
+    try {
+      const symbol = config.ml?.local?.trainingSymbol || config.trading?.defaultSymbol;
+      const interval = (config.ml?.local?.trainingInterval || '1m') as string;
+      const limit = Math.max(
+        Math.min(config.ml?.local?.trainingLimit || 500, config.ml?.local?.trainingDataSize || 2000),
+        120
+      );
+      if (!symbol) {
+        console.warn('未配置 trainingSymbol 或 defaultSymbol，回退到模拟训练数据');
+        this.generateTrainingData();
+        return;
+      }
+      const klines = await enhancedOKXDataService.getKlineData(symbol as any, interval as any, limit as any);
+      if (!klines || klines.length < 60) {
+        console.warn('历史K线不足，回退到模拟训练数据');
+        this.generateTrainingData();
+        return;
+      }
+
+      const indicatorAnalyzer = new TechnicalIndicatorAnalyzer();
+      const winCount = this.get24hWindowCount(interval);
+
+      this.historicalFeatures = [];
+      this.historicalTargets = [];
+
+      for (let i = Math.max(60, winCount + 1); i < klines.length - 1; i++) {
+        const slice = klines.slice(0, i + 1);
+        indicatorAnalyzer.updateKlineData(slice.map(k => ({
+          timestamp: k.timestamp,
+          open: k.open,
+          high: k.high,
+          low: k.low,
+          close: k.close,
+          volume: k.volume
+        })) as any);
+        const indicators = indicatorAnalyzer.calculateAllIndicators();
+        if (!indicators) continue;
+
+        const mdNow = this.buildMarketDataForIndex(klines, i, winCount);
+        const historicalMarketData = this.buildHistoricalMarketData(klines, Math.max(0, i - 50), i);
+        const features = this.extractFeatures(mdNow, indicators as TechnicalIndicatorResult, historicalMarketData);
+
+        const nextClose = klines[i + 1].close;
+        const target = (nextClose - klines[i].close) / klines[i].close;
+
+        this.historicalFeatures.push(features);
+        this.historicalTargets.push(target);
+      }
+      console.log(`✅ 已生成真实训练样本: ${this.historicalFeatures.length}`);
+    } catch (err) {
+      console.warn('加载真实训练数据失败，回退到模拟数据:', err);
+      this.historicalFeatures = [];
+      this.historicalTargets = [];
+      this.generateTrainingData();
+    }
+  }
+
+  // 计算24小时窗口内包含的K线数量
+  private get24hWindowCount(interval: string): number {
+    const preset: Record<string, number> = {
+      '1m': 1440,
+      '3m': 480,
+      '5m': 288,
+      '15m': 96,
+      '30m': 48,
+      '1h': 24,
+      '2h': 12,
+      '4h': 6,
+      '6h': 4,
+      '12h': 2,
+      '1d': 1
+    };
+    if (preset[interval]) return preset[interval];
+    const m = interval.match(/^(\d+)([mhd])$/i);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      const unit = m[2].toLowerCase();
+      if (unit === 'm' && n > 0) return Math.max(Math.floor(1440 / n), 1);
+      if (unit === 'h' && n > 0) return Math.max(Math.floor(24 / n), 1);
+      if (unit === 'd' && n > 0) return 1;
+    }
+    return 24; // 默认按1小时计算
+  }
+
+  // 基于K线构造指定索引的 MarketData
+  private buildMarketDataForIndex(
+    klines: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>,
+    i: number,
+    winCount: number
+  ): MarketData {
+    const start = Math.max(0, i - winCount + 1);
+    const window = klines.slice(start, i + 1);
+    const high24h = Math.max(...window.map(k => k.high));
+    const low24h = Math.min(...window.map(k => k.low));
+    const open24hPrice = window[0]?.open ?? klines[start].open;
+    const price = klines[i].close;
+    const change24h = open24hPrice ? ((price - open24hPrice) / open24hPrice) * 100 : 0;
+
+    return {
+      price,
+      volume: klines[i].volume,
+      timestamp: klines[i].timestamp,
+      high24h,
+      low24h,
+      change24h,
+      open24hPrice
+    } as MarketData;
+  }
+
+  // 构造历史 MarketData 序列（用于提取动量等特征）
+  private buildHistoricalMarketData(
+    klines: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>,
+    startIdx: number,
+    endIdx: number
+  ): MarketData[] {
+    const from = Math.max(0, startIdx);
+    const to = Math.min(endIdx, klines.length - 1);
+    const out: MarketData[] = [];
+    for (let j = from; j <= to; j++) {
+      out.push({
+        price: klines[j].close,
+        volume: klines[j].volume,
+        timestamp: klines[j].timestamp,
+        high24h: klines[j].high, // 作为占位值，不影响当前特征提取逻辑
+        low24h: klines[j].low,   // 作为占位值，不影响当前特征提取逻辑
+        change24h: 0
+      } as MarketData);
+    }
+    return out;
+  }
+
   private generateTrainingData(): void {
     // 生成模拟的历史特征和目标数据
     for (let i = 0; i < 100; i++) {
@@ -500,6 +642,12 @@ export class MLAnalyzer {
       Math.log((marketData.openInterest || 1) / 1000000),
       this.calculateMomentum(historicalData)
     );
+
+    // 新增：情绪特征（FGI），按 0-1 归一化（受配置开关控制）
+    if (config.ml.features.sentiment?.fgi) {
+      const fgiNormalized = (marketData.fgiScore ?? 50) / 100;
+      features.push(fgiNormalized);
+    }
 
     // 填充到固定长度
     while (features.length < 20) {
@@ -903,6 +1051,3 @@ export class MLAnalyzer {
     }
   }
 }
-
-// 导出单例实例
-export const mlAnalyzer = new MLAnalyzer();

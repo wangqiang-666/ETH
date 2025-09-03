@@ -134,7 +134,7 @@ export const config = {
     // 策略配置
     strategy: {
         // 信号强度阈值（0-1），用于交易决策过滤
-        signalThreshold: parseFloat(process.env.SIGNAL_THRESHOLD || '0.6'),
+        signalThreshold: parseFloat(process.env.SIGNAL_THRESHOLD || '0.65'),
         // 最小历史胜率（百分比数值，如 55 表示 55%）
         minWinRate: parseFloat(process.env.MIN_WIN_RATE || '55'),
         // 是否启用机器学习辅助分析
@@ -144,6 +144,16 @@ export const config = {
             technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.5'),
             ml: parseFloat(process.env.WEIGHT_ML || '0.3'),
             market: parseFloat(process.env.WEIGHT_MARKET || '0.2')
+        },
+        // 主分析周期与K线数量（用于提升1H短期胜率）
+        primaryInterval: process.env.PRIMARY_INTERVAL || '1H',
+        klineLimit: parseInt(process.env.KLINE_LIMIT || '200'),
+        // 入场过滤规则（更严格以提高胜率）
+        entryFilters: {
+            trendFilter: (process.env.TREND_FILTER || 'true') === 'true',
+            minCombinedStrengthLong: parseFloat(process.env.MIN_COMBINED_LONG || '65'),
+            minCombinedStrengthShort: parseFloat(process.env.MIN_COMBINED_SHORT || '65'),
+            allowHighVolatilityEntries: (process.env.ALLOW_HIGH_VOL || 'false') === 'true'
         }
     },
     
@@ -156,6 +166,13 @@ export const config = {
             trainingDataSize: parseInt(process.env.ML_TRAINING_SIZE || '2000'),
             retrainInterval: parseInt(process.env.ML_RETRAIN_INTERVAL || '50'), // 每50个新样本重训练
             minTrainingData: parseInt(process.env.ML_MIN_TRAINING || '100'),
+            
+            // 新增：是否使用真实历史数据进行初始化训练（含真实MACD）
+            useRealHistoricalTraining: (process.env.ML_USE_REAL_TRAINING || 'true') === 'true',
+            // 新增：训练数据来源参数
+            trainingSymbol: process.env.ML_TRAINING_SYMBOL || undefined,
+            trainingInterval: process.env.ML_TRAINING_INTERVAL || '1m',
+            trainingLimit: parseInt(process.env.ML_TRAINING_LIMIT || '500'),
             
             // 模型参数
             parameters: {
@@ -185,7 +202,11 @@ export const config = {
                 fractalDimension: (process.env.ML_FEATURE_FRACTAL || 'true') === 'true'
             },
             // 市场微观结构特征开关
-            marketMicrostructure: (process.env.ML_FEATURE_MARKET_MICRO || 'true') === 'true'
+            marketMicrostructure: (process.env.ML_FEATURE_MARKET_MICRO || 'true') === 'true',
+            // 情绪特征开关
+            sentiment: {
+                fgi: (process.env.ML_FEATURE_FGI || 'true') === 'true'
+            }
         }
     },
     

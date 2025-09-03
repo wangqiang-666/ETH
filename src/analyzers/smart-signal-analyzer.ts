@@ -35,6 +35,12 @@ export interface SmartSignalResult {
     volatility: number;
     volume: 'HIGH' | 'MEDIUM' | 'LOW';
     momentum: 'STRONG' | 'WEAK' | 'NEUTRAL';
+    // 新增：趋势方向与强度
+    trendDirection?: 'UP' | 'DOWN' | 'SIDEWAYS';
+    trendStrength?: number;
+    // 新增：布林带位置与带宽，供策略层过滤与风险控制
+    bollingerPosition?: number; // 0-1，0靠近下轨，1靠近上轨
+    bollingerBandwidth?: number; // (上-下)/中
   };
 }
 
@@ -53,6 +59,8 @@ export class SmartSignalAnalyzer {
   private mlAnalyzer: MLAnalyzer;
   private historicalData: MarketData[] = [];
   private lastAnalysis: SmartSignalResult | null = null;
+  // 新增：记录最近一次市场价格，用于BOLL位置等基于“价格”的计算
+  private lastMarketPrice: number | null = null;
 
   constructor() {
     this.technicalAnalyzer = new TechnicalIndicatorAnalyzer();
@@ -67,6 +75,8 @@ export class SmartSignalAnalyzer {
     try {
       // 1. 更新历史数据
       this.updateHistoricalData(marketData);
+      // 1.1 记录当前价格供BOLL位置等计算使用
+      this.lastMarketPrice = typeof marketData?.price === 'number' ? marketData.price : this.lastMarketPrice;
 
       // 2. 更新K线数据到技术指标分析器
       klineData.forEach(kline => {
@@ -251,7 +261,27 @@ export class SmartSignalAnalyzer {
         marketCondition: this.getMarketConditionType(marketCondition),
         volatility: marketCondition.volatility === 'HIGH' ? 0.8 : marketCondition.volatility === 'LOW' ? 0.2 : 0.5,
         volume: marketCondition.volume,
-        momentum: this.getMomentumType(technicalResult)
+        momentum: this.getMomentumType(technicalResult),
+        // 新增：趋势方向与强度
+        trendDirection: marketCondition.trend === 'UPTREND' ? 'UP' : marketCondition.trend === 'DOWNTREND' ? 'DOWN' : 'SIDEWAYS',
+        trendStrength: marketCondition.strength,
+        // 新增：布林带位置/带宽（使用实时价格，稳健钳制与有限性检查）
+        bollingerPosition: (() => {
+          const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
+          const price = Number.isFinite(marketData.price) ? marketData.price : technicalResult.bollinger.middle;
+          if (!(Number.isFinite(range) && range > 0 && Number.isFinite(price))) return 0.5;
+          const raw = (price - technicalResult.bollinger.lower) / range;
+          const clamped = Math.max(0, Math.min(1, raw));
+          return Number.isFinite(clamped) ? clamped : 0.5;
+        })(),
+        bollingerBandwidth: (() => {
+          const mid = technicalResult.bollinger.middle;
+          const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
+          const denom = Number.isFinite(mid) && mid > 0 ? mid : (Number.isFinite(marketData.price) && marketData.price > 0 ? marketData.price : NaN);
+          if (!(Number.isFinite(range) && range >= 0 && Number.isFinite(denom) && denom > 0)) return 0;
+          const bw = range / denom;
+          return Number.isFinite(bw) ? bw : 0;
+        })()
       }
     };
   }
@@ -278,10 +308,10 @@ export class SmartSignalAnalyzer {
       score -= Math.abs(indicators.macd.histogram) > 0.001 ? 15 : 10;
     }
 
-    // 布林带评分
+    // 布林带评分（使用实时价格优先，其次回退到中轨以避免空值）
     const bollingerRange = indicators.bollinger.upper - indicators.bollinger.lower;
     if (bollingerRange > 0) {
-      const currentPrice = indicators.bollinger.middle; // 使用中轨作为参考
+      const currentPrice = (typeof this.lastMarketPrice === 'number') ? this.lastMarketPrice : indicators.bollinger.middle;
       const position = (currentPrice - indicators.bollinger.lower) / bollingerRange;
       if (position < 0.2) score += 15; // 接近下轨
       else if (position > 0.8) score -= 15; // 接近上轨
@@ -466,9 +496,9 @@ export class SmartSignalAnalyzer {
   private calculateTechnicalConfidence(indicators: TechnicalIndicatorResult): number {
     let confidence = 0.5;
 
-    // 计算布林带位置
+    // 计算布林带位置（使用实时价格优先，其次回退到中轨）
     const bollingerRange = indicators.bollinger.upper - indicators.bollinger.lower;
-    const currentPrice = indicators.bollinger.middle;
+    const currentPrice = (typeof this.lastMarketPrice === 'number') ? this.lastMarketPrice : indicators.bollinger.middle;
     const bollingerPosition = bollingerRange > 0 ? (currentPrice - indicators.bollinger.lower) / bollingerRange : 0.5;
 
     // 多个指标同向时增加置信度
@@ -515,7 +545,7 @@ export class SmartSignalAnalyzer {
 
   // 生成推理说明
   private generateTechnicalReasoning(indicators: TechnicalIndicatorResult): string {
-    const reasons = [];
+    const reasons: string[] = [];
 
     if (indicators.rsi < 30) reasons.push('RSI显示超卖状态');
     else if (indicators.rsi > 70) reasons.push('RSI显示超买状态');
@@ -523,10 +553,10 @@ export class SmartSignalAnalyzer {
     if (indicators.macd.histogram > 0) reasons.push('MACD柱状图转正，动能增强');
     else if (indicators.macd.histogram < 0) reasons.push('MACD柱状图为负，动能减弱');
 
-    // 计算布林带位置（需要当前价格，这里使用简化逻辑）
+    // 计算布林带位置（使用实时价格优先，其次回退到中轨）
     const bollingerRange = indicators.bollinger.upper - indicators.bollinger.lower;
     if (bollingerRange > 0) {
-      const currentPrice = indicators.bollinger.middle; // 使用中轨作为参考
+      const currentPrice = (typeof this.lastMarketPrice === 'number') ? this.lastMarketPrice : indicators.bollinger.middle;
       const position = (currentPrice - indicators.bollinger.lower) / bollingerRange;
       if (position < 0.2) reasons.push('价格接近布林带下轨');
       else if (position > 0.8) reasons.push('价格接近布林带上轨');
@@ -536,7 +566,7 @@ export class SmartSignalAnalyzer {
   }
 
   private generateRiskReasoning(condition: MarketCondition, mlResult: MLAnalysisResult | null): string {
-    const risks = [];
+    const risks: string[] = [];
 
     if (condition.volatility === 'HIGH') risks.push('市场波动性较高');
     if (condition.volume === 'LOW') risks.push('成交量偏低');
@@ -640,7 +670,7 @@ export class SmartSignalAnalyzer {
     const prices = this.historicalData.map(d => d.price);
     const avgPrice = prices.reduce((sum, price) => sum + price, 0) / prices.length;
     
-    const returns = [];
+    const returns: number[] = [];
     for (let i = 1; i < prices.length; i++) {
       returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
     }
