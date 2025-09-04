@@ -433,36 +433,54 @@ export class EnhancedMLAnalyzer {
   private historicalFeatures: number[][] = [];
   private historicalTargets: number[] = [];
   private isInitialized: boolean = false;
+  private isTraining: boolean = false;
   private lastTrainingTime: Date = new Date();
-  
+  private static isGloballyInitialized: boolean = false;
+
   constructor() {
     this.ensembleModel = new EnsembleModel();
-    this.initialize();
-  }
-  
-  private async initialize(): Promise<void> {
-    try {
-      console.log('🚀 初始化增强机器学习分析器...');
-      
-      // 生成初始训练数据
-      this.generateInitialTrainingData();
-      
-      // 训练模型
-      if (this.historicalFeatures.length >= config.ml.local.minTrainingData) {
-        this.ensembleModel.train(this.historicalFeatures, this.historicalTargets);
-        this.lastTrainingTime = new Date();
-      }
-      
+    // 异步初始化，不阻塞构造函数
+    if (!EnhancedMLAnalyzer.isGloballyInitialized) {
+      this.initializeAsync();
+      EnhancedMLAnalyzer.isGloballyInitialized = true;
+    } else {
       this.isInitialized = true;
-      console.log('✅ 增强机器学习分析器初始化完成');
-    } catch (error) {
-      console.error('❌ 增强ML分析器初始化失败:', error);
-      this.isInitialized = true; // 即使失败也标记为已初始化
+      console.log('✅ 增强机器学习分析器已初始化（跳过重复初始化）');
     }
   }
   
+  private async initializeAsync(): Promise<void> {
+    // 立即标记为已初始化，允许系统继续启动
+    this.isInitialized = true;
+    
+    // 延迟加载机制：等待更长时间再开始训练，确保Web服务器完全启动
+    setTimeout(async () => {
+      try {
+        console.log('🚀 延迟加载：开始后台初始化增强机器学习分析器...');
+        this.isTraining = true;
+        
+        // 生成初始训练数据（减少数据量）
+        this.generateInitialTrainingData();
+        
+        // 训练模型
+        if (this.historicalFeatures.length >= config.ml.local.minTrainingData) {
+          console.log('🔄 延迟加载：开始后台训练集成模型...');
+          this.ensembleModel.train(this.historicalFeatures, this.historicalTargets);
+          this.lastTrainingTime = new Date();
+          console.log('✅ 延迟加载：集成模型后台训练完成');
+        }
+        
+        this.isTraining = false;
+        console.log('✅ 延迟加载：增强机器学习分析器后台初始化完成');
+      } catch (error) {
+        console.error('❌ 延迟加载：增强ML分析器后台初始化失败:', error);
+        this.isTraining = false;
+      }
+    }, 3000); // 延迟3秒开始训练，比基础分析器稍早
+  }
+  
   private generateInitialTrainingData(): void {
-    const trainingSize = Math.min(config.ml.local.trainingDataSize, 500); // 限制初始数据量
+    const trainingSize = Math.min(config.ml.local.trainingDataSize, 100); // 大幅减少初始数据量
     
     for (let i = 0; i < trainingSize; i++) {
       // 生成更真实的市场特征
@@ -489,6 +507,7 @@ export class EnhancedMLAnalyzer {
       this.historicalFeatures.push(features);
       this.historicalTargets.push(target);
     }
+    console.log(`✅ 增强分析器已生成初始训练样本: ${trainingSize}`);
   }
   
   private generateComplexTarget(features: number[], trend: number, volatility: number): number {
@@ -677,6 +696,12 @@ export class EnhancedMLAnalyzer {
     }
     
     try {
+      // 如果模型正在训练中，使用降级分析
+      if (this.isTraining) {
+        console.log('⏳ 增强ML模型正在后台训练中，使用降级分析...');
+        return this.getFallbackAnalysis(marketData, technicalIndicators);
+      }
+      
       // 提取高级特征
       const features = this.extractAdvancedFeatures(marketData, technicalIndicators, historicalData);
       

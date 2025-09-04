@@ -103,45 +103,63 @@ export class MLAnalyzer {
   private trendModel: SimpleLinearRegression = new SimpleLinearRegression();
   private enhancedAnalyzer: EnhancedMLAnalyzer | null = null;
   private isInitialized = false;
+  private isTraining = false;
   private historicalFeatures: number[][] = [];
   private historicalTargets: number[] = [];
   private useEnhancedAnalyzer: boolean = false;
+  private static isGloballyInitialized = false;
 
   constructor() {
-    this.initialize();
+    // 异步初始化，不阻塞构造函数
+    if (!MLAnalyzer.isGloballyInitialized) {
+      this.initializeAsync();
+      MLAnalyzer.isGloballyInitialized = true;
+    } else {
+      this.isInitialized = true;
+      console.log('✅ 机器学习分析器已初始化（跳过重复初始化）');
+    }
   }
 
-  // 初始化本地ML模型
-  private async initialize(): Promise<void> {
-    try {
-      console.log('🤖 初始化机器学习分析系统...');
-      
-      // 检查是否使用增强分析器
-      const modelType = config.ml?.local?.modelType || 'linear';
-      this.useEnhancedAnalyzer = modelType === 'ensemble' || modelType === 'enhanced';
-      
-      if (this.useEnhancedAnalyzer) {
-        console.log('🚀 启用增强机器学习分析器...');
-        this.enhancedAnalyzer = new EnhancedMLAnalyzer();
-      } else {
-        console.log('📊 使用基础机器学习模型...');
-        // 优先使用真实历史数据进行初始化训练
-        if (config.ml?.local?.useRealHistoricalTraining) {
-          await this.generateTrainingDataFromReal();
+  // 异步初始化本地ML模型
+  private async initializeAsync(): Promise<void> {
+    // 立即标记为已初始化，允许系统继续启动
+    this.isInitialized = true;
+    
+    // 延迟加载机制：等待更长时间再开始训练，确保Web服务器完全启动
+    setTimeout(async () => {
+      try {
+        console.log('🤖 延迟加载：开始后台初始化机器学习分析系统...');
+        this.isTraining = true;
+        
+        // 检查是否使用增强分析器
+        const modelType = config.ml?.local?.modelType || 'linear';
+        this.useEnhancedAnalyzer = modelType === 'ensemble' || modelType === 'enhanced';
+        
+        if (this.useEnhancedAnalyzer) {
+          console.log('🚀 延迟加载：后台启用增强机器学习分析器...');
+          this.enhancedAnalyzer = new EnhancedMLAnalyzer();
         } else {
-          this.generateTrainingData();
+          console.log('📊 延迟加载：后台使用基础机器学习模型...');
+          // 优先使用真实历史数据进行初始化训练
+          if (config.ml?.local?.useRealHistoricalTraining) {
+            await this.generateTrainingDataFromReal();
+          } else {
+            this.generateTrainingData();
+          }
+          
+          // 训练模型
+          console.log('🔄 延迟加载：开始后台训练基础模型...');
+          this.trainModels();
+          console.log('✅ 延迟加载：基础模型后台训练完成');
         }
         
-        // 训练模型
-        this.trainModels();
+        this.isTraining = false;
+        console.log('✅ 延迟加载：机器学习分析系统后台初始化完成');
+      } catch (error) {
+        console.error('❌ 延迟加载：ML分析器后台初始化失败:', error);
+        this.isTraining = false;
       }
-      
-      this.isInitialized = true;
-      console.log('✅ 机器学习分析系统初始化完成');
-    } catch (error) {
-      console.error('❌ ML分析器初始化失败:', error);
-      this.isInitialized = true; // 即使失败也标记为已初始化，使用备用方法
-    }
+    }, 5000); // 延迟5秒开始训练，确保Web服务器完全启动
   }
 
   // 生成训练数据
@@ -174,7 +192,12 @@ export class MLAnalyzer {
       this.historicalFeatures = [];
       this.historicalTargets = [];
 
-      for (let i = Math.max(60, winCount + 1); i < klines.length - 1; i++) {
+      // 优化：使用步长和最大样本数限制来减少训练数据量
+      const maxSamples = Math.min(config.ml?.local?.trainingDataSize || 100, 100);
+      const stepSize = Math.max(1, Math.floor((klines.length - Math.max(60, winCount + 1) - 1) / maxSamples));
+      let sampleCount = 0;
+      
+      for (let i = Math.max(60, winCount + 1); i < klines.length - 1 && sampleCount < maxSamples; i += stepSize) {
         const slice = klines.slice(0, i + 1);
         indicatorAnalyzer.updateKlineData(slice.map(k => ({
           timestamp: k.timestamp,
@@ -196,6 +219,7 @@ export class MLAnalyzer {
 
         this.historicalFeatures.push(features);
         this.historicalTargets.push(target);
+        sampleCount++;
       }
       console.log(`✅ 已生成真实训练样本: ${this.historicalFeatures.length}`);
     } catch (err) {
@@ -281,8 +305,9 @@ export class MLAnalyzer {
   }
 
   private generateTrainingData(): void {
-    // 生成模拟的历史特征和目标数据
-    for (let i = 0; i < 100; i++) {
+    // 生成最少量的模拟历史特征和目标数据以加快初始化
+    const minSamples = Math.max(config.ml?.local?.minTrainingData || 20, 20);
+    for (let i = 0; i < minSamples; i++) {
       const features = [
         Math.random() * 100, // RSI
         (Math.random() - 0.5) * 2, // MACD
@@ -300,6 +325,7 @@ export class MLAnalyzer {
       this.historicalFeatures.push(features);
       this.historicalTargets.push(target);
     }
+    console.log(`✅ 已生成模拟训练样本: ${minSamples}`);
   }
 
   // 根据特征生成目标值
@@ -405,6 +431,12 @@ export class MLAnalyzer {
     }
 
     try {
+      // 如果模型正在训练中，使用降级分析
+      if (this.isTraining) {
+        console.log('⏳ ML模型正在后台训练中，使用降级分析...');
+        return this.getFallbackAnalysis(marketData, technicalIndicators);
+      }
+      
       // 如果启用了增强分析器，优先使用
       if (this.useEnhancedAnalyzer && this.enhancedAnalyzer) {
         console.log('🔬 使用增强机器学习分析...');
@@ -1020,6 +1052,15 @@ export class MLAnalyzer {
       console.log('📊 切换到基础机器学习分析器...');
       this.useEnhancedAnalyzer = false;
     }
+  }
+  
+  // 获取训练状态
+  getTrainingStatus(): { isTraining: boolean; isInitialized: boolean; useEnhanced: boolean } {
+    return {
+      isTraining: this.isTraining,
+      isInitialized: this.isInitialized,
+      useEnhanced: this.useEnhancedAnalyzer
+    };
   }
 
   // 获取当前分析器状态

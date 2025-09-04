@@ -3,12 +3,13 @@ import { Server } from 'socket.io';
 import { createServer } from 'http';
 import cors from 'cors';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { ethStrategyEngine, StrategyResult } from '../strategy/eth-strategy-engine';
+import { ethStrategyEngine } from '../services/eth-strategy-engine';
+import { StrategyResult } from '../strategy/eth-strategy-engine';
 import { smartSignalAnalyzer } from '../analyzers/smart-signal-analyzer';
 import { enhancedOKXDataService } from '../services/enhanced-okx-data-service';
 import { config } from '../config';
@@ -17,8 +18,11 @@ import backtestRoutes from '../api/backtest-routes';
 import { dataValidator } from '../utils/data-validator';
 import { TechnicalIndicatorAnalyzer } from '../indicators/technical-indicators';
 import { RSI, MACD, BollingerBands  } from 'technicalindicators';
-import { pathToFileURL } from 'url';
+
 import fs from 'fs';
+import { RecommendationIntegrationService } from '../services/recommendation-integration-service';
+import { tradingSignalService } from '../services/trading-signal-service';
+import { riskManagementService } from '../services/risk-management-service';
 
 // API响应接口
 interface ApiResponse<T = any> {
@@ -47,6 +51,7 @@ export class WebServer {
   private port: number;
   private isRunning = false;
   private updateInterval: NodeJS.Timeout | null = null;
+  private recommendationService: RecommendationIntegrationService;
 
   constructor(port: number = config.webServer.port) {
     this.port = port;
@@ -59,9 +64,18 @@ export class WebServer {
       }
     });
 
+    // 初始化推荐系统
+    this.recommendationService = new RecommendationIntegrationService(
+      enhancedOKXDataService,
+      ethStrategyEngine,
+      tradingSignalService,
+      riskManagementService
+    );
+
     this.setupMiddleware();
     this.setupRoutes();
     this.setupSocketIO();
+    this.setupRecommendationEvents();
   }
 
   // 设置中间件
@@ -131,6 +145,9 @@ export class WebServer {
     // 回测API
     this.app.use('/api/backtest', backtestRoutes);
     
+    // 推荐系统API
+    this.app.use('/api', this.recommendationService.getAPIRouter());
+    
     // 回测页面
     this.app.get('/backtest', (req, res) => {
       res.sendFile(path.join(__dirname, '../../src/web/backtest.html'));
@@ -159,6 +176,30 @@ export class WebServer {
         details: (process.env.NODE_ENV !== 'production') ? String(error?.stack || error) : undefined,
         timestamp: Date.now()
       });
+    });
+  }
+
+  // 设置推荐系统事件监听
+  private setupRecommendationEvents(): void {
+    // 监听推荐系统事件并通过WebSocket广播
+    this.recommendationService.on('recommendation_created', (data) => {
+      this.io.emit('recommendation-created', data);
+    });
+    
+    this.recommendationService.on('recommendation_result', (data) => {
+      this.io.emit('recommendation-result', data);
+    });
+    
+    this.recommendationService.on('recommendation_triggered', (data) => {
+      this.io.emit('recommendation-triggered', data);
+    });
+    
+    this.recommendationService.on('statistics_updated', (data) => {
+      this.io.emit('statistics-updated', data);
+    });
+    
+    this.recommendationService.on('auto_recommendation_created', (data) => {
+      this.io.emit('auto-recommendation-created', data);
     });
   }
 
@@ -1221,7 +1262,7 @@ export class WebServer {
               'maxabs_macd','maxabs_signal','maxabs_histogram',
               'cross_ratio','corr'
             ].join(',');
-            const toCsvVal = (v:any)=> (typeof v === 'number' ? v : (v===undefined||v===null?'':String(v).replaceAll('"','""')));
+            const toCsvVal = (v:any)=> (typeof v === 'number' ? v : (v===undefined||v===null?'':String(v).replace(/"/g,'""')));
             const lines = [header, ...results.map((r:any)=>{
               if (!r.success) return [r.label, false, '', '', '', '', '', '', '', '', ''].join(',');
               return [
@@ -2118,7 +2159,7 @@ export class WebServer {
               'rmse_middle','rmse_upper','rmse_lower',
               'maxabs_middle','maxabs_upper','maxabs_lower'
             ].join(',');
-            const toCsvVal = (v:any)=> (typeof v === 'number' ? v : (v===undefined||v===null?'':String(v).replaceAll('"','""')));
+            const toCsvVal = (v:any)=> (typeof v === 'number' ? v : (v===undefined||v===null?'':String(v).replace(/"/g,'""')));
             const lines = [header, ...results.map((r:any)=>{
               if (!r.success) return [r.label, false, '', '', '', '', '', '', ''].join(',');
               return [
@@ -2293,22 +2334,46 @@ export class WebServer {
       return;
     }
 
-    return new Promise((resolve, reject) => {
-      this.server.listen(this.port, () => {
-        console.log(`Web server started on port ${this.port}`);
-        console.log(`Dashboard: http://localhost:${this.port}`);
-        console.log(`API: http://localhost:${this.port}/api`);
-        
-        this.isRunning = true;
-        this.startRealTimeUpdates();
-        resolve();
-      });
+    try {
+      console.log('🚀 启动Web服务器...');
       
-      this.server.on('error', (error: any) => {
-        console.error('Failed to start web server:', error);
-        reject(error);
+      return new Promise<void>((resolve, reject) => {
+        this.server.listen(this.port, () => {
+          console.log(`✅ Web server started on port ${this.port}`);
+          console.log(`📊 Dashboard: http://localhost:${this.port}`);
+          console.log(`🔗 API: http://localhost:${this.port}/api`);
+          console.log(`📈 Recommendations API: http://localhost:${this.port}/api/recommendations`);
+          
+          this.isRunning = true;
+          this.startRealTimeUpdates();
+          
+          // 异步初始化推荐系统，不阻塞Web服务器启动
+          this.initializeRecommendationSystemAsync();
+          
+          resolve();
+        });
+        
+        this.server.on('error', (error: any) => {
+          console.error('Failed to start web server:', error);
+          reject(error);
+        });
       });
-    });
+    } catch (error) {
+      console.error('Failed to start web server:', error);
+      throw error;
+    }
+  }
+  
+  // 异步初始化推荐系统
+  private async initializeRecommendationSystemAsync(): Promise<void> {
+    try {
+      console.log('🔄 后台初始化推荐系统...');
+      await this.recommendationService.initialize();
+      await this.recommendationService.start();
+      console.log('✅ 推荐系统后台初始化完成');
+    } catch (error) {
+      console.error('❌ 推荐系统初始化失败:', error);
+    }
   }
 
   // 停止服务器
@@ -2316,6 +2381,14 @@ export class WebServer {
     if (!this.isRunning) {
       console.log('Web server is not running');
       return;
+    }
+
+    try {
+      // 停止推荐系统
+      await this.recommendationService.stop();
+      console.log('Recommendation system stopped');
+    } catch (error) {
+      console.error('Error stopping recommendation system:', error);
     }
 
     return new Promise((resolve) => {
@@ -2361,15 +2434,13 @@ export class WebServer {
 export const webServer = new WebServer();
 
 // 当作为入口文件直接执行时，自动启动 Web 服务器
-try {
-  const isDirectRun = typeof process !== 'undefined' && Array.isArray(process.argv) && process.argv[1]
-    ? import.meta.url === pathToFileURL(process.argv[1]).href
-    : false;
-  if (isDirectRun) {
-    webServer.start().catch((err) => {
-      console.error('Failed to auto-start web server:', err);
-    });
-  }
-} catch (e) {
-  // 忽略在某些运行环境中无法判断的情况
-}
+console.log('🔍 检查是否需要自动启动Web服务器...');
+console.log('process.argv[1]:', process.argv[1]);
+console.log('import.meta.url:', import.meta.url);
+
+// 直接启动服务器，不依赖复杂的判断逻辑
+console.log('🚀 开始启动Web服务器...');
+webServer.start().catch((err) => {
+  console.error('❌ Web服务器启动失败:', err);
+  process.exit(1);
+});

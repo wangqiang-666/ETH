@@ -278,6 +278,263 @@
         .trading-recommendation .val { color: #2c3e50; font-weight: 600; }
         .trading-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
         
+        /* 推荐历史样式 */
+        .recommendation-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+        
+        .recommendation-controls select {
+            padding: 6px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: white;
+            font-size: 14px;
+        }
+        
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 14px;
+        }
+        
+        .recommendation-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+        }
+        
+        .recommendation-item {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: #f9fafb;
+            transition: all 0.2s;
+        }
+        
+        .recommendation-item:hover {
+            background: #f3f4f6;
+            border-color: #d1d5db;
+        }
+        
+        /* 推荐表格样式 */
+        .recommendation-table-container {
+            overflow-x: auto;
+            margin-bottom: 20px;
+        }
+        
+        .recommendation-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        
+        .recommendation-table th,
+        .recommendation-table td {
+            padding: 12px 8px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .recommendation-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+            position: sticky;
+            top: 0;
+        }
+        
+        .recommendation-table tr:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .recommendation-row.pending {
+            background-color: #fff3cd;
+        }
+        
+        .recommendation-row.active {
+            background-color: #d1ecf1;
+        }
+        
+        .recommendation-row.closed {
+            background-color: #d4edda;
+        }
+        
+        .recommendation-row.expired {
+            background-color: #f8d7da;
+        }
+        
+        .action-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .action-badge.long {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .action-badge.short {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .action-badge.hold {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-badge.pending {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-badge.active {
+            background-color: #cce5ff;
+            color: #004085;
+        }
+        
+        .status-badge.closed {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .status-badge.expired {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .pnl-value.positive {
+            color: #28a745;
+            font-weight: 600;
+        }
+        
+        .pnl-value.negative {
+            color: #dc3545;
+            font-weight: 600;
+        }
+        
+        .recommendation-item.active {
+            border-color: #3b82f6;
+            background: #eff6ff;
+        }
+        
+        .recommendation-item.completed {
+            border-color: #10b981;
+            background: #ecfdf5;
+        }
+        
+        .recommendation-item.stopped {
+            border-color: #ef4444;
+            background: #fef2f2;
+        }
+        
+        .recommendation-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .recommendation-action {
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .recommendation-action.LONG {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .recommendation-action.SHORT {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .recommendation-action.HOLD {
+            background: #f3f4f6;
+            color: #374151;
+        }
+        
+        .recommendation-time {
+            font-size: 12px;
+            color: #6b7280;
+        }
+        
+        .recommendation-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px;
+            font-size: 13px;
+        }
+        
+        .recommendation-detail {
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .recommendation-detail .label {
+            color: #6b7280;
+        }
+        
+        .recommendation-detail .value {
+            font-weight: 500;
+        }
+        
+        .recommendation-pnl {
+            font-weight: 600;
+        }
+        
+        .recommendation-pnl.positive {
+            color: #10b981;
+        }
+        
+        .recommendation-pnl.negative {
+            color: #ef4444;
+        }
+        
+        .recommendation-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-value {
+            display: block;
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+        
+        .stat-label {
+            display: block;
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+        
         .success {
             background: #27ae60;
             color: white;
@@ -406,23 +663,76 @@
                 </div>
             </div>
 
-            <!-- 实时策略分析 -->
+            <!-- 推荐历史 -->
             <div class="card">
-                <h2><span class="card-icon">📊</span>实时策略分析</h2>
-                <div id="currentSignal" class="signal-display">
-                    <div class="loading">正在获取最新信号...</div>
+                <h2><span class="card-icon">📋</span>推荐历史 <span id="recommendationInlineStatus" class="inline-status warn">正在加载...</span></h2>
+                
+                <!-- 筛选和排序控件 -->
+                <div class="recommendation-controls">
+                    <select id="statusFilter" onchange="filterRecommendations()">
+                        <option value="all">全部状态</option>
+                        <option value="PENDING">待确认</option>
+                        <option value="ACTIVE">进行中</option>
+                        <option value="CLOSED">已平仓</option>
+                        <option value="EXPIRED">已过期</option>
+                    </select>
+                    
+                    <select id="sortBy" onchange="sortRecommendations()">
+                        <option value="created_at">按时间排序</option>
+                        <option value="pnl_percent">按收益排序</option>
+                        <option value="confidence_score">按置信度排序</option>
+                    </select>
+                    
+                    <select id="sortOrder" onchange="sortRecommendations()">
+                        <option value="desc">降序</option>
+                        <option value="asc">升序</option>
+                    </select>
+                    
+                    <button class="btn btn-sm" onclick="refreshRecommendations()">刷新</button>
+                    <button id="deleteSelectedBtn" class="btn btn-sm btn-danger" onclick="deleteSelectedRecommendations()" disabled>删除所选(0)</button>
                 </div>
-                <div class="metric-grid">
-                    <div class="metric">
-                        <div class="metric-value" id="signalStrength">--</div>
-                        <div class="metric-label">信号强度</div>
+                
+                <div class="recommendation-table-container">
+                    <table class="recommendation-table" id="recommendationTable">
+                        <thead>
+                            <tr>
+                                <th style="width:36px;text-align:center"><input type="checkbox" id="selectAllRecs" onclick="toggleSelectAll(this)"/></th>
+                                <th>时间</th>
+                                <th>操作</th>
+                                <th>入场价</th>
+                                <th>杠杆</th>
+                                <th>止盈</th>
+                                <th>止损</th>
+                                <th>置信度</th>
+                                <th>状态</th>
+                                <th>收益</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recommendationTableBody">
+                            <tr>
+                                <td colspan="10" class="loading">正在加载推荐记录...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="recommendation-stats" id="recommendationStats">
+                    <div class="stat-item">
+                        <span class="stat-value" id="totalRecommendations">--</span>
+                        <span class="stat-label">总推荐数</span>
                     </div>
-                    <div class="metric">
-                        <div class="metric-value" id="confidence">--</div>
-                        <div class="metric-label">置信度</div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="activeRecommendations">--</span>
+                        <span class="stat-label">活跃中</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="winRateRecommendations">--</span>
+                        <span class="stat-label">胜率</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="avgPnlRecommendations">--</span>
+                        <span class="stat-label">平均收益</span>
                     </div>
                 </div>
-                <button class="btn" onclick="refreshSignal()">🔄 刷新信号</button>
             </div>
             
             <!-- 策略性能 -->
@@ -473,6 +783,25 @@
                 <button class="btn btn-warning" onclick="viewRiskManagement()">⚙️ 风险设置</button>
             </div>
             
+            <!-- 实时策略分析 -->
+            <div class="card">
+                <h2><span class="card-icon">📊</span>实时策略分析</h2>
+                <div id="currentSignal" class="signal-display">
+                    <div class="loading">正在获取最新信号...</div>
+                </div>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="signalStrength">--</div>
+                        <div class="metric-label">信号强度</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="confidence">--</div>
+                        <div class="metric-label">置信度</div>
+                    </div>
+                </div>
+                <button class="btn" onclick="refreshSignal()">🔄 刷新信号</button>
+            </div>
+
             <!-- 回测分析 -->
             <div class="card">
                 <h2><span class="card-icon">🔬</span>回测分析</h2>
@@ -567,6 +896,7 @@
             loadLatestSignal();
             loadPerformanceData();
             loadTradeRecommendation();
+            loadRecommendationHistory();
             
             // 启动自动更新
             updateInterval = setInterval(() => {
@@ -574,6 +904,7 @@
                 loadMarketData();
                 updateUptime();
                 loadTradeRecommendation();
+                loadRecommendationHistory();
             }, 30000); // 30秒更新一次
         };
         
@@ -683,14 +1014,38 @@
                 
                 if (data.success && data.data) {
                     const perf = data.data;
-                    document.getElementById('totalReturn').textContent = 
-                        (perf.totalPnlPercent * 100).toFixed(2) + '%';
-                    document.getElementById('winRate').textContent = 
-                        (perf.winRate * 100).toFixed(1) + '%';
-                    document.getElementById('sharpeRatio').textContent = 
-                        perf.sharpeRatio.toFixed(2);
-                    document.getElementById('maxDrawdown').textContent = 
-                        (perf.maxDrawdown * 100).toFixed(2) + '%';
+                    
+                    // 安全地更新总收益率
+                    const totalReturnEl = document.getElementById('totalReturn');
+                    if (totalReturnEl) {
+                        totalReturnEl.textContent = typeof perf.totalPnlPercent === 'number' 
+                            ? (perf.totalPnlPercent * 100).toFixed(2) + '%' 
+                            : '0.00%';
+                    }
+                    
+                    // 安全地更新胜率
+                    const winRateEl = document.getElementById('winRate');
+                    if (winRateEl) {
+                        winRateEl.textContent = typeof perf.winRate === 'number' 
+                            ? (perf.winRate * 100).toFixed(1) + '%' 
+                            : '0.0%';
+                    }
+                    
+                    // 安全地更新夏普比率
+                    const sharpeRatioEl = document.getElementById('sharpeRatio');
+                    if (sharpeRatioEl) {
+                        sharpeRatioEl.textContent = typeof perf.sharpeRatio === 'number' 
+                            ? perf.sharpeRatio.toFixed(2) 
+                            : '0.00';
+                    }
+                    
+                    // 安全地更新最大回撤
+                    const maxDrawdownEl = document.getElementById('maxDrawdown');
+                    if (maxDrawdownEl) {
+                        maxDrawdownEl.textContent = typeof perf.maxDrawdown === 'number' 
+                            ? (perf.maxDrawdown * 100).toFixed(2) + '%' 
+                            : '0.00%';
+                    }
                 }
             } catch (error) {
                 console.error('加载性能数据失败:', error);
@@ -712,7 +1067,7 @@
             }
             try {
                 // 降低首屏等待：将超时从5s降到2.5s，重试从2次降到1次，并减小退避
-                const data = await requestJsonWithRetry('/api/market/ticker', {}, { retries: 1, timeoutMs: 2500, backoffMs: 500 });
+                const data = await requestJsonWithRetry('/api/market/ticker?symbol=ETH-USDT-SWAP', {}, { retries: 1, timeoutMs: 2500, backoffMs: 500 });
                 if (data.success && data.data) {
                     const market = data.data;
                     if (typeof market.price === 'number') priceEl.textContent = '$' + market.price.toFixed(2);
@@ -797,57 +1152,8 @@
             alert('回测历史功能开发中...');
         }
         
-        // 启动策略
-        async function startStrategy() {
-            try {
-                const response = await fetch('/api/strategy/start', { method: 'POST' });
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert('策略启动成功！');
-                    loadSystemStatus();
-                } else {
-                    alert('策略启动失败: ' + data.error);
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-        
-        // 停止策略
-        async function stopStrategy() {
-            try {
-                const response = await fetch('/api/strategy/stop', { method: 'POST' });
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert('策略已停止！');
-                    loadSystemStatus();
-                } else {
-                    alert('策略停止失败: ' + data.error);
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-        
-        // 重启策略
-        async function restartStrategy() {
-            if (confirm('确定要重启策略吗？')) {
-                await stopStrategy();
-                setTimeout(() => {
-                    startStrategy();
-                }, 2000);
-            }
-        }
-        
-        // 页面卸载时清理
-        window.onbeforeunload = function() {
-            if (updateInterval) {
-                clearInterval(updateInterval);
-            }
-        };
-        // 新增：加载开单推荐（脚本内）
+
+        // 加载开单推荐（脚本内）
         async function loadTradeRecommendation() {
             const container = document.getElementById('tradingRecommendation');
             if (!container) return;
@@ -907,6 +1213,327 @@
         }
         function formatPrice(v){ return (typeof v === 'number') ? ('$' + v.toFixed(2)) : (v || '--'); }
         function formatLev(v){ return (typeof v === 'number') ? (v + 'x') : (v || '--'); }
+        
+        // 推荐历史相关功能
+        let recommendationData = [];
+        let filteredRecommendations = [];
+        const selectedRecommendationIds = new Set();
+        
+        function updateDeleteButtonState() {
+            const btn = document.getElementById('deleteSelectedBtn');
+            if (!btn) return;
+            const count = selectedRecommendationIds.size;
+            btn.disabled = count === 0;
+            btn.textContent = `删除所选(${count})`;
+        }
+        function resetHeaderCheckbox() {
+            const headerCb = document.getElementById('selectAllRecs');
+            if (!headerCb) return;
+            const visibleIds = filteredRecommendations.map(r => r.id).filter(Boolean);
+            if (visibleIds.length === 0) {
+                headerCb.checked = false;
+                headerCb.indeterminate = false;
+                return;
+            }
+            const selectedVisible = visibleIds.filter(id => selectedRecommendationIds.has(id));
+            headerCb.checked = selectedVisible.length === visibleIds.length && visibleIds.length > 0;
+            headerCb.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visibleIds.length;
+        }
+        function toggleSelectAll(cb){
+            const shouldSelect = cb?.checked;
+            filteredRecommendations.forEach(rec => {
+                if (!rec?.id) return;
+                if (shouldSelect) {
+                    selectedRecommendationIds.add(rec.id);
+                } else {
+                    selectedRecommendationIds.delete(rec.id);
+                }
+            });
+            renderRecommendationList();
+            updateDeleteButtonState();
+            resetHeaderCheckbox();
+        }
+        function onRowSelectChange(id, checked){
+            if (!id) return;
+            if (checked) selectedRecommendationIds.add(id); else selectedRecommendationIds.delete(id);
+            updateDeleteButtonState();
+            resetHeaderCheckbox();
+        }
+        
+        // 加载推荐历史
+        async function loadRecommendationHistory() {
+            const statusEl = document.getElementById('recommendationInlineStatus');
+            const listEl = document.getElementById('recommendationList');
+            
+            if (statusEl) {
+                statusEl.className = 'inline-status warn';
+                statusEl.textContent = '正在更新...';
+            }
+            
+            try {
+                const response = await fetch('/api/recommendations');
+                const data = await response.json();
+                
+                // 兼容不同响应结构：
+                // 1) { success: true, data: [...] }
+                // 2) { success: true, data: { list: [...] , total, ... } }
+                // 3) { list: [...] }
+                const list = Array.isArray(data)
+                  ? data
+                  : Array.isArray(data?.data)
+                    ? data.data
+                    : Array.isArray(data?.data?.recommendations)
+                      ? data.data.recommendations
+                      : Array.isArray(data?.data?.list)
+                        ? data.data.list
+                        : Array.isArray(data?.list)
+                          ? data.list
+                          : [];
+                
+                if ((data?.success === true && list) || list.length > 0) {
+                    recommendationData = list;
+                    filteredRecommendations = [...recommendationData];
+                    
+                    // 应用当前筛选和排序
+                    filterRecommendations();
+                    sortRecommendations();
+                    
+                    // 更新统计信息
+                    updateRecommendationStats();
+                    
+                    if (statusEl) {
+                        statusEl.className = 'inline-status ok';
+                        statusEl.textContent = `已加载 ${recommendationData.length} 条记录`;
+                    }
+                    // 清空占位内容（如果存在）
+                    if (listEl && listEl.innerHTML && listEl.innerHTML.includes('正在加载推荐记录')) {
+                        listEl.innerHTML = '';
+                    }
+                } else {
+                    if (listEl) {
+                        listEl.innerHTML = '<div class="error">暂无推荐记录</div>';
+                    }
+                    if (statusEl) {
+                        statusEl.className = 'inline-status warn';
+                        statusEl.textContent = '暂无数据';
+                    }
+                }
+            } catch (error) {
+                console.error('加载推荐历史失败:', error);
+                if (listEl) {
+                    listEl.innerHTML = '<div class="error">加载失败，请稍后重试</div>';
+                }
+                if (statusEl) {
+                    statusEl.className = 'inline-status err';
+                    statusEl.textContent = '加载失败';
+                }
+            }
+        }
+        
+        // 渲染推荐列表到表格
+        function renderRecommendationList() {
+            const tableBodyEl = document.getElementById('recommendationTableBody');
+            if (!tableBodyEl) return;
+            
+            if (filteredRecommendations.length === 0) {
+                tableBodyEl.innerHTML = '<tr><td colspan="10" class="loading">暂无符合条件的推荐记录</td></tr>';
+                resetHeaderCheckbox();
+                return;
+            }
+            
+            const html = filteredRecommendations.map(rec => {
+                const time = new Date(rec.created_at || rec.timestamp).toLocaleString('zh-CN', {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                const actionRaw = rec.direction || rec.action || 'HOLD';
+                const action = String(actionRaw).toUpperCase();
+                const status = rec.status || 'PENDING';
+                const pnl = rec.pnl_percent || rec.pnl_percentage || 0;
+                const pnlClass = pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : '';
+                const confidence = rec.confidence_score || rec.confidence || 0;
+                const accent = action === 'LONG' ? 'accent-long' : (action === 'SHORT' ? 'accent-short' : 'accent-hold');
+                const isChecked = rec.id ? selectedRecommendationIds.has(rec.id) : false;
+                
+                // 状态显示映射
+                const statusMap = {
+                    'PENDING': '待确认',
+                    'ACTIVE': '进行中',
+                    'CLOSED': '已平仓',
+                    'EXPIRED': '已过期'
+                };
+                
+                return `
+                    <tr class="recommendation-row ${status.toLowerCase()} ${accent}">
+                        <td style="text-align:center"><input type="checkbox" ${isChecked ? 'checked' : ''} ${rec.id ? '' : 'disabled'} onchange="onRowSelectChange('${rec.id ?? ''}', this.checked)"/></td>
+                        <td>${time}</td>
+                        <td><span class="action-badge ${action.toLowerCase()}">${action}</span></td>
+                        <td>${formatPrice(rec.entry_price)}</td>
+                        <td>${formatLev(rec.leverage)}</td>
+                        <td>${formatPrice(rec.take_profit_price || rec.take_profit)}</td>
+                        <td>${formatPrice(rec.stop_loss_price || rec.stop_loss)}</td>
+                        <td>${confidence ? (confidence * 100).toFixed(1) + '%' : '--'}</td>
+                        <td><span class="status-badge ${status.toLowerCase()}">${statusMap[status] || status}</span></td>
+                        <td><span class="pnl-value ${pnlClass}">${pnl ? (pnl > 0 ? '+' : '') + pnl.toFixed(2) + '%' : '--'}</span></td>
+                    </tr>
+                `;
+            }).join('');
+            
+            tableBodyEl.innerHTML = html;
+            resetHeaderCheckbox();
+        }
+        
+        // 筛选推荐
+        function filterRecommendations() {
+            const statusFilter = document.getElementById('statusFilter')?.value || 'all';
+            
+            if (statusFilter === 'all') {
+                filteredRecommendations = [...recommendationData];
+            } else {
+                filteredRecommendations = recommendationData.filter(rec => rec.status === statusFilter);
+            }
+            
+            renderRecommendationList();
+        }
+        
+        // 排序推荐
+        function sortRecommendations() {
+            const sortBy = document.getElementById('sortBy')?.value || 'created_at';
+            const sortOrder = document.getElementById('sortOrder')?.value || 'desc';
+            
+            filteredRecommendations.sort((a, b) => {
+                let aVal, bVal;
+                
+                switch (sortBy) {
+                    case 'created_at':
+                        aVal = new Date(a.created_at || a.timestamp);
+                        bVal = new Date(b.created_at || b.timestamp);
+                        break;
+                    case 'pnl_percent':
+                        aVal = a.pnl_percent || a.pnl_percentage || 0;
+                        bVal = b.pnl_percent || b.pnl_percentage || 0;
+                        break;
+                    case 'confidence_score':
+                        aVal = a.confidence_score || a.confidence || 0;
+                        bVal = b.confidence_score || b.confidence || 0;
+                        break;
+                    default:
+                        return 0;
+                }
+                
+                if (sortOrder === 'asc') {
+                    return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+                } else {
+                    return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+                }
+            });
+            
+            renderRecommendationList();
+        }
+        
+        // 更新推荐统计
+        function updateRecommendationStats() {
+            const total = recommendationData.length;
+            const active = recommendationData.filter(rec => rec.status === 'ACTIVE' || rec.status === 'active').length;
+            const completed = recommendationData.filter(rec => rec.status === 'CLOSED' || rec.status === 'completed');
+            const winRate = completed.length > 0 ? 
+                (completed.filter(rec => (rec.pnl_percent || rec.pnl_percentage || 0) > 0).length / completed.length * 100) : 0;
+            const avgPnl = completed.length > 0 ? 
+                (completed.reduce((sum, rec) => sum + (rec.pnl_percent || rec.pnl_percentage || 0), 0) / completed.length) : 0;
+            
+            document.getElementById('totalRecommendations').textContent = total;
+            document.getElementById('activeRecommendations').textContent = active;
+            document.getElementById('winRateRecommendations').textContent = winRate.toFixed(1) + '%';
+            document.getElementById('avgPnlRecommendations').textContent = avgPnl.toFixed(2) + '%';
+        }
+        
+        // 刷新推荐历史
+        function refreshRecommendations() {
+            loadRecommendationHistory();
+        }
+        
+        // 批量删除所选推荐
+        async function deleteSelectedRecommendations(){
+            const ids = Array.from(selectedRecommendationIds);
+            if (ids.length === 0) return;
+            if (!confirm(`确认删除选中的 ${ids.length} 条记录？此操作不可撤销。`)) return;
+            const statusEl = document.getElementById('recommendationInlineStatus');
+            if (statusEl) {
+                statusEl.className = 'inline-status warn';
+                statusEl.textContent = '正在删除...';
+            }
+            document.getElementById('deleteSelectedBtn')?.setAttribute('disabled','true');
+            // 逐个调用后端删除接口
+            const results = await Promise.allSettled(ids.map(id => fetch(`/api/recommendations/${id}`, { method: 'DELETE' })));
+            let ok = 0, fail = 0;
+            for (const r of results) {
+                if (r.status === 'fulfilled' && r.value?.ok) ok++; else fail++;
+            }
+            // 清理选择 & 刷新
+            selectedRecommendationIds.clear();
+            updateDeleteButtonState();
+            await loadRecommendationHistory();
+            if (statusEl) {
+                statusEl.className = fail === 0 ? 'inline-status ok' : 'inline-status warn';
+                statusEl.textContent = fail === 0 ? '删除完成' : `部分删除失败 (${ok}/${ids.length})`;
+            }
+            if (fail > 0) {
+                alert(`删除完成：成功 ${ok} 条，失败 ${fail} 条。`);
+            }
+        }
+        
+        // 启动策略
+        async function startStrategy() {
+            try {
+                const response = await fetch('/api/strategy/start', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('策略启动成功！');
+                    loadSystemStatus();
+                } else {
+                    alert('策略启动失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+        
+        // 停止策略
+        async function stopStrategy() {
+            try {
+                const response = await fetch('/api/strategy/stop', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('策略已停止！');
+                    loadSystemStatus();
+                } else {
+                    alert('策略停止失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+        
+        // 重启策略
+        async function restartStrategy() {
+            if (confirm('确定要重启策略吗？')) {
+                await stopStrategy();
+                setTimeout(() => {
+                    startStrategy();
+                }, 2000);
+            }
+        }
+        
+        // 页面卸载时清理
+        window.onbeforeunload = function() {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+        };
     </script>
 </body>
 </html>

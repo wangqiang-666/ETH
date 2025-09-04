@@ -105,6 +105,37 @@ export class TradingSignalService {
   }
 
   /**
+   * 生成交易信号（简化版本，用于推荐系统集成）
+   */
+  async generateSignal(marketData: any, strategyResult: any): Promise<{
+    action: 'LONG' | 'SHORT' | 'HOLD';
+    confidence: number;
+    leverage?: number;
+    stopLoss?: number;
+    takeProfit?: number;
+    strength?: number;
+  }> {
+    try {
+      // 基于策略结果生成信号
+      return {
+        action: strategyResult.recommendation,
+        confidence: strategyResult.confidence || 0.6,
+        leverage: strategyResult.leverage || 2,
+        stopLoss: strategyResult.stopLoss,
+        takeProfit: strategyResult.takeProfit,
+        strength: strategyResult.confidence || 0.6
+      };
+    } catch (error) {
+      console.error('Error generating signal:', error);
+      return {
+        action: 'HOLD',
+        confidence: 0,
+        strength: 0
+      };
+    }
+  }
+
+  /**
    * 生成完整的交易信号分析报告
    */
   async generateTradingSignal(
@@ -937,4 +968,7 @@ export class TradingSignalService {
     }
   }
 }
+
+// 导出单例实例
+export const tradingSignalService = new TradingSignalService();
  
