@@ -163,23 +163,23 @@ export const config = {
         local: {
             enabled: true,
             modelType: process.env.LOCAL_ML_MODEL || 'ensemble', // 'linear', 'ensemble', 'lstm', 'svm'
-            trainingDataSize: parseInt(process.env.ML_TRAINING_SIZE || '2000'),
+            trainingDataSize: parseInt(process.env.ML_TRAINING_SIZE || '500'), // 减少训练数据量
             retrainInterval: parseInt(process.env.ML_RETRAIN_INTERVAL || '50'), // 每50个新样本重训练
-            minTrainingData: parseInt(process.env.ML_MIN_TRAINING || '100'),
+            minTrainingData: parseInt(process.env.ML_MIN_TRAINING || '50'), // 减少最小训练数据
             
             // 新增：是否使用真实历史数据进行初始化训练（含真实MACD）
             useRealHistoricalTraining: (process.env.ML_USE_REAL_TRAINING || 'true') === 'true',
             // 新增：训练数据来源参数
             trainingSymbol: process.env.ML_TRAINING_SYMBOL || undefined,
-            trainingInterval: process.env.ML_TRAINING_INTERVAL || '1m',
-            trainingLimit: parseInt(process.env.ML_TRAINING_LIMIT || '500'),
+            trainingInterval: process.env.ML_TRAINING_INTERVAL || '5m', // 使用5分钟K线减少数据量
+            trainingLimit: parseInt(process.env.ML_TRAINING_LIMIT || '200'), // 减少历史数据获取量
             
             // 模型参数
             parameters: {
                 learningRate: parseFloat(process.env.ML_LEARNING_RATE || '0.01'),
-                epochs: parseInt(process.env.ML_EPOCHS || '200'),
-                batchSize: parseInt(process.env.ML_BATCH_SIZE || '64'),
-                validationSplit: parseFloat(process.env.ML_VALIDATION_SPLIT || '0.25'),
+                epochs: parseInt(process.env.ML_EPOCHS || '50'), // 减少训练轮数
+                batchSize: parseInt(process.env.ML_BATCH_SIZE || '32'), // 减少批次大小
+                validationSplit: parseFloat(process.env.ML_VALIDATION_SPLIT || '0.2'), // 减少验证集比例
                 regularization: parseFloat(process.env.ML_REGULARIZATION || '0.001')
             },
             

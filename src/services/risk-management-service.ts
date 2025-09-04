@@ -94,6 +94,49 @@ export class RiskManagementService {
   }
 
   /**
+   * 评估风险（简化版本，用于推荐系统集成）
+   */
+  async assessRisk(marketData: any, signal: any): Promise<{
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    riskScore: number;
+    maxPosition: number;
+    recommendedLeverage: number;
+  }> {
+    try {
+      // 基于信号置信度和市场波动率评估风险
+      const confidence = signal.confidence || 0.5;
+      const volatility = marketData.volatility || 0.1;
+      
+      // 计算风险评分 (0-1)
+      const riskScore = Math.max(0, Math.min(1, (1 - confidence) + volatility));
+      
+      let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+      if (riskScore < 0.3) {
+        riskLevel = 'LOW';
+      } else if (riskScore < 0.7) {
+        riskLevel = 'MEDIUM';
+      } else {
+        riskLevel = 'HIGH';
+      }
+      
+      return {
+        riskLevel,
+        riskScore,
+        maxPosition: Math.max(0.1, 1 - riskScore), // 风险越高，仓位越小
+        recommendedLeverage: Math.max(1, Math.min(5, Math.floor((1 - riskScore) * 5))) // 风险越高，杠杆越低
+      };
+    } catch (error) {
+      console.error('Error assessing risk:', error);
+      return {
+        riskLevel: 'HIGH',
+        riskScore: 1,
+        maxPosition: 0.1,
+        recommendedLeverage: 1
+      };
+    }
+  }
+
+  /**
    * 评估交易信号的风险
    */
   assessSignalRisk(
