@@ -194,6 +194,19 @@ export const config = {
             }
         },
         
+        // 训练配置（离线/本地训练参数）
+        training: {
+            windowDays: parseInt(process.env.ML_TRAINING_WINDOW_DAYS || '14'),
+            labelHorizonMinutes: parseInt(process.env.ML_TRAINING_LABEL_HORIZON || '60')
+        },
+        
+        // 标签回填配置
+        labeling: {
+            enabled: (process.env.ML_LABELING_ENABLED || 'true') === 'true',
+            pollIntervalMs: parseInt(process.env.ML_LABELING_POLL_MS || '60000'),
+            horizonMinutesDefault: parseInt(process.env.ML_LABEL_HORIZON_DEFAULT || '60')
+        },
+        
         // 新增：特征开关配置，供高级特征提取使用
         features: {
             advanced: {

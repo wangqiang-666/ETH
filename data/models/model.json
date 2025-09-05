@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "trainedAt": "2025-09-05T05:46:01.256Z",
+  "windowDays": 14,
+  "labelHorizonMinutes": 60,
+  "sampleCount": 0,
+  "winCount": 0,
+  "winRate": 0,
+  "returnStats": {
+    "count": 0,
+    "mean": 0,
+    "median": 0,
+    "std": 0,
+    "min": 0,
+    "max": 0
+  },
+  "drawdownStats": {
+    "count": 0,
+    "mean": 0,
+    "median": 0,
+    "std": 0,
+    "min": 0,
+    "max": 0
+  },
+  "thresholds": {
+    "long": {
+      "threshold": 60,
+      "winRate": 0,
+      "meanReturn": 0,
+      "count": 0
+    },
+    "short": {
+      "threshold": 60,
+      "winRate": 0,
+      "meanReturn": 0,
+      "count": 0
+    }
+  }
+}

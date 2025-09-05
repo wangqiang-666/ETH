@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { ethStrategyEngine } from '../services/eth-strategy-engine';
+import { ethStrategyEngine } from '../strategy/eth-strategy-engine';
 import { StrategyResult } from '../strategy/eth-strategy-engine';
 import { smartSignalAnalyzer } from '../analyzers/smart-signal-analyzer';
 import { enhancedOKXDataService } from '../services/enhanced-okx-data-service';
@@ -23,6 +23,7 @@ import fs from 'fs';
 import { RecommendationIntegrationService } from '../services/recommendation-integration-service';
 import { tradingSignalService } from '../services/trading-signal-service';
 import { riskManagementService } from '../services/risk-management-service';
+import { MLAnalyzer } from '../ml/ml-analyzer';
 
 // API响应接口
 interface ApiResponse<T = any> {
@@ -138,6 +139,29 @@ export class WebServer {
     // 配置API
     this.app.get('/api/config', this.handleGetConfig.bind(this));
     this.app.post('/api/config', this.handleUpdateConfig.bind(this));
+
+    // ML 离线模型热更新
+    this.app.post('/api/ml/reload', async (req: Request, res: Response) => {
+      try {
+        const customPath = typeof (req.body?.path) === 'string' && req.body.path.length > 0 ? req.body.path : undefined;
+        const result = await MLAnalyzer.loadOfflineModel(customPath);
+        if (result.ok) {
+          res.json({
+            success: true,
+            message: '模型已重新加载',
+            model: {
+              version: result.model?.version,
+              sampleCount: result.model?.sampleCount,
+              thresholds: result.model?.thresholds
+            }
+          });
+        } else {
+          res.status(400).json({ success: false, error: result.error || '加载失败' });
+        }
+      } catch (e: any) {
+        res.status(500).json({ success: false, error: e?.message || String(e) });
+      }
+    });
     
     // 风险管理API
     this.app.use('/api/risk', riskRoutes);
@@ -2212,7 +2236,8 @@ export class WebServer {
         strategy: {
           signalThreshold: config.strategy.signalThreshold,
           minWinRate: config.strategy.minWinRate,
-          useMLAnalysis: config.strategy.useMLAnalysis
+          useMLAnalysis: config.strategy.useMLAnalysis,
+          analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : 30000
         }
       };
       
@@ -2229,10 +2254,9 @@ export class WebServer {
 
   private async handleUpdateConfig(req: Request, res: Response): Promise<void> {
     try {
-      // 这里应该实现配置更新逻辑
       // 为了安全，只允许更新特定的配置项
-      const allowedUpdates = ['signalThreshold', 'maxPositionSize', 'stopLossPercent'];
-      const updates = req.body;
+      const allowedUpdates = ['signalThreshold', 'maxPositionSize', 'stopLossPercent', 'useMLAnalysis', 'analysisInterval'];
+      const updates = req.body || {};
       
       // 验证更新请求
       const validUpdates = Object.keys(updates).filter(key => allowedUpdates.includes(key));
@@ -2246,12 +2270,60 @@ export class WebServer {
         return;
       }
       
-      // 这里应该实际更新配置
-      console.log('Config update request:', updates);
+      // 应用更新到运行时配置（仅非敏感项）
+      for (const key of validUpdates) {
+        const val = updates[key];
+        switch (key) {
+          case 'signalThreshold':
+            if (typeof val === 'number' && val >= 0 && val <= 1) {
+              config.strategy.signalThreshold = val;
+            }
+            break;
+          case 'maxPositionSize':
+            if (typeof val === 'number' && val > 0) {
+              config.risk.maxPositionSize = val;
+            }
+            break;
+          case 'stopLossPercent':
+            if (typeof val === 'number' && val > 0 && val < 100) {
+              config.risk.stopLossPercent = val;
+            }
+            break;
+          case 'useMLAnalysis':
+            if (typeof val === 'boolean') {
+              config.strategy.useMLAnalysis = val;
+            } else if (val === 'true' || val === 'false') {
+              config.strategy.useMLAnalysis = (val === 'true');
+            }
+            break;
+          case 'analysisInterval':
+            if (typeof val === 'number' && Number.isFinite(val)) {
+              ethStrategyEngine.setAnalysisInterval && ethStrategyEngine.setAnalysisInterval(val);
+            } else if (typeof val === 'string') {
+              const n = parseInt(val, 10);
+              if (!Number.isNaN(n)) {
+                ethStrategyEngine.setAnalysisInterval && ethStrategyEngine.setAnalysisInterval(n);
+              }
+            }
+            break;
+        }
+      }
       
       const response: ApiResponse = {
         success: true,
-        data: { message: 'Configuration updated successfully', updates: validUpdates },
+        data: {
+          message: 'Configuration updated successfully',
+          strategy: {
+            signalThreshold: config.strategy.signalThreshold,
+            minWinRate: config.strategy.minWinRate,
+            useMLAnalysis: config.strategy.useMLAnalysis,
+            analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : undefined
+          },
+          risk: {
+            maxPositionSize: config.risk.maxPositionSize,
+            stopLossPercent: config.risk.stopLossPercent
+          }
+        },
         timestamp: Date.now()
       };
       res.json(response);

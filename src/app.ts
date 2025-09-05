@@ -1,7 +1,8 @@
-import { config } from './config';
-import { ethStrategyEngine } from './strategy/eth-strategy-engine';
-import { webServer } from './server/web-server';
-import { enhancedOKXDataService } from './services/enhanced-okx-data-service';
+import { config } from './config'
+import { ethStrategyEngine } from './strategy/eth-strategy-engine'
+import { webServer } from './server/web-server'
+import { enhancedOKXDataService } from './services/enhanced-okx-data-service'
+import { recommendationDatabase } from './services/recommendation-database'
 
 /**
  * ETH合约策略分析应用程序主入口
@@ -10,6 +11,7 @@ import { enhancedOKXDataService } from './services/enhanced-okx-data-service';
 class ETHStrategyApp {
   private isRunning = false;
   private shutdownHandlers: (() => Promise<void>)[] = [];
+  private labelScheduler?: NodeJS.Timeout;
 
   constructor() {
     this.setupGracefulShutdown();
@@ -44,6 +46,9 @@ class ETHStrategyApp {
       console.log('🤖 启动策略引擎...');
       await ethStrategyEngine.start();
       console.log('✅ 策略引擎启动成功');
+
+      // 启动 ML 标签回填定时任务
+      await this.startMLLabelBackfillScheduler();
       
       this.isRunning = true;
       
@@ -65,6 +70,104 @@ class ETHStrategyApp {
       console.error('❌ 启动失败:', error);
       await this.stop();
       process.exit(1);
+    }
+  }
+
+  // 启动 ML 标签回填定时任务
+  private async startMLLabelBackfillScheduler(): Promise<void> {
+    try {
+      const enabled = (config as any)?.ml?.labeling?.enabled ?? true;
+      if (!enabled) return;
+      const pollMs = (config as any)?.ml?.labeling?.pollIntervalMs ?? 60000;
+      const defaultHorizon = (config as any)?.ml?.labeling?.horizonMinutesDefault ?? 60;
+
+      await recommendationDatabase.initialize();
+
+      const intervalToMinutes = (iv: string | undefined): number => {
+        if (!iv) return 1;
+        const map: Record<string, number> = { '1m': 1, '5m': 5, '15m': 15, '1H': 60, '4H': 240, '1D': 1440 };
+        return map[iv] ?? 1;
+      };
+
+      // 定时轮询待回填样本
+      this.labelScheduler = setInterval(async () => {
+        try {
+          const now = Date.now();
+          const pending = await recommendationDatabase.getPendingLabelSamples(defaultHorizon, now, 200);
+          if (!pending || pending.length === 0) return;
+
+          for (const s of pending) {
+            try {
+              const symbol = (s as any).symbol || config.trading.defaultSymbol;
+              const ticker = await enhancedOKXDataService.getTicker(symbol);
+              if (!ticker) continue;
+              const endPrice = ticker.price;
+              const entry = (s as any).price || 0;
+
+              // HOLD 或缺少价格数据，标记完成但不计算
+              if (!entry || !(s as any).final_signal || (s as any).final_signal === 'HOLD') {
+                if (typeof (s as any).id === 'number') {
+                  await recommendationDatabase.updateMLSampleLabel((s as any).id, null, null, true);
+                }
+                continue;
+              }
+
+              // 收益（以当前价为 T+N 终点）
+              let ret = ((endPrice - entry) / entry) * 100;
+              if ((s as any).final_signal === 'SELL' || (s as any).final_signal === 'STRONG_SELL') {
+                ret = -ret;
+              }
+
+              // 计算窗口内最大不利波动（回撤）
+              let drawdown: number | null = null;
+              const horizonMin = (s as any).label_horizon_min ?? defaultHorizon;
+              const interval = (s as any).interval || config.strategy.primaryInterval || '1m';
+              const ivMin = intervalToMinutes(interval);
+              const minutesSinceSample = Math.max(1, Math.ceil((now - (s as any).timestamp) / 60000));
+              const candlesToFetch = Math.min(1000, Math.ceil(minutesSinceSample / ivMin) + 10);
+
+              const klines = await enhancedOKXDataService.getKlineData(symbol, interval, candlesToFetch);
+              if (klines && klines.length > 0) {
+                const startTs = (s as any).timestamp;
+                const endTs = startTs + horizonMin * 60000;
+                const window = klines.filter(k => k.timestamp >= startTs && k.timestamp <= endTs);
+                if (window.length > 0) {
+                  if ((s as any).final_signal === 'SELL' || (s as any).final_signal === 'STRONG_SELL') {
+                    // 空头：最大不利为窗口内最高价离入场的涨幅
+                    const maxHigh = Math.max(...window.map(k => k.high));
+                    drawdown = ((maxHigh - entry) / entry) * 100; // 正数表示不利幅度
+                  } else {
+                    // 多头：最大不利为窗口内最低价离入场的跌幅（负数）
+                    const minLow = Math.min(...window.map(k => k.low));
+                    drawdown = ((minLow - entry) / entry) * 100; // 负数表示不利幅度
+                  }
+                }
+              }
+
+              if (typeof (s as any).id === 'number') {
+                await recommendationDatabase.updateMLSampleLabel((s as any).id, ret, drawdown, true);
+              }
+            } catch (e) {
+              // 单个样本失败不影响整体
+              console.warn('Label backfill for one sample failed:', (e as any)?.message ?? e);
+            }
+          }
+        } catch (e) {
+          console.warn('Label backfill scheduler iteration failed:', (e as any)?.message ?? e);
+        }
+      }, pollMs);
+
+      // 关闭时清理
+      this.addShutdownHandler(async () => {
+        if (this.labelScheduler) {
+          clearInterval(this.labelScheduler);
+          this.labelScheduler = undefined;
+        }
+      });
+
+      console.log(`🧪 ML 标签回填调度已启动（间隔 ${pollMs}ms，默认窗口 ${defaultHorizon} 分钟）`);
+    } catch (e) {
+      console.warn('无法启动 ML 标签回填调度：', (e as any)?.message ?? e);
     }
   }
 

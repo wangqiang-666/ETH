@@ -20,7 +20,7 @@
         }
         
         .container {
-            max-width: 1400px;
+            max-width: 1680px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -83,9 +83,12 @@
         
         .main-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 30px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 25px;
             margin-bottom: 30px;
+            max-width: 1680px;
+            margin-left: auto;
+            margin-right: auto;
         }
         
         .card {
@@ -572,6 +575,12 @@
                 grid-template-columns: 1fr;
             }
         }
+        /* 分页样式 */
+        .pagination{display:flex;align-items:center;gap:8px;justify-content:flex-end;margin:8px 0 16px}
+        .pagination .page-btn,.pagination .page-number{padding:6px 10px;border:1px solid #d1d5db;background:#fff;border-radius:6px;cursor:pointer;font-size:13px}
+        .pagination .page-number.active{background:#3498db;color:#fff;border-color:#3498db}
+        .pagination .page-btn[disabled]{opacity:.5;cursor:not-allowed}
+        .pagination .page-info{margin-left:8px;color:#6b7280;font-size:12px}
     </style>
 </head>
 <body>
@@ -715,6 +724,7 @@
                         </tbody>
                     </table>
                 </div>
+                <div id="recommendationPagination" class="pagination"></div>
                 <div class="recommendation-stats" id="recommendationStats">
                     <div class="stat-item">
                         <span class="stat-value" id="totalRecommendations">--</span>
@@ -759,7 +769,11 @@
                 <button class="btn btn-success" onclick="viewPerformance()">📊 详细报告</button>
             </div>
             
-            <!-- 风险管理 -->
+            <!-- 风险管理 --><!-- 删除 -->
+            
+            <!-- 实时策略分析 --><!-- 删除 -->
+            
+            <!-- 回测分析 --><!-- 删除 -->
             <div class="card">
                 <h2><span class="card-icon">🛡️</span>风险管理</h2>
                 <div class="metric-grid">
@@ -832,6 +846,33 @@
     </div>
     
     <script>
+        // 页面初始化后的UI调整：删除三个板块并重排顺序
+        document.addEventListener('DOMContentLoaded', function() {
+            try {
+                const grid = document.querySelector('.main-grid');
+                if (!grid) return;
+                const getCardByTitle = (title) => {
+                    const cards = Array.from(grid.querySelectorAll('.card'));
+                    return cards.find(c => {
+                        const h = c.querySelector('h2');
+                        return h && h.textContent && h.textContent.includes(title);
+                    });
+                };
+                // 删除不需要的三个板块
+                ['风险管理','实时策略分析','回测分析'].forEach(t => {
+                    const el = getCardByTitle(t);
+                    if (el && el.parentElement === grid) el.remove();
+                });
+                // 确保“策略性能”在前，“推荐历史”在其后
+                const perf = getCardByTitle('策略性能');
+                const rec = getCardByTitle('推荐历史');
+                if (grid && perf && rec && rec.previousElementSibling !== perf) {
+                    grid.insertBefore(rec, perf.nextSibling);
+                }
+            } catch (e) {
+                console.warn('UI auto adjust failed:', e);
+            }
+        });
         let updateInterval;
         let lastMarketOk = false;
         let lastMarketUpdate = 0;
@@ -967,6 +1008,7 @@
                     }
                     
                     const signalDiv = document.getElementById('currentSignal');
+                    if (!signalDiv) return; // DOM尚未渲染，直接跳过
                     const strengthPct = isFinite(strengthVal) ? (strengthVal * 100) : 0;
                     const priceText = typeof price === 'number' ? price.toFixed(2) : '--';
                     const confText = typeof confidence === 'number' ? (confidence * 100).toFixed(1) + '%' : '--';
@@ -996,12 +1038,14 @@
                         if (typeof risk.takeProfit === 'number') document.getElementById('takeProfit').textContent = '$' + risk.takeProfit.toFixed(2);
                     }
                 } else {
-                    document.getElementById('currentSignal').innerHTML = 
+                    const el = document.getElementById('currentSignal');
+                    if (el) el.innerHTML = 
                         '<div class="loading">暂无信号数据</div>';
                 }
             } catch (error) {
                 console.error('加载信号失败:', error);
-                document.getElementById('currentSignal').innerHTML = 
+                const el = document.getElementById('currentSignal');
+                if (el) el.innerHTML = 
                     '<div class="error">信号加载失败</div>';
             }
         }
@@ -1195,8 +1239,7 @@
                 if (levEl) levEl.textContent = (typeof leverage === 'number') ? leverage + 'x' : String(leverage);
                 if (posEl) posEl.textContent = posSize;
                 
-                window.__lastRecommendation = { action, entry, leverage, posSize, tp, sl, conf };
-            } catch (err) {
+                window.__lastRecommendation = { action, entry, leverage, posSize, tp, sl, conf };            } catch (err) {
                 console.error('加载开单推荐失败:', err);
                 container.innerHTML = '<div class="error">推荐加载失败</div>';
             }
@@ -1217,8 +1260,21 @@
         // 推荐历史相关功能
         let recommendationData = [];
         let filteredRecommendations = [];
+        // 新增：分页状态
+        let currentPage = 1;
+        let pageSize = 5; // 默认每页5条
         const selectedRecommendationIds = new Set();
         
+        // 新增：获取当前页可见数据
+        function getVisiblePageItems(){
+            const total = filteredRecommendations.length;
+            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            if (currentPage > totalPages) currentPage = totalPages; // 越界容错
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            return filteredRecommendations.slice(start, end);
+        }
+
         function updateDeleteButtonState() {
             const btn = document.getElementById('deleteSelectedBtn');
             if (!btn) return;
@@ -1229,7 +1285,7 @@
         function resetHeaderCheckbox() {
             const headerCb = document.getElementById('selectAllRecs');
             if (!headerCb) return;
-            const visibleIds = filteredRecommendations.map(r => r.id).filter(Boolean);
+            const visibleIds = getVisiblePageItems().map(r => r.id).filter(Boolean);
             if (visibleIds.length === 0) {
                 headerCb.checked = false;
                 headerCb.indeterminate = false;
@@ -1241,7 +1297,7 @@
         }
         function toggleSelectAll(cb){
             const shouldSelect = cb?.checked;
-            filteredRecommendations.forEach(rec => {
+            getVisiblePageItems().forEach(rec => {
                 if (!rec?.id) return;
                 if (shouldSelect) {
                     selectedRecommendationIds.add(rec.id);
@@ -1330,18 +1386,24 @@
             }
         }
         
-        // 渲染推荐列表到表格
+        // 渲染推荐列表到表格（支持分页）
         function renderRecommendationList() {
             const tableBodyEl = document.getElementById('recommendationTableBody');
             if (!tableBodyEl) return;
             
             if (filteredRecommendations.length === 0) {
                 tableBodyEl.innerHTML = '<tr><td colspan="10" class="loading">暂无符合条件的推荐记录</td></tr>';
+                renderPagination();
                 resetHeaderCheckbox();
                 return;
             }
+            const pageItems = getVisiblePageItems();
+            if (pageItems.length === 0) {
+                currentPage = Math.max(1, currentPage - 1);
+                return renderRecommendationList();
+            }
             
-            const html = filteredRecommendations.map(rec => {
+            const html = pageItems.map(rec => {
                 const time = new Date(rec.created_at || rec.timestamp).toLocaleString('zh-CN', {
                     month: '2-digit',
                     day: '2-digit',
@@ -1382,10 +1444,11 @@
             }).join('');
             
             tableBodyEl.innerHTML = html;
+            renderPagination();
             resetHeaderCheckbox();
         }
         
-        // 筛选推荐
+        // 筛选推荐（重置到第1页）
         function filterRecommendations() {
             const statusFilter = document.getElementById('statusFilter')?.value || 'all';
             
@@ -1394,11 +1457,11 @@
             } else {
                 filteredRecommendations = recommendationData.filter(rec => rec.status === statusFilter);
             }
-            
+            currentPage = 1;
             renderRecommendationList();
         }
         
-        // 排序推荐
+        // 排序推荐（重置到第1页）
         function sortRecommendations() {
             const sortBy = document.getElementById('sortBy')?.value || 'created_at';
             const sortOrder = document.getElementById('sortOrder')?.value || 'desc';
@@ -1429,9 +1492,41 @@
                     return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
                 }
             });
-            
+            currentPage = 1;
             renderRecommendationList();
         }
+        
+        // 新增：渲染分页
+        function renderPagination(){
+            const el = document.getElementById('recommendationPagination');
+            if (!el) return;
+            const total = filteredRecommendations.length;
+            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            const maxShown = 5;
+            let start = Math.max(1, currentPage - Math.floor(maxShown/2));
+            let end = Math.min(totalPages, start + maxShown - 1);
+            start = Math.max(1, Math.min(start, Math.max(1, end - maxShown + 1)));
+
+            const pageNumbers = [];
+            for (let p = start; p <= end; p++) {
+                pageNumbers.push(`<button class="page-number ${p===currentPage?'active':''}" onclick="goToPage(${p})">${p}</button>`);
+            }
+
+            el.innerHTML = `
+                <button class="page-btn" onclick="goToPage(${currentPage-1})" ${currentPage<=1?'disabled':''}>上一页</button>
+                ${pageNumbers.join('')}
+                <button class="page-btn" onclick="goToPage(${currentPage+1})" ${currentPage>=totalPages?'disabled':''}>下一页</button>
+                <span class="page-info">共 ${total} 条 · 每页 ${pageSize} 条 · 第 ${currentPage}/${totalPages} 页</span>
+            `;
+        }
+
+        // 新增：翻页函数
+        function goToPage(p){
+            const totalPages = Math.max(1, Math.ceil(filteredRecommendations.length / pageSize));
+            currentPage = Math.min(Math.max(1, p), totalPages);
+            renderRecommendationList();
+        }
+        window.goToPage = goToPage;
         
         // 更新推荐统计
         function updateRecommendationStats() {
@@ -1450,9 +1545,7 @@
         }
         
         // 刷新推荐历史
-        function refreshRecommendations() {
-            loadRecommendationHistory();
-        }
+        function refreshRecommendations() { loadRecommendationHistory(); }
         
         // 批量删除所选推荐
         async function deleteSelectedRecommendations(){

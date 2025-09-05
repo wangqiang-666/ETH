@@ -4,7 +4,7 @@ import { StatisticsCalculator } from './statistics-calculator';
 import { PriceMonitor } from './price-monitor';
 import { RecommendationAPI } from '../api/recommendation-api';
 import { EnhancedOKXDataService } from './enhanced-okx-data-service';
-import { ETHStrategyEngine } from './eth-strategy-engine';
+import { ETHStrategyEngine } from '../strategy/eth-strategy-engine';
 import { TradingSignalService } from './trading-signal-service';
 import { RiskManagementService } from './risk-management-service';
 import { EventEmitter } from 'events';
@@ -212,9 +212,17 @@ export class RecommendationIntegrationService extends EventEmitter {
       }
       
       // 运行策略分析
-      const strategyResult = await this.strategyEngine.analyzeMarket(marketData);
-      if (!strategyResult || strategyResult.recommendation === 'HOLD') {
+      const strategyResult = await this.strategyEngine.analyzeMarket();
+      // 适配新版结构：recommendation 为对象，使用 action 字段
+      if (!strategyResult || !strategyResult.recommendation || strategyResult.recommendation.action === 'HOLD') {
         console.log('No actionable recommendation from strategy engine');
+        return;
+      }
+
+      // 仅在出现开仓机会时自动生成推荐，其它动作（如减仓/平仓）跳过
+      const action = strategyResult.recommendation.action;
+      if (action !== 'OPEN_LONG' && action !== 'OPEN_SHORT') {
+        console.log(`Skip auto recommendation for non-open action: ${action}`);
         return;
       }
       
@@ -235,13 +243,13 @@ export class RecommendationIntegrationService extends EventEmitter {
       // 创建推荐记录
       const recommendation = {
         symbol: 'ETH-USDT',
-        direction: strategyResult.recommendation as 'LONG' | 'SHORT',
+        direction: action === 'OPEN_LONG' ? 'LONG' : 'SHORT' as 'LONG' | 'SHORT',
         entry_price: marketData.currentPrice,
         current_price: marketData.currentPrice,
         leverage: signal.leverage || 1,
         stop_loss: signal.stopLoss,
         take_profit: signal.takeProfit,
-        strategy_type: strategyResult.strategyType || 'AUTO',
+        strategy_type: 'AUTO',
         confidence: signal.confidence,
         signal_strength: signal.strength,
         risk_level: riskAssessment.riskLevel,
@@ -263,7 +271,7 @@ export class RecommendationIntegrationService extends EventEmitter {
       this.emit('auto_recommendation_created', { id: recommendationId, recommendation });
       
     } catch (error) {
-      console.error('Error generating auto recommendation:', error);
+      console.error('Failed to generate auto recommendation:', error);
       this.emit('auto_recommendation_error', error);
     }
   }
