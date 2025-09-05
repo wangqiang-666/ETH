@@ -12,7 +12,8 @@
     "backtest": "tsx src/backtest.ts",
     "monitor": "tsx src/monitor.ts",
     "web": "tsx src/server/web-server.ts",
-    "selfcheck:proxy": "node ./scripts/selfcheck-proxy.cjs"
+    "selfcheck:proxy": "node ./scripts/selfcheck-proxy.cjs",
+    "ml:train": "tsx src/ml/train.ts"
   },
   "keywords": [
     "ethereum",

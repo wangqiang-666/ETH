@@ -1,19 +1,21 @@
-import { TechnicalIndicatorAnalyzer, TechnicalIndicatorResult } from '../indicators/technical-indicators';
+﻿import { TechnicalIndicatorAnalyzer, TechnicalIndicatorResult } from '../indicators/technical-indicators';
 import { MLAnalyzer, MLAnalysisResult, MarketData } from '../ml/ml-analyzer';
 import { config } from '../config';
+import { recommendationDatabase } from '../services/recommendation-database';
+import type { MLSampleRecord } from '../services/recommendation-database';
 
-// 智能交易信号类型
+// 鏅鸿兘浜ゆ槗淇″彿绫诲瀷
 export type SmartSignalType = 'STRONG_BUY' | 'BUY' | 'HOLD' | 'SELL' | 'STRONG_SELL';
 
-// 信号强度等级
+// 淇″彿寮哄害绛夌骇
 export interface SignalStrength {
-  technical: number; // 技术指标强度 0-100
-  ml: number; // 机器学习强度 0-100
-  combined: number; // 综合强度 0-100
-  confidence: number; // 置信度 0-1
+  technical: number; // 鎶€鏈寚鏍囧己搴?0-100
+  ml: number; // 鏈哄櫒瀛︿範寮哄害 0-100
+  combined: number; // 缁煎悎寮哄害 0-100
+  confidence: number; // 缃俊搴?0-1
 }
 
-// 智能交易信号结果
+// 鏅鸿兘浜ゆ槗淇″彿缁撴灉
 export interface SmartSignalResult {
   signal: SmartSignalType;
   strength: SignalStrength;
@@ -21,7 +23,7 @@ export interface SmartSignalResult {
   stopLoss: number;
   takeProfit: number;
   riskReward: number;
-  positionSize: number; // 建议仓位大小 0-1
+  positionSize: number; // 寤鸿浠撲綅澶у皬 0-1
   timeframe: string;
   reasoning: {
     technical: string;
@@ -35,31 +37,31 @@ export interface SmartSignalResult {
     volatility: number;
     volume: 'HIGH' | 'MEDIUM' | 'LOW';
     momentum: 'STRONG' | 'WEAK' | 'NEUTRAL';
-    // 新增：趋势方向与强度
+    // 鏂板锛氳秼鍔挎柟鍚戜笌寮哄害
     trendDirection?: 'UP' | 'DOWN' | 'SIDEWAYS';
     trendStrength?: number;
-    // 新增：布林带位置与带宽，供策略层过滤与风险控制
-    bollingerPosition?: number; // 0-1，0靠近下轨，1靠近上轨
-    bollingerBandwidth?: number; // (上-下)/中
+    // 鏂板锛氬竷鏋楀甫浣嶇疆涓庡甫瀹斤紝渚涚瓥鐣ュ眰杩囨护涓庨闄╂帶鍒?
+    bollingerPosition?: number; // 0-1锛?闈犺繎涓嬭建锛?闈犺繎涓婅建
+    bollingerBandwidth?: number; // (涓?涓?/涓?
   };
 }
 
-// 市场状态分析
+// 甯傚満鐘舵€佸垎鏋?
 export interface MarketCondition {
   trend: 'UPTREND' | 'DOWNTREND' | 'SIDEWAYS';
-  strength: number; // 趋势强度 0-100
+  strength: number; // 瓒嬪娍寮哄害 0-100
   volatility: 'HIGH' | 'MEDIUM' | 'LOW';
   volume: 'HIGH' | 'MEDIUM' | 'LOW';
   phase: 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MARKDOWN';
 }
 
-// 智能信号分析器
+// 鏅鸿兘淇″彿鍒嗘瀽鍣?
 export class SmartSignalAnalyzer {
   private technicalAnalyzer: TechnicalIndicatorAnalyzer;
   private mlAnalyzer: MLAnalyzer;
   private historicalData: MarketData[] = [];
   private lastAnalysis: SmartSignalResult | null = null;
-  // 新增：记录最近一次市场价格，用于BOLL位置等基于“价格”的计算
+  // 鏂板锛氳褰曟渶杩戜竴娆″競鍦轰环鏍硷紝鐢ㄤ簬BOLL浣嶇疆绛夊熀浜庘€滀环鏍尖€濈殑璁＄畻
   private lastMarketPrice: number | null = null;
 
   constructor() {
@@ -67,18 +69,18 @@ export class SmartSignalAnalyzer {
     this.mlAnalyzer = new MLAnalyzer();
   }
 
-  // 主要分析方法
+  // 涓昏鍒嗘瀽鏂规硶
   async analyzeSignal(
     marketData: MarketData,
     klineData: any[]
   ): Promise<SmartSignalResult> {
     try {
-      // 1. 更新历史数据
+      // 1. 鏇存柊鍘嗗彶鏁版嵁
       this.updateHistoricalData(marketData);
-      // 1.1 记录当前价格供BOLL位置等计算使用
+      // 1.1 璁板綍褰撳墠浠锋牸渚汢OLL浣嶇疆绛夎绠椾娇鐢?
       this.lastMarketPrice = typeof marketData?.price === 'number' ? marketData.price : this.lastMarketPrice;
 
-      // 2. 更新K线数据到技术指标分析器
+      // 2. 鏇存柊K绾挎暟鎹埌鎶€鏈寚鏍囧垎鏋愬櫒
       klineData.forEach(kline => {
         this.technicalAnalyzer.addKlineData({
           timestamp: kline.timestamp,
@@ -90,13 +92,13 @@ export class SmartSignalAnalyzer {
         });
       });
 
-      // 3. 计算技术指标
+      // 3. 璁＄畻鎶€鏈寚鏍?
       const technicalResult = this.technicalAnalyzer.calculateAllIndicators();
       if (!technicalResult) {
         return this.getFallbackSignal(marketData);
       }
 
-      // 4. 机器学习分析
+      // 4. 鏈哄櫒瀛︿範鍒嗘瀽
       let mlResult: MLAnalysisResult | null = null;
       if (config.strategy.useMLAnalysis && this.historicalData.length >= 20) {
         try {
@@ -110,10 +112,10 @@ export class SmartSignalAnalyzer {
         }
       }
 
-      // 5. 市场状态分析
+      // 5. 甯傚満鐘舵€佸垎鏋?
       const marketCondition = this.analyzeMarketCondition(marketData, technicalResult);
 
-      // 6. 综合信号分析
+      // 6. 缁煎悎淇″彿鍒嗘瀽
       const smartSignal = this.combineSignals(
         technicalResult,
         mlResult,
@@ -121,8 +123,15 @@ export class SmartSignalAnalyzer {
         marketCondition
       );
 
-      // 7. 风险管理调整
+      // 7. 椋庨櫓绠＄悊璋冩暣
       const finalSignal = this.applyRiskManagement(smartSignal, marketData, marketCondition);
+
+      // 7.1 鏍锋湰钀藉簱锛堝紓姝ワ紝涓嶉樆濉炰富娴佺▼锛?
+      try {
+        await this.logMLSample(marketData, technicalResult, mlResult, finalSignal);
+      } catch (e) {
+        console.warn('Log ML sample failed:', e);
+      }
 
       this.lastAnalysis = finalSignal;
       return finalSignal;
@@ -133,26 +142,26 @@ export class SmartSignalAnalyzer {
     }
   }
 
-  // 更新历史数据
+  // 鏇存柊鍘嗗彶鏁版嵁
   private updateHistoricalData(marketData: MarketData): void {
     this.historicalData.push(marketData);
     
-    // 保持最近1000个数据点
+    // 淇濇寔鏈€杩?000涓暟鎹偣
     if (this.historicalData.length > 1000) {
       this.historicalData = this.historicalData.slice(-1000);
     }
   }
 
-  // 分析市场状态
+  // 鍒嗘瀽甯傚満鐘舵€?
   private analyzeMarketCondition(
     marketData: MarketData,
     technicalResult: TechnicalIndicatorResult
   ): MarketCondition {
-    // 趋势分析
+    // 瓒嬪娍鍒嗘瀽
     let trend: MarketCondition['trend'] = 'SIDEWAYS';
     let trendStrength = 0;
 
-    // 基于EMA趋势线与价格、短期EMA判断趋势
+    // 鍩轰簬EMA瓒嬪娍绾夸笌浠锋牸銆佺煭鏈烢MA鍒ゆ柇瓒嬪娍
     if (technicalResult.emaTrend && technicalResult.ema12) {
       if (marketData.price > technicalResult.emaTrend && technicalResult.ema12 > technicalResult.emaTrend) {
         trend = 'UPTREND';
@@ -163,7 +172,7 @@ export class SmartSignalAnalyzer {
       }
     }
 
-    // 波动性分析
+    // 娉㈠姩鎬у垎鏋?
     const priceRange = marketData.high24h - marketData.low24h;
     const volatilityRatio = priceRange / marketData.price;
     let volatility: MarketCondition['volatility'] = 'MEDIUM';
@@ -171,13 +180,13 @@ export class SmartSignalAnalyzer {
     if (volatilityRatio > 0.05) volatility = 'HIGH';
     else if (volatilityRatio < 0.02) volatility = 'LOW';
 
-    // 成交量分析
+    // 鎴愪氦閲忓垎鏋?
     let volume: MarketCondition['volume'] = 'MEDIUM';
-    // 简化的成交量分析，实际应该与历史平均比较
+    // 绠€鍖栫殑鎴愪氦閲忓垎鏋愶紝瀹為檯搴旇涓庡巻鍙插钩鍧囨瘮杈?
     if (marketData.volume > 1000000000) volume = 'HIGH';
     else if (marketData.volume < 100000000) volume = 'LOW';
 
-    // 市场阶段分析
+    // 甯傚満闃舵鍒嗘瀽
     let phase: MarketCondition['phase'] = 'MARKUP';
     if (technicalResult.rsi < 30 && trend === 'DOWNTREND') {
       phase = 'ACCUMULATION';
@@ -196,31 +205,57 @@ export class SmartSignalAnalyzer {
     };
   }
 
-  // 综合信号分析
+  // 缁煎悎淇″彿鍒嗘瀽
   private combineSignals(
     technicalResult: TechnicalIndicatorResult,
     mlResult: MLAnalysisResult | null,
     marketData: MarketData,
     marketCondition: MarketCondition
   ): SmartSignalResult {
-    // 技术指标信号强度
+    // 鎶€鏈寚鏍囦俊鍙峰己搴?
     const technicalStrength = this.calculateTechnicalStrength(technicalResult);
     
-    // 机器学习信号强度
+    // 鏈哄櫒瀛︿範淇″彿寮哄害
     const mlStrength = mlResult ? this.calculateMLStrength(mlResult) : 50;
     
-    // 综合信号强度计算
+    // 缁煎悎淇″彿寮哄害璁＄畻
     const weights = config.strategy.multiFactorWeights;
-    const combinedStrength = (
+    let combinedStrength = (
       technicalStrength * weights.technical +
       mlStrength * weights.ml +
       this.getMarketConditionScore(marketCondition) * weights.market
     ) / (weights.technical + weights.ml + weights.market);
 
-    // 确定最终信号
+    // 鏂板锛氬鏋滃瓨鍦ㄧ绾挎ā鍨嬶紝鍒欐牴鎹柟鍚戞€у井璋?combinedStrength 闃堝€?
+    const offline = MLAnalyzer.getOfflineModel?.() || null;
+    if (offline && offline.thresholds) {
+      const thrLong = Number(offline.thresholds.long?.threshold);
+      const thrShort = Number(offline.thresholds.short?.threshold);
+      if (Number.isFinite(thrLong) && Number.isFinite(thrShort)) {
+        // 鏍规嵁鎶€鏈潰鏂瑰悜鍊惧悜锛屽 combinedStrength 鍋氶潪绾挎€у鐩?鎶戝埗
+        const directionalBias = (() => {
+          // 绠€鍖栨柟鍚戝垽瀹氾細RSI涓嶮ACD
+          const rsi = technicalResult.rsi;
+          const macdHist = technicalResult.macd.histogram;
+          let bias = 0;
+          if (rsi <= config.indicators.rsi.oversold && macdHist > 0) bias += 1; // 鍋忓
+          if (rsi >= config.indicators.rsi.overbought && macdHist < 0) bias -= 1; // 鍋忕┖
+          return bias; // -1, 0, 1
+        })();
+        if (directionalBias > 0 && combinedStrength >= thrLong) {
+          // 澶氬ご闃堝€煎懡涓紝鐣ュ井鎶崌寮哄害浠ラ紦鍔盉UY渚?
+          combinedStrength = Math.min(100, combinedStrength + 5);
+        } else if (directionalBias < 0 && combinedStrength >= thrShort) {
+          // 绌哄ご闃堝€煎懡涓紝鐣ュ井鎶崌寮哄害浠ラ紦鍔盨ELL渚?
+          combinedStrength = Math.min(100, combinedStrength + 5);
+        }
+      }
+    }
+
+    // 纭畾鏈€缁堜俊鍙?
     const signal = this.determineSignal(technicalResult, mlResult, combinedStrength);
     
-    // 计算价格目标
+    // 璁＄畻浠锋牸鐩爣
     const priceTargets = this.calculatePriceTargets(
       marketData,
       signal,
@@ -228,7 +263,7 @@ export class SmartSignalAnalyzer {
       marketCondition
     );
 
-    // 计算建议仓位
+    // 璁＄畻寤鸿浠撲綅
     const positionSize = this.calculatePositionSize(
       signal,
       combinedStrength,
@@ -252,7 +287,7 @@ export class SmartSignalAnalyzer {
       timeframe: this.determineTimeframe(marketCondition),
       reasoning: {
         technical: this.generateTechnicalReasoning(technicalResult),
-        ml: mlResult?.reasoning || '未使用机器学习分析',
+        ml: mlResult?.reasoning || 'ML analysis unavailable',
         risk: this.generateRiskReasoning(marketCondition, mlResult),
         final: this.generateFinalReasoning(signal, combinedStrength, marketCondition)
       },
@@ -262,10 +297,10 @@ export class SmartSignalAnalyzer {
         volatility: marketCondition.volatility === 'HIGH' ? 0.8 : marketCondition.volatility === 'LOW' ? 0.2 : 0.5,
         volume: marketCondition.volume,
         momentum: this.getMomentumType(technicalResult),
-        // 新增：趋势方向与强度
+        // 鏂板锛氳秼鍔挎柟鍚戜笌寮哄害
         trendDirection: marketCondition.trend === 'UPTREND' ? 'UP' : marketCondition.trend === 'DOWNTREND' ? 'DOWN' : 'SIDEWAYS',
         trendStrength: marketCondition.strength,
-        // 新增：布林带位置/带宽（使用实时价格，稳健钳制与有限性检查）
+        // 鏂板锛氬竷鏋楀甫浣嶇疆/甯﹀锛堜娇鐢ㄥ疄鏃朵环鏍硷紝绋冲仴閽冲埗涓庢湁闄愭€ф鏌ワ級
         bollingerPosition: (() => {
           const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
           const price = Number.isFinite(marketData.price) ? marketData.price : technicalResult.bollinger.middle;
@@ -286,55 +321,55 @@ export class SmartSignalAnalyzer {
     };
   }
 
-  // 计算技术指标强度
+  // 璁＄畻鎶€鏈寚鏍囧己搴?
   private calculateTechnicalStrength(indicators: TechnicalIndicatorResult): number {
-    let score = 50; // 基础分数
+    let score = 50; // 鍩虹鍒嗘暟
 
-    // RSI评分（使用配置阈值）
+    // RSI璇勫垎锛堜娇鐢ㄩ厤缃槇鍊硷級
     const overbought = config.indicators.rsi.overbought;
     const oversold = config.indicators.rsi.oversold;
     const mid = (overbought + oversold) / 2;
     const neutralLow = mid - 5;
     const neutralHigh = mid + 5;
 
-    if (indicators.rsi <= oversold) score += 20; // 超卖
-    else if (indicators.rsi >= overbought) score -= 20; // 超买
-    else if (indicators.rsi >= neutralLow && indicators.rsi <= neutralHigh) score += 5; // 中性区间（±5）
+    if (indicators.rsi <= oversold) score += 20; // 瓒呭崠
+    else if (indicators.rsi >= overbought) score -= 20; // 瓒呬拱
+    else if (indicators.rsi >= neutralLow && indicators.rsi <= neutralHigh) score += 5; // 涓€у尯闂达紙卤5锛?
 
-    // MACD评分
+    // MACD璇勫垎
     if (indicators.macd.histogram > 0) {
       score += indicators.macd.histogram > 0.001 ? 15 : 10;
     } else {
       score -= Math.abs(indicators.macd.histogram) > 0.001 ? 15 : 10;
     }
 
-    // 布林带评分（使用实时价格优先，其次回退到中轨以避免空值）
+    // 甯冩灄甯﹁瘎鍒嗭紙浣跨敤瀹炴椂浠锋牸浼樺厛锛屽叾娆″洖閫€鍒颁腑杞ㄤ互閬垮厤绌哄€硷級
     const bollingerRange = indicators.bollinger.upper - indicators.bollinger.lower;
     if (bollingerRange > 0) {
       const currentPrice = (typeof this.lastMarketPrice === 'number') ? this.lastMarketPrice : indicators.bollinger.middle;
       const position = (currentPrice - indicators.bollinger.lower) / bollingerRange;
-      if (position < 0.2) score += 15; // 接近下轨
-      else if (position > 0.8) score -= 15; // 接近上轨
+      if (position < 0.2) score += 15; // 鎺ヨ繎涓嬭建
+      else if (position > 0.8) score -= 15; // 鎺ヨ繎涓婅建
     }
 
-    // KDJ评分
+    // KDJ璇勫垎
     if (indicators.kdj.k > indicators.kdj.d && indicators.kdj.k < 80) score += 10;
     else if (indicators.kdj.k < indicators.kdj.d && indicators.kdj.k > 20) score -= 10;
 
-    // 威廉指标评分
-    if (indicators.williams < -80) score += 10; // 超卖
-    else if (indicators.williams > -20) score -= 10; // 超买
+    // 濞佸粔鎸囨爣璇勫垎
+    if (indicators.williams < -80) score += 10; // 瓒呭崠
+    else if (indicators.williams > -20) score -= 10; // 瓒呬拱
 
-    // 新增：EMA趋势评分（短期EMA相对趋势EMA）
+    // 鏂板锛欵MA瓒嬪娍璇勫垎锛堢煭鏈烢MA鐩稿瓒嬪娍EMA锛?
     if (typeof indicators.ema12 === 'number' && typeof indicators.emaTrend === 'number') {
-      if (indicators.ema12 > indicators.emaTrend) score += 10; // 趋势向上
-      else if (indicators.ema12 < indicators.emaTrend) score -= 10; // 趋势向下
+      if (indicators.ema12 > indicators.emaTrend) score += 10; // 瓒嬪娍鍚戜笂
+      else if (indicators.ema12 < indicators.emaTrend) score -= 10; // 瓒嬪娍鍚戜笅
     }
 
     return Math.max(0, Math.min(100, score));
   }
 
-  // 计算机器学习强度
+  // 璁＄畻鏈哄櫒瀛︿範寮哄害
   private calculateMLStrength(mlResult: MLAnalysisResult): number {
     const signalMap: { [key in MLAnalysisResult['prediction']]: number } = {
       'STRONG_BUY': 90,
@@ -350,15 +385,15 @@ export class SmartSignalAnalyzer {
     return Math.max(0, Math.min(100, baseScore + confidenceAdjustment));
   }
 
-  // 获取市场状态评分
+  // 鑾峰彇甯傚満鐘舵€佽瘎鍒?
   private getMarketConditionScore(condition: MarketCondition): number {
     let score = 50;
 
-    // 趋势评分
+    // 瓒嬪娍璇勫垎
     if (condition.trend === 'UPTREND') score += condition.strength * 0.3;
     else if (condition.trend === 'DOWNTREND') score -= condition.strength * 0.3;
 
-    // 阶段评分
+    // 闃舵璇勫垎
     switch (condition.phase) {
       case 'ACCUMULATION': score += 20; break;
       case 'MARKUP': score += 10; break;
@@ -366,25 +401,25 @@ export class SmartSignalAnalyzer {
       case 'MARKDOWN': score -= 10; break;
     }
 
-    // 波动性调整
+    // 娉㈠姩鎬ц皟鏁?
     if (condition.volatility === 'HIGH') score -= 10;
     else if (condition.volatility === 'LOW') score += 5;
 
     return Math.max(0, Math.min(100, score));
   }
 
-  // 确定最终信号
+  // 纭畾鏈€缁堜俊鍙?
   private determineSignal(
     technicalResult: TechnicalIndicatorResult,
     mlResult: MLAnalysisResult | null,
     combinedStrength: number
   ): SmartSignalType {
-    // 如果有ML结果且置信度高，优先考虑ML信号
+    // 濡傛灉鏈塎L缁撴灉涓旂疆淇″害楂橈紝浼樺厛鑰冭檻ML淇″彿
     if (mlResult && mlResult.confidence > 0.7) {
       return mlResult.prediction;
     }
 
-    // 基于综合强度确定信号
+    // 鍩轰簬缁煎悎寮哄害纭畾淇″彿
     if (combinedStrength >= 80) return 'STRONG_BUY';
     if (combinedStrength >= 65) return 'BUY';
     if (combinedStrength <= 20) return 'STRONG_SELL';
@@ -392,7 +427,7 @@ export class SmartSignalAnalyzer {
     return 'HOLD';
   }
 
-  // 计算价格目标
+  // 璁＄畻浠锋牸鐩爣
   private calculatePriceTargets(
     marketData: MarketData,
     signal: SmartSignalType,
@@ -407,11 +442,11 @@ export class SmartSignalAnalyzer {
     const currentPrice = marketData.price;
     const atr = indicators.atr || (marketData.high24h - marketData.low24h);
     
-    // 基于信号类型和市场条件调整倍数
+    // 鍩轰簬淇″彿绫诲瀷鍜屽競鍦烘潯浠惰皟鏁村€嶆暟
     let targetMultiplier = 1;
     let stopMultiplier = 0.5;
     
-    // 根据信号强度调整
+    // 鏍规嵁淇″彿寮哄害璋冩暣
     switch (signal) {
       case 'STRONG_BUY':
         targetMultiplier = condition.volatility === 'HIGH' ? 3 : 2;
@@ -434,7 +469,7 @@ export class SmartSignalAnalyzer {
         stopMultiplier = 0.5;
     }
 
-    // 根据趋势强度调整
+    // 鏍规嵁瓒嬪娍寮哄害璋冩暣
     if (condition.strength > 50) {
       targetMultiplier *= 1.2;
     }
@@ -458,7 +493,7 @@ export class SmartSignalAnalyzer {
     };
   }
 
-  // 计算建议仓位大小
+  // 璁＄畻寤鸿浠撲綅澶у皬
   private calculatePositionSize(
     signal: SmartSignalType,
     strength: number,
@@ -467,41 +502,41 @@ export class SmartSignalAnalyzer {
   ): number {
     if (signal === 'HOLD') return 0;
 
-    let baseSize = 0.1; // 基础仓位10%
+    let baseSize = 0.1; // 鍩虹浠撲綅10%
 
-    // 根据信号强度调整
+    // 鏍规嵁淇″彿寮哄害璋冩暣
     if (signal.includes('STRONG')) {
       baseSize = 0.2;
     }
 
-    // 根据置信度调整
+    // 鏍规嵁缃俊搴﹁皟鏁?
     baseSize *= confidence;
 
-    // 根据市场条件调整
+    // 鏍规嵁甯傚満鏉′欢璋冩暣
     if (condition.volatility === 'HIGH') {
-      baseSize *= 0.7; // 高波动时减少仓位
+      baseSize *= 0.7; // 楂樻尝鍔ㄦ椂鍑忓皯浠撲綅
     } else if (condition.volatility === 'LOW') {
-      baseSize *= 1.2; // 低波动时增加仓位
+      baseSize *= 1.2; // 浣庢尝鍔ㄦ椂澧炲姞浠撲綅
     }
 
-    // 根据趋势强度调整
+    // 鏍规嵁瓒嬪娍寮哄害璋冩暣
     if (condition.strength > 70) {
       baseSize *= 1.1;
     }
 
-    return Math.max(0.01, Math.min(0.3, baseSize)); // 限制在1%-30%之间
+    return Math.max(0.01, Math.min(0.3, baseSize)); // 闄愬埗鍦?%-30%涔嬮棿
   }
 
-  // 辅助方法
+  // 杈呭姪鏂规硶
   private calculateTechnicalConfidence(indicators: TechnicalIndicatorResult): number {
     let confidence = 0.5;
 
-    // 计算布林带位置（使用实时价格优先，其次回退到中轨）
+    // 璁＄畻甯冩灄甯︿綅缃紙浣跨敤瀹炴椂浠锋牸浼樺厛锛屽叾娆″洖閫€鍒颁腑杞級
     const bollingerRange = indicators.bollinger.upper - indicators.bollinger.lower;
     const currentPrice = (typeof this.lastMarketPrice === 'number') ? this.lastMarketPrice : indicators.bollinger.middle;
     const bollingerPosition = bollingerRange > 0 ? (currentPrice - indicators.bollinger.lower) / bollingerRange : 0.5;
 
-    // 多个指标同向时增加置信度
+    // 澶氫釜鎸囨爣鍚屽悜鏃跺鍔犵疆淇″害
     const bullishSignals = [
       indicators.rsi < 30,
       indicators.macd.histogram > 0,
@@ -525,9 +560,9 @@ export class SmartSignalAnalyzer {
   }
 
   private determineTimeframe(condition: MarketCondition): string {
-    if (condition.volatility === 'HIGH') return '短线 (1-4小时)';
-    if (condition.trend !== 'SIDEWAYS' && condition.strength > 50) return '中线 (1-3天)';
-    return '日内 (15分钟-1小时)';
+    if (condition.volatility === 'HIGH') return 'Short-term (1-4h)';
+    if (condition.trend !== 'SIDEWAYS' && condition.strength > 50) return 'Medium-term (1-3d)';
+    return 'Intraday (15m-1h)';
   }
 
   private getMarketConditionType(condition: MarketCondition): 'TRENDING' | 'RANGING' | 'VOLATILE' {
@@ -543,36 +578,35 @@ export class SmartSignalAnalyzer {
     return 'NEUTRAL';
   }
 
-  // 生成推理说明
+  // 鐢熸垚鎺ㄧ悊璇存槑
   private generateTechnicalReasoning(indicators: TechnicalIndicatorResult): string {
     const reasons: string[] = [];
 
-    if (indicators.rsi < 30) reasons.push('RSI显示超卖状态');
-    else if (indicators.rsi > 70) reasons.push('RSI显示超买状态');
+    if (indicators.rsi < 30) reasons.push('RSI indicates oversold');
+    else if (indicators.rsi > 70) reasons.push('RSI indicates overbought');
 
-    if (indicators.macd.histogram > 0) reasons.push('MACD柱状图转正，动能增强');
-    else if (indicators.macd.histogram < 0) reasons.push('MACD柱状图为负，动能减弱');
+    if (indicators.macd.histogram > 0) reasons.push('MACD histogram positive (bullish momentum)');
+    else if (indicators.macd.histogram < 0) reasons.push('MACD histogram negative (bearish momentum)');
 
-    // 计算布林带位置（使用实时价格优先，其次回退到中轨）
     const bollingerRange = indicators.bollinger.upper - indicators.bollinger.lower;
     if (bollingerRange > 0) {
       const currentPrice = (typeof this.lastMarketPrice === 'number') ? this.lastMarketPrice : indicators.bollinger.middle;
       const position = (currentPrice - indicators.bollinger.lower) / bollingerRange;
-      if (position < 0.2) reasons.push('价格接近布林带下轨');
-      else if (position > 0.8) reasons.push('价格接近布林带上轨');
+      if (position < 0.2) reasons.push('Price near lower Bollinger band');
+      else if (position > 0.8) reasons.push('Price near upper Bollinger band');
     }
 
-    return reasons.length > 0 ? reasons.join('；') : '技术指标处于中性状态';
+    return reasons.length > 0 ? reasons.join('; ') : 'Technical indicators are neutral';
   }
 
   private generateRiskReasoning(condition: MarketCondition, mlResult: MLAnalysisResult | null): string {
     const risks: string[] = [];
 
-    if (condition.volatility === 'HIGH') risks.push('市场波动性较高');
-    if (condition.volume === 'LOW') risks.push('成交量偏低');
-    if (mlResult && mlResult.riskScore > 7) risks.push('AI模型显示高风险');
+    if (condition.volatility === 'HIGH') risks.push('High market volatility');
+    if (condition.volume === 'LOW') risks.push('Low trading volume');
+    if (mlResult && mlResult.riskScore > 7) risks.push('Model indicates elevated risk');
 
-    return risks.length > 0 ? `风险因素：${risks.join('，')}` : '风险水平适中';
+    return risks.length > 0 ? `Risk factors: ${risks.join('; ')}` : 'Risk level is neutral';
   }
 
   private generateFinalReasoning(
@@ -581,32 +615,32 @@ export class SmartSignalAnalyzer {
     condition: MarketCondition
   ): string {
     const trendDesc = {
-      'UPTREND': '上升趋势',
-      'DOWNTREND': '下降趋势',
-      'SIDEWAYS': '横盘整理'
+      UPTREND: 'uptrend',
+      DOWNTREND: 'downtrend',
+      SIDEWAYS: 'range'
     }[condition.trend];
 
-    return `综合分析显示${signal}信号，强度${strength.toFixed(1)}，当前市场处于${trendDesc}状态，建议谨慎操作。`;
+    return `Combined analysis suggests ${signal} (strength ${strength.toFixed(1)}). Current market is in ${trendDesc}. Consider prudent execution.`;
   }
 
-  // 风险管理调整
+  // 椋庨櫓绠＄悊璋冩暣
   private applyRiskManagement(
     signal: SmartSignalResult,
     marketData: MarketData,
     condition: MarketCondition
   ): SmartSignalResult {
-    // 高波动时降低仓位
+    // 楂樻尝鍔ㄦ椂闄嶄綆浠撲綅
     if (condition.volatility === 'HIGH') {
       signal.positionSize *= 0.7;
     }
 
-    // 低成交量时降低信号强度
+    // 浣庢垚浜ら噺鏃堕檷浣庝俊鍙峰己搴?
     if (condition.volume === 'LOW') {
       signal.strength.combined *= 0.8;
       signal.strength.confidence *= 0.9;
     }
 
-    // 确保风险回报比合理
+    // 纭繚椋庨櫓鍥炴姤姣斿悎鐞?
     if (signal.riskReward < 1.5 && signal.signal !== 'HOLD') {
       signal.positionSize *= 0.5;
     }
@@ -614,7 +648,7 @@ export class SmartSignalAnalyzer {
     return signal;
   }
 
-  // 备用信号
+  // 澶囩敤淇″彿
   private getFallbackSignal(marketData: MarketData): SmartSignalResult {
     return {
       signal: 'HOLD',
@@ -629,12 +663,12 @@ export class SmartSignalAnalyzer {
       takeProfit: marketData.price * 1.02,
       riskReward: 1,
       positionSize: 0,
-      timeframe: '观望',
+      timeframe: 'Watch',
       reasoning: {
-        technical: '技术分析失败',
-        ml: '机器学习分析不可用',
-        risk: '系统错误，建议观望',
-        final: '分析系统出现问题，建议暂时观望'
+        technical: 'Technical analysis failed',
+        ml: 'ML analysis unavailable',
+        risk: 'System error encountered',
+        final: 'Analysis system experienced an issue; suggest staying on the sidelines'
       },
       metadata: {
         timestamp: Date.now(),
@@ -646,12 +680,12 @@ export class SmartSignalAnalyzer {
     };
   }
 
-  // 获取最近的分析结果
+  // 鑾峰彇鏈€杩戠殑鍒嗘瀽缁撴灉
   getLastAnalysis(): SmartSignalResult | null {
     return this.lastAnalysis;
   }
 
-  // 获取历史数据统计
+  // 鑾峰彇鍘嗗彶鏁版嵁缁熻
   getHistoricalStats(): {
     dataPoints: number;
     avgPrice: number;
@@ -692,7 +726,60 @@ export class SmartSignalAnalyzer {
       trend
     };
   }
+
+  // 鏂板锛氳惤搴?ML 鏍锋湰锛堢Щ鍏ョ被鍐咃級
+  private async logMLSample(
+    marketData: MarketData,
+    technicalResult: TechnicalIndicatorResult,
+    mlResult: MLAnalysisResult | null,
+    result: SmartSignalResult
+  ): Promise<void> {
+    try {
+      await recommendationDatabase.initialize();
+  
+      const featuresPayload: any = {
+        fgiScore: marketData.fgiScore ?? null,
+        fundingRate: marketData.fundingRate ?? null,
+        openInterest: marketData.openInterest ?? null,
+        change24h: marketData.change24h,
+        changeFromSodUtc8: marketData.changeFromSodUtc8 ?? null
+      };
+      if (mlResult?.features) {
+        featuresPayload.ml = mlResult.features;
+      }
+  
+      const sample: MLSampleRecord = {
+        timestamp: typeof marketData.timestamp === 'number' ? marketData.timestamp : Date.now(),
+        symbol: marketData.symbol || config.trading.defaultSymbol,
+        interval: config.strategy.primaryInterval,
+        price: marketData.price,
+        features_json: (() => { try { return JSON.stringify(featuresPayload); } catch { return undefined as any; } })(),
+        indicators_json: (() => { try { return JSON.stringify(technicalResult); } catch { return undefined as any; } })(),
+        ml_prediction: mlResult?.prediction,
+        ml_confidence: mlResult?.confidence,
+        technical_strength: result?.strength?.technical ?? null,
+        combined_strength: result?.strength?.combined ?? null,
+        final_signal: result?.signal ?? null,
+        position_size: result?.positionSize ?? null,
+        target_price: result?.targetPrice ?? null,
+        stop_loss: result?.stopLoss ?? null,
+        take_profit: result?.takeProfit ?? null,
+        risk_reward: result?.riskReward ?? null,
+        reasoning_ml: mlResult?.reasoning ?? undefined,
+        reasoning_final: result?.reasoning?.final ?? undefined,
+        label_horizon_min: (config as any)?.ml?.training?.labelHorizonMinutes ?? 60,
+        label_return: null,
+        label_drawdown: null,
+        label_ready: false
+      };
+
+      await recommendationDatabase.saveMLSample(sample);
+    } catch (err) {
+      console.warn('logMLSample failed:', err);
+    }
+  }
+
 }
 
-// 导出单例实例
+// 瀵煎嚭鍗曚緥锛屼緵鍏朵粬妯″潡澶嶇敤
 export const smartSignalAnalyzer = new SmartSignalAnalyzer();

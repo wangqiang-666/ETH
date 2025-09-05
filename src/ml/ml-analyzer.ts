@@ -4,6 +4,9 @@ import { TechnicalIndicatorResult, TechnicalIndicatorAnalyzer } from '../indicat
 import { config } from '../config';
 import { EnhancedMLAnalyzer } from './enhanced-ml-analyzer';
 import { enhancedOKXDataService } from '../services/enhanced-okx-data-service';
+// 新增：离线模型加载所需
+import fs from 'fs/promises';
+import path from 'path';
 
 // 简单的线性回归模型
 class SimpleLinearRegression {
@@ -108,6 +111,28 @@ export class MLAnalyzer {
   private historicalTargets: number[] = [];
   private useEnhancedAnalyzer: boolean = false;
   private static isGloballyInitialized = false;
+  // 新增：离线阈值模型（来自 data/models/model.json）
+  private static offlineModel: any | null = null;
+  private static offlineModelPath(): string {
+    return path.resolve(process.cwd(), 'data', 'models', 'model.json');
+  }
+  static getOfflineModel() {
+    return MLAnalyzer.offlineModel;
+  }
+  static async loadOfflineModel(customPath?: string): Promise<{ ok: boolean; error?: string; model?: any }> {
+    const p = customPath || MLAnalyzer.offlineModelPath();
+    try {
+      const buf = await fs.readFile(p, 'utf-8');
+      const model = JSON.parse(buf);
+      MLAnalyzer.offlineModel = model;
+      console.log('✅ 已加载离线阈值模型:', p);
+      return { ok: true, model };
+    } catch (err: any) {
+      console.warn('⚠️ 加载离线模型失败:', err?.message || String(err));
+      MLAnalyzer.offlineModel = null;
+      return { ok: false, error: err?.message || String(err) };
+    }
+  }
 
   constructor() {
     // 异步初始化，不阻塞构造函数
@@ -130,6 +155,14 @@ export class MLAnalyzer {
       try {
         console.log('🤖 延迟加载：开始后台初始化机器学习分析系统...');
         this.isTraining = true;
+        
+        // 优先尝试加载离线阈值模型
+        const loadRes = await MLAnalyzer.loadOfflineModel();
+        if (loadRes.ok) {
+          console.log('📥 离线模型已就绪，将在信号决策中使用阈值');
+        } else {
+          console.log('ℹ️ 未发现离线模型或加载失败，继续使用内置规则');
+        }
         
         // 检查是否使用增强分析器
         const modelType = config.ml?.local?.modelType || 'linear';

@@ -193,6 +193,12 @@ export class ETHStrategyEngine {
     this.isRunning = false;
   }
 
+  // 新增：对外单次分析接口（兼容调用方 API）
+  // 允许传入可选的 marketData（当前实现内部自行获取数据）
+  async analyzeMarket(_marketData?: MarketData): Promise<StrategyResult> {
+    return await this.performAnalysis();
+  }
+
   // 主要分析循环
   private async runAnalysisLoop(): Promise<void> {
     while (this.isRunning) {
@@ -288,7 +294,7 @@ export class ETHStrategyEngine {
           ]);
           marketData.fundingRate = fundingRate || 0;
           marketData.openInterest = openInterest || 0;
-          // 新增：可选获取 FGI 情绪指数
+          // 可选：可选获取 FGI 情绪指数
           if (config.ml?.features?.sentiment?.fgi) {
             try {
               const score = await fetchFGIScore();
@@ -1068,6 +1074,11 @@ export class ETHStrategyEngine {
   // 设置分析间隔
   setAnalysisInterval(intervalMs: number): void {
     this.analysisInterval = Math.max(10000, intervalMs); // 最小10秒
+  }
+
+  // 新增：获取当前分析间隔（毫秒）
+  getAnalysisInterval(): number {
+    return this.analysisInterval;
   }
 
   // 切换数据服务

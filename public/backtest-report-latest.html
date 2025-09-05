@@ -1,0 +1,160 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>回测性能报告</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; }
+        .section { padding: 20px; border-bottom: 1px solid #eee; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+        .metric-card { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }
+        .metric-value { font-size: 24px; font-weight: bold; color: #2c3e50; }
+        .metric-label { font-size: 12px; color: #7f8c8d; margin-top: 5px; }
+        .positive { color: #27ae60; }
+        .negative { color: #e74c3c; }
+        .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 5px; margin: 5px 0; }
+        .recommendation { background: #d1ecf1; border: 1px solid #bee5eb; padding: 10px; border-radius: 5px; margin: 5px 0; }
+        .stability-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+        .excellent { background: #d4edda; color: #155724; }
+        .good { background: #cce5ff; color: #004085; }
+        .fair { background: #fff3cd; color: #856404; }
+        .poor { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 回测性能报告</h1>
+            <p>生成时间: 2025/9/5 17:25:07</p>
+            <div class="stability-badge poor">
+                策略稳定性: POOR (19分)
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📈 核心指标</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value negative">
+                        -0.04%
+                    </div>
+                    <div class="metric-label">总收益率</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value negative">
+                        -110.88%
+                    </div>
+                    <div class="metric-label">年化收益率</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">0.00%</div>
+                    <div class="metric-label">胜率</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">0.000</div>
+                    <div class="metric-label">夏普比率</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value negative">0.06%</div>
+                    <div class="metric-label">最大回撤</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">0.00</div>
+                    <div class="metric-label">盈亏比</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📊 交易统计</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">1</div>
+                    <div class="metric-label">总交易次数</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">0.0小时</div>
+                    <div class="metric-label">平均持仓时间</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value positive">-0.30%</div>
+                    <div class="metric-label">最佳交易</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value negative">-0.30%</div>
+                    <div class="metric-label">最差交易</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>⚠️ 风险分析</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">0.00%</div>
+                    <div class="metric-label">收益波动率</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">0.00%</div>
+                    <div class="metric-label">95% VaR</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">1</div>
+                    <div class="metric-label">最大连续亏损</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">-0.75</div>
+                    <div class="metric-label">恢复因子</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📅 月度表现</h2>
+            <p><strong>最佳月份:</strong> 2025-09 (-0.04%)</p>
+            <p><strong>最差月份:</strong> 2025-09 (-0.04%)</p>
+            <p><strong>盈利月份:</strong> 0/1 (0.00%)</p>
+            <p><strong>平均月收益:</strong> -0.04%</p>
+        </div>
+
+        
+        <div class="section">
+            <h2>⚠️ 风险警告</h2>
+            <div class="warning">⚠️ 胜率过低，策略可能存在系统性问题</div><div class="warning">⚠️ 盈亏比小于1，总体亏损</div><div class="warning">⚠️ 交易样本数量不足，统计结果可能不够可靠</div>
+        </div>
+        
+
+        <div class="section">
+            <h2>💡 优化建议</h2>
+            <div class="recommendation">胜率偏低，建议优化入场条件或信号筛选标准</div><div class="recommendation">盈亏比偏低，建议优化止盈止损策略</div><div class="recommendation">夏普比率偏低，需要在收益和风险之间找到更好的平衡</div><div class="recommendation">交易次数较少，可能需要更多数据来验证策略有效性</div><div class="recommendation">平均持仓时间很短，可能受到市场噪音影响较大</div>
+        </div>
+
+        <div class="section">
+            <h2>🎯 稳定性分析</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">0%</div>
+                    <div class="metric-label">月度一致性</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">0%</div>
+                    <div class="metric-label">回撤恢复</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">95%</div>
+                    <div class="metric-label">胜率稳定性</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">0%</div>
+                    <div class="metric-label">收益分布</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+    

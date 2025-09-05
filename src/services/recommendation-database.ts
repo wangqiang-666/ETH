@@ -3,6 +3,36 @@ import path from 'path';
 import fs from 'fs';
 import { RecommendationRecord } from './recommendation-tracker';
 
+// 新增：ML 样本记录类型
+export interface MLSampleRecord {
+  id?: number;
+  created_at?: Date;
+  updated_at?: Date;
+  timestamp: number; // 原始样本时间（ms）
+  symbol: string;
+  interval?: string;
+  price?: number;
+  features_json?: string; // 原始/派生特征（可包含原始向量或特征摘要）
+  indicators_json?: string; // 技术指标快照
+  ml_prediction?: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'SELL' | 'STRONG_SELL';
+  ml_confidence?: number;
+  ml_scores_json?: string; // 各子分数（technical/sentiment/volume/momentum）
+  technical_strength?: number;
+  combined_strength?: number;
+  final_signal?: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'SELL' | 'STRONG_SELL';
+  position_size?: number;
+  target_price?: number;
+  stop_loss?: number;
+  take_profit?: number;
+  risk_reward?: number;
+  reasoning_ml?: string;
+  reasoning_final?: string;
+  label_horizon_min?: number; // 期望回填标签的时间窗口（分钟）
+  label_return?: number | null; // T+Horizon 的收益（%）
+  label_drawdown?: number | null; // T+Horizon 的最大回撤（%）
+  label_ready?: boolean; // 标签是否已回填
+}
+
 /**
  * 推荐数据库服务
  * 负责推荐记录的持久化存储和查询
@@ -149,13 +179,57 @@ export class RecommendationDatabase {
         UNIQUE(strategy_type, date)
       )
     `;
+
+    // 新增：ML 样本表
+    const createMLSamplesTable = `
+      CREATE TABLE IF NOT EXISTS ml_samples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        
+        -- 样本基本信息
+        timestamp INTEGER NOT NULL, -- 原始样本时间（ms）
+        symbol TEXT NOT NULL,
+        interval TEXT,
+        price REAL,
+        
+        -- 特征与指标快照
+        features_json TEXT,
+        indicators_json TEXT,
+        
+        -- 模型输出与综合信号
+        ml_prediction TEXT CHECK (ml_prediction IN ('STRONG_BUY','BUY','HOLD','SELL','STRONG_SELL')),
+        ml_confidence REAL,
+        ml_scores_json TEXT,
+        technical_strength REAL,
+        combined_strength REAL,
+        final_signal TEXT CHECK (final_signal IN ('STRONG_BUY','BUY','HOLD','SELL','STRONG_SELL')),
+        position_size REAL,
+        target_price REAL,
+        stop_loss REAL,
+        take_profit REAL,
+        risk_reward REAL,
+        reasoning_ml TEXT,
+        reasoning_final TEXT,
+        
+        -- 标签（T+Horizon）
+        label_horizon_min INTEGER,
+        label_return REAL,
+        label_drawdown REAL,
+        label_ready BOOLEAN DEFAULT FALSE
+      )
+    `;
     
     const createIndexes = [
       'CREATE INDEX IF NOT EXISTS idx_recommendations_status ON recommendations(status)',
       'CREATE INDEX IF NOT EXISTS idx_recommendations_strategy ON recommendations(strategy_type)',
       'CREATE INDEX IF NOT EXISTS idx_recommendations_created ON recommendations(created_at)',
       'CREATE INDEX IF NOT EXISTS idx_recommendations_symbol ON recommendations(symbol)',
-      'CREATE INDEX IF NOT EXISTS idx_statistics_strategy_date ON strategy_statistics(strategy_type, date)'
+      'CREATE INDEX IF NOT EXISTS idx_statistics_strategy_date ON strategy_statistics(strategy_type, date)',
+      // 新增：ml_samples 索引
+      'CREATE INDEX IF NOT EXISTS idx_ml_samples_symbol_time ON ml_samples(symbol, timestamp)',
+      'CREATE INDEX IF NOT EXISTS idx_ml_samples_label_ready ON ml_samples(label_ready)',
+      'CREATE INDEX IF NOT EXISTS idx_ml_samples_prediction ON ml_samples(ml_prediction)'
     ];
     
     return new Promise((resolve, reject) => {
@@ -173,6 +247,15 @@ export class RecommendationDatabase {
         this.db!.run(createStatisticsTable, (err) => {
           if (err) {
             console.error('Error creating statistics table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        // 创建 ML 样本表
+        this.db!.run(createMLSamplesTable, (err) => {
+          if (err) {
+            console.error('Error creating ml_samples table:', err);
             reject(err);
             return;
           }
@@ -502,6 +585,181 @@ export class RecommendationDatabase {
   }
   
   /**
+   * 新增：保存 ML 样本
+   */
+  async saveMLSample(sample: MLSampleRecord): Promise<number> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT INTO ml_samples (
+        created_at, updated_at, timestamp, symbol, interval, price,
+        features_json, indicators_json,
+        ml_prediction, ml_confidence, ml_scores_json,
+        technical_strength, combined_strength, final_signal, position_size,
+        target_price, stop_loss, take_profit, risk_reward,
+        reasoning_ml, reasoning_final,
+        label_horizon_min, label_return, label_drawdown, label_ready
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?,
+        ?, ?, ?, ?
+      )
+    `;
+
+    const nowIso = new Date().toISOString();
+    const params = [
+      sample.created_at ? sample.created_at.toISOString() : nowIso,
+      sample.updated_at ? sample.updated_at.toISOString() : nowIso,
+      sample.timestamp,
+      sample.symbol,
+      sample.interval ?? null,
+      sample.price ?? null,
+      sample.features_json ?? null,
+      sample.indicators_json ?? null,
+      sample.ml_prediction ?? null,
+      sample.ml_confidence ?? null,
+      sample.ml_scores_json ?? null,
+      sample.technical_strength ?? null,
+      sample.combined_strength ?? null,
+      sample.final_signal ?? null,
+      sample.position_size ?? null,
+      sample.target_price ?? null,
+      sample.stop_loss ?? null,
+      sample.take_profit ?? null,
+      sample.risk_reward ?? null,
+      sample.reasoning_ml ?? null,
+      sample.reasoning_final ?? null,
+      sample.label_horizon_min ?? null,
+      sample.label_return ?? null,
+      sample.label_drawdown ?? null,
+      sample.label_ready ?? 0
+    ];
+
+    return new Promise((resolve, reject) => {
+      this.db!.run(sql, params, function (this: any, err: Error | null) {
+        if (err) {
+          console.error('Error saving ML sample:', err);
+          reject(err);
+        } else {
+          const insertedId = this && typeof this.lastID === 'number' ? this.lastID : 0;
+          resolve(insertedId);
+        }
+      });
+    });
+  }
+
+  /**
+   * 新增：更新 ML 样本标签
+   */
+  async updateMLSampleLabel(id: number, labelReturn: number | null, labelDrawdown: number | null, labelReady: boolean = true): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      UPDATE ml_samples SET
+        updated_at = ?,
+        label_return = ?,
+        label_drawdown = ?,
+        label_ready = ?
+      WHERE id = ?
+    `;
+
+    const params = [
+      new Date().toISOString(),
+      labelReturn,
+      labelDrawdown,
+      labelReady ? 1 : 0,
+      id
+    ];
+
+    return new Promise((resolve, reject) => {
+      this.db!.run(sql, params, function (err: Error | null) {
+        if (err) {
+          console.error('Error updating ML sample label:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * 新增：获取到期但尚未回填标签的样本
+   * 规则：timestamp + 60000 * COALESCE(label_horizon_min, ?) <= now
+   */
+  async getPendingLabelSamples(horizonMinutes: number, nowMs: number = Date.now(), limit: number = 500): Promise<MLSampleRecord[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM ml_samples
+      WHERE label_ready = 0
+        AND (timestamp + 60000 * COALESCE(label_horizon_min, ?)) <= ?
+      ORDER BY timestamp ASC
+      LIMIT ?
+    `;
+
+    return new Promise((resolve, reject) => {
+      this.db!.all(sql, [horizonMinutes, nowMs, limit], (err, rows: any[]) => {
+        if (err) {
+          console.error('Error querying pending label samples:', err);
+          reject(err);
+        } else {
+          const out = rows.map(r => this.rowToMLSample(r));
+          resolve(out);
+        }
+      });
+    });
+  }
+
+  /**
+   * 新增：查询样本（分页/过滤）
+   */
+  async getMLSamples(limit: number = 100, offset: number = 0, filters?: { symbol?: string; prediction?: MLSampleRecord['ml_prediction']; startTs?: number; endTs?: number; }): Promise<{ samples: MLSampleRecord[]; total: number; }> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    let where = 'WHERE 1=1';
+    const params: any[] = [];
+    if (filters?.symbol) { where += ' AND symbol = ?'; params.push(filters.symbol); }
+    if (filters?.prediction) { where += ' AND ml_prediction = ?'; params.push(filters.prediction); }
+    if (typeof filters?.startTs === 'number') { where += ' AND timestamp >= ?'; params.push(filters.startTs); }
+    if (typeof filters?.endTs === 'number') { where += ' AND timestamp <= ?'; params.push(filters.endTs); }
+
+    const countSql = `SELECT COUNT(*) as total FROM ml_samples ${where}`;
+    const total = await new Promise<number>((resolve, reject) => {
+      this.db!.get(countSql, params, (err, row: any) => {
+        if (err) reject(err); else resolve(row?.total ?? 0);
+      });
+    });
+
+    const dataSql = `
+      SELECT * FROM ml_samples
+      ${where}
+      ORDER BY timestamp DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const samples = await new Promise<MLSampleRecord[]>((resolve, reject) => {
+      this.db!.all(dataSql, [...params, limit, offset], (err, rows: any[]) => {
+        if (err) reject(err); else resolve(rows.map(r => this.rowToMLSample(r)));
+      });
+    });
+
+    return { samples, total };
+  }
+  
+  /**
    * 将数据库行转换为推荐记录对象
    */
   private rowToRecommendation(row: any): RecommendationRecord {
@@ -544,6 +802,38 @@ export class RecommendationDatabase {
       strategy_confidence_level: row.strategy_confidence_level,
       exclude_from_ml: Boolean(row.exclude_from_ml),
       notes: row.notes
+    };
+  }
+
+  // 新增：行到 ML 样本转换
+  private rowToMLSample(row: any): MLSampleRecord {
+    return {
+      id: row.id,
+      created_at: row.created_at ? new Date(row.created_at) : undefined,
+      updated_at: row.updated_at ? new Date(row.updated_at) : undefined,
+      timestamp: row.timestamp,
+      symbol: row.symbol,
+      interval: row.interval ?? undefined,
+      price: row.price ?? undefined,
+      features_json: row.features_json ?? undefined,
+      indicators_json: row.indicators_json ?? undefined,
+      ml_prediction: row.ml_prediction ?? undefined,
+      ml_confidence: row.ml_confidence ?? undefined,
+      ml_scores_json: row.ml_scores_json ?? undefined,
+      technical_strength: row.technical_strength ?? undefined,
+      combined_strength: row.combined_strength ?? undefined,
+      final_signal: row.final_signal ?? undefined,
+      position_size: row.position_size ?? undefined,
+      target_price: row.target_price ?? undefined,
+      stop_loss: row.stop_loss ?? undefined,
+      take_profit: row.take_profit ?? undefined,
+      risk_reward: row.risk_reward ?? undefined,
+      reasoning_ml: row.reasoning_ml ?? undefined,
+      reasoning_final: row.reasoning_final ?? undefined,
+      label_horizon_min: row.label_horizon_min ?? undefined,
+      label_return: typeof row.label_return === 'number' ? row.label_return : null,
+      label_drawdown: typeof row.label_drawdown === 'number' ? row.label_drawdown : null,
+      label_ready: Boolean(row.label_ready)
     };
   }
   
