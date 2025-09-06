@@ -125,13 +125,20 @@ export class HighWinrateAlgorithm {
   private readonly MIN_QUALITY_SCORE = 70;          // 最小质量评分
   private readonly MIN_RISK_REWARD_RATIO = 2.0;     // 最小风险收益比
   private readonly MAX_SIGNALS_PER_HOUR = 3;        // 每小时最大信号数
-  private readonly SIGNAL_COOLDOWN = 15 * 60 * 1000; // 信号冷却时间(15分钟)
+  private signalCooldownMs: number = 15 * 60 * 1000; // 信号冷却时间，默认15分钟，支持配置覆盖
   
   constructor() {
     this.multiFactorAnalyzer = new MultiFactorAnalyzer();
     this.initializePerformanceStats();
+    // 读取配置中的冷却时间（毫秒），默认使用 config.strategy.signalCooldownMs；若缺省则保持15分钟
+    try {
+      const cfg = (config as any)?.strategy?.signalCooldownMs;
+      if (typeof cfg === 'number' && !isNaN(cfg) && cfg > 0) {
+        this.signalCooldownMs = cfg;
+      }
+    } catch (_) {}
   }
-
+  
   /**
    * 生成高胜率交易信号
    */
@@ -195,7 +202,7 @@ export class HighWinrateAlgorithm {
     const now = Date.now();
     
     // 检查冷却时间
-    if (now - this.lastSignalTime < this.SIGNAL_COOLDOWN) {
+    if (now - this.lastSignalTime < this.signalCooldownMs) {
       return false;
     }
     

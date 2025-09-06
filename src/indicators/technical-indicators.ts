@@ -1,4 +1,4 @@
-import { RSI, MACD, BollingerBands, Stochastic, WilliamsR, EMA, SMA, ATR } from 'technicalindicators';
+import { RSI, MACD, BollingerBands, Stochastic, WilliamsR, EMA, SMA, ATR, ADX, MFI, OBV } from 'technicalindicators';
 import _ from 'lodash';
 import { config } from '../config';
 
@@ -46,6 +46,24 @@ export interface TechnicalIndicatorResult {
         average: number;
         ratio: number;
     };
+    // 新增：ADX/OBV/MFI/VWAP/Keltner/挤压
+    adx: number;
+    mfi: number;
+    obv: {
+        current: number;
+        slope: number;
+    };
+    vwap: {
+        value: number;
+        distance: number; // |price - vwap| / vwap
+    };
+    keltner: {
+        upper: number;
+        middle: number;
+        lower: number;
+        bandwidth: number; // (upper-lower)/middle
+    };
+    squeeze?: boolean;
 }
 
 /**
@@ -117,6 +135,16 @@ export class TechnicalIndicatorAnalyzer {
             const emaShort = config.indicators.ema.shortPeriod || 12;
             const emaLong = config.indicators.ema.longPeriod || 26;
             const emaTrendPeriod = config.indicators.ema.trendPeriod || 100;
+            // 新增参数
+            const adxPeriod = config.indicators.adx?.period || 14;
+            const obvSlopeWindow = config.indicators.obv?.slopeWindow || 14;
+            const mfiPeriod = config.indicators.mfi?.period || 14;
+            const kcPeriod = config.indicators.keltner?.period || 20;
+            const kcAtrPeriod = config.indicators.keltner?.atrPeriod || 20;
+            const kcMultiplier = config.indicators.keltner?.multiplier || 2;
+            const vwapWindow = Math.min(bbPeriod, closes.length);
+            const bbBwThr = config.indicators.squeeze?.bbBandwidth ?? 0.07;
+            const kcBwThr = config.indicators.squeeze?.kcBandwidth ?? 0.05;
             
             // RSI计算
             const rsiValues = RSI.calculate({ values: closes, period: rsiPeriod });
@@ -140,6 +168,7 @@ export class TechnicalIndicatorAnalyzer {
                 stdDev: bbStd
             });
             const currentBB = bbValues[bbValues.length - 1] || { upper: 0, middle: 0, lower: 0 };
+            const bbBandwidth = (currentBB.middle && currentBB.middle > 0) ? (currentBB.upper - currentBB.lower) / currentBB.middle : 0;
             
             // KDJ计算 (使用Stochastic)
             const stochValues = Stochastic.calculate({
@@ -182,11 +211,77 @@ export class TechnicalIndicatorAnalyzer {
             });
             const currentATR = atrValues[atrValues.length - 1] || 0;
             
-            // 成交量分析
-            const recentVolumes = volumes.slice(-20);
-            const avgVolume = _.mean(recentVolumes);
-            const currentVolume = volumes[volumes.length - 1];
+            // 新增：成交量统计（当前/均值/比值）
+            const currentVolume = volumes[volumes.length - 1] ?? 0;
+            const avgVolumeWindow = Math.min(20, volumes.length);
+            const avgVolume = avgVolumeWindow > 0 
+                ? volumes.slice(-avgVolumeWindow).reduce((sum, v) => sum + v, 0) / avgVolumeWindow 
+                : 0;
             const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 1;
+            
+            // 新增：ADX 计算
+            let currentADX = 0;
+            try {
+                const adxValues: any[] = ADX.calculate({ high: highs, low: lows, close: closes, period: adxPeriod }) as any[];
+                const last = adxValues && adxValues.length ? adxValues[adxValues.length - 1] : undefined;
+                currentADX = typeof last === 'number' ? last : (last?.adx ?? 0);
+            } catch {
+                currentADX = 0;
+            }
+            
+            // 新增：MFI 计算
+            let currentMFI = 50;
+            try {
+                const mfiValues: number[] = MFI.calculate({ high: highs, low: lows, close: closes, volume: volumes, period: mfiPeriod }) as number[];
+                currentMFI = mfiValues[mfiValues.length - 1] ?? 50;
+            } catch {
+                currentMFI = 50;
+            }
+            
+            // 新增：OBV 与斜率
+            let currentOBV = 0; let obvSlope = 0;
+            try {
+                const obvSeries: number[] = OBV.calculate({ close: closes, volume: volumes }) as number[];
+                if (obvSeries?.length) {
+                    currentOBV = obvSeries[obvSeries.length - 1];
+                    if (obvSeries.length > obvSlopeWindow) {
+                        obvSlope = (currentOBV - obvSeries[obvSeries.length - 1 - obvSlopeWindow]) / obvSlopeWindow;
+                    }
+                }
+            } catch {
+                currentOBV = 0; obvSlope = 0;
+            }
+            
+            // 新增：VWAP（窗口内成交量加权平均价）
+            let vwapValue = closes[closes.length - 1];
+            let vwapDistance = 0;
+            try {
+                const start = closes.length - vwapWindow;
+                let tpvSum = 0; let volSum = 0;
+                for (let i = Math.max(0, start); i < closes.length; i++) {
+                    const tp = (highs[i] + lows[i] + closes[i]) / 3;
+                    const vol = volumes[i];
+                    tpvSum += tp * vol;
+                    volSum += vol;
+                }
+                vwapValue = volSum > 0 ? (tpvSum / volSum) : closes[closes.length - 1];
+                vwapDistance = vwapValue > 0 ? Math.abs(closes[closes.length - 1] - vwapValue) / vwapValue : 0;
+            } catch {
+                vwapValue = closes[closes.length - 1];
+                vwapDistance = 0;
+            }
+            
+            // 新增：Keltner Channels
+            const atrKCValues = ATR.calculate({ high: highs, low: lows, close: closes, period: kcAtrPeriod });
+            const emaKCValues = EMA.calculate({ values: closes, period: kcPeriod });
+            const lastATRKC = atrKCValues[atrKCValues.length - 1] || currentATR;
+            const lastEMAKC = emaKCValues[emaKCValues.length - 1] || closes[closes.length - 1];
+            const kcUpper = lastEMAKC + kcMultiplier * lastATRKC;
+            const kcLower = lastEMAKC - kcMultiplier * lastATRKC;
+            const kcBandwidth = lastEMAKC > 0 ? (kcUpper - kcLower) / lastEMAKC : 0;
+            
+            // 新增：挤压检测（BB + KC）
+            const isSqueeze = (bbBandwidth > 0 && kcBandwidth > 0) ? (bbBandwidth <= bbBwThr && kcBandwidth <= kcBwThr) : false;
             
             return {
                 rsi: currentRSI,
@@ -215,7 +310,14 @@ export class TechnicalIndicatorAnalyzer {
                     current: currentVolume,
                     average: avgVolume,
                     ratio: volumeRatio
-                }
+                },
+                // 新增返回值
+                adx: currentADX,
+                mfi: currentMFI,
+                obv: { current: currentOBV, slope: obvSlope },
+                vwap: { value: vwapValue, distance: vwapDistance },
+                keltner: { upper: kcUpper, middle: lastEMAKC, lower: kcLower, bandwidth: kcBandwidth },
+                squeeze: isSqueeze
             };
             
         } catch (error) {

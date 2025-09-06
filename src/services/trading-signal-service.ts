@@ -116,14 +116,47 @@ export class TradingSignalService {
     strength?: number;
   }> {
     try {
-      // 基于策略结果生成信号
+      // 映射工具：多种来源映射为 LONG/SHORT/HOLD
+      const mapToLS = (val: any): 'LONG' | 'SHORT' | 'HOLD' => {
+        if (!val) return 'HOLD';
+        const s = String(val).toUpperCase();
+        if (s === 'OPEN_LONG' || s === 'LONG' || s === 'BUY' || s === 'STRONG_BUY') return 'LONG';
+        if (s === 'OPEN_SHORT' || s === 'SHORT' || s === 'SELL' || s === 'STRONG_SELL') return 'SHORT';
+        return 'HOLD';
+      };
+
+      // 1) 优先使用新版 recommendation.action（对象结构）
+      let action: 'LONG' | 'SHORT' | 'HOLD' = mapToLS(strategyResult?.recommendation?.action);
+
+      // 2) 兼容旧版 recommendation 字符串
+      if (action === 'HOLD' && typeof strategyResult?.recommendation === 'string') {
+        action = mapToLS(strategyResult?.recommendation);
+      }
+
+      // 3) 若仍为 HOLD，尝试从信号强弱方向中推导（用于反向并存场景）
+      if (action === 'HOLD' && strategyResult?.signal?.signal) {
+        action = mapToLS(strategyResult.signal.signal);
+      }
+
+      // 置信度优先级：recommendation.confidence > signal.strength.confidence
+      const confidence =
+        Number(strategyResult?.recommendation?.confidence) ||
+        Number(strategyResult?.signal?.strength?.confidence) ||
+        0.6;
+
+      // 风险管理参数优先从 strategyResult.riskManagement 读取
+      const rm = strategyResult?.riskManagement || {};
+      const leverage = Number(rm?.leverage) || Number(strategyResult?.leverage) || 2;
+      const stopLoss = Number.isFinite(rm?.stopLoss) ? rm.stopLoss : strategyResult?.stopLoss;
+      const takeProfit = Number.isFinite(rm?.takeProfit) ? rm.takeProfit : strategyResult?.takeProfit;
+
       return {
-        action: strategyResult.recommendation,
-        confidence: strategyResult.confidence || 0.6,
-        leverage: strategyResult.leverage || 2,
-        stopLoss: strategyResult.stopLoss,
-        takeProfit: strategyResult.takeProfit,
-        strength: strategyResult.confidence || 0.6
+        action,
+        confidence,
+        leverage,
+        stopLoss,
+        takeProfit,
+        strength: confidence
       };
     } catch (error) {
       console.error('Error generating signal:', error);

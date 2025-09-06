@@ -8,6 +8,7 @@ import { ETHStrategyEngine } from '../strategy/eth-strategy-engine';
 import { TradingSignalService } from './trading-signal-service';
 import { RiskManagementService } from './risk-management-service';
 import { EventEmitter } from 'events';
+import { config } from '../config';
 
 /**
  * 推荐系统集成服务
@@ -47,7 +48,7 @@ export class RecommendationIntegrationService extends EventEmitter {
     this.priceMonitor = new PriceMonitor(dataService);
     this.tracker = new RecommendationTracker();
     this.statisticsCalculator = new StatisticsCalculator(this.database);
-    this.api = new RecommendationAPI(dataService, this.database);
+    this.api = new RecommendationAPI(dataService, this.database, this.tracker);
     // 注入：当通过 HTTP 创建推荐时，转发到外部数据库 API（异步，不阻塞响应）
     this.api.setOnCreateHook((id: string, data: any) => {
       return this.postRecommendationToDBAPI(id, data);
@@ -119,9 +120,20 @@ export class RecommendationIntegrationService extends EventEmitter {
       await this.tracker.start();
       console.log('Recommendation tracker started');
       
+      // 自动启动自动推荐，读取配置的轮询间隔（默认15秒，失败则回退60秒）
+      try {
+        const { config } = await import('../config');
+        const intervalMs = Number((config as any)?.strategy?.autoRecommendationIntervalMs ?? 15000);
+        this.startAutoRecommendation(intervalMs);
+        console.log(`Auto recommendation started with ${intervalMs}ms interval`);
+      } catch (e) {
+        console.warn('Failed to start auto recommendation with config, fallback to default 60000ms');
+        this.startAutoRecommendation(60000);
+      }
+
       this.isRunning = true;
+
       console.log('Recommendation system started successfully');
-      
       this.emit('started');
       
     } catch (error) {
@@ -213,62 +225,119 @@ export class RecommendationIntegrationService extends EventEmitter {
       
       // 运行策略分析
       const strategyResult = await this.strategyEngine.analyzeMarket();
+
+      // 读取配置：是否允许反向并存与最低置信度
+      const { config } = await import('../config');
+      const allowOpposite = (config as any)?.strategy?.allowOppositeWhileOpen === true;
+      const oppositeMinConf = Number((config as any)?.strategy?.oppositeMinConfidence ?? 0.7);
+      const allowAutoOnHighRisk = (config as any)?.strategy?.allowAutoOnHighRisk === true;
+
+      // 获取当前活跃推荐
+      const active = this.tracker.getActiveRecommendations();
+      const hasActive = active && active.length > 0;
+      const hasLong = active.some(r => r.direction === 'LONG' && r.status === 'ACTIVE');
+      const hasShort = active.some(r => r.direction === 'SHORT' && r.status === 'ACTIVE');
+
       // 适配新版结构：recommendation 为对象，使用 action 字段
-      if (!strategyResult || !strategyResult.recommendation || strategyResult.recommendation.action === 'HOLD') {
-        console.log('No actionable recommendation from strategy engine');
+      const action = strategyResult?.recommendation?.action as string | undefined;
+
+      // 辅助：从 strategyResult 派生方向与置信度
+      const deriveDirection = (): 'LONG' | 'SHORT' | null => {
+      const a = String(action || '').toUpperCase();
+      if (a === 'OPEN_LONG') return 'LONG';
+      if (a === 'OPEN_SHORT') return 'SHORT';
+      // fallback 从信号推导
+      const sig = String(strategyResult?.signal?.signal || '').toUpperCase();
+      if (sig === 'STRONG_BUY' || sig === 'BUY') return 'LONG';
+      if (sig === 'STRONG_SELL' || sig === 'SELL') return 'SHORT';
+      return null;
+      };
+      const direction = deriveDirection();
+      const confidence = Number(
+        strategyResult?.recommendation?.confidence ||
+        strategyResult?.signal?.strength?.confidence ||
+        0
+      );
+
+      // 获取交易信号（使用增强后的 TradingSignalService）
+      const signal = await this.signalService.generateSignal(marketData, strategyResult);
+
+      // 风险评估
+      const riskAssessment = await this.riskService.assessRisk(marketData, signal);
+
+      // 情况A：策略明确给出开仓动作
+      if (action === 'OPEN_LONG' || action === 'OPEN_SHORT') {
+        if (riskAssessment.riskLevel === 'HIGH' && !allowAutoOnHighRisk) {
+          console.log('Risk level too high for auto recommendation');
+          return;
+        }
+        // 若已有同向活跃单，仍允许并存；若已有反向活跃单，尊重开关与最低置信度
+        if ((hasActive && ((action === 'OPEN_LONG' && hasShort) || (action === 'OPEN_SHORT' && hasLong)))) {
+          if (!allowOpposite || confidence < oppositeMinConf) {
+            console.log('Opposite co-existence disabled or confidence below threshold, skip');
+            return;
+          }
+        }
+        // 构造并创建推荐
+        const recommendation = {
+          symbol: 'ETH-USDT',
+          direction: action === 'OPEN_LONG' ? 'LONG' : 'SHORT' as 'LONG' | 'SHORT',
+          entry_price: marketData.currentPrice,
+          current_price: marketData.currentPrice,
+          leverage: signal.leverage || 1,
+          stop_loss: signal.stopLoss,
+          take_profit: signal.takeProfit,
+          strategy_type: 'AUTO',
+          confidence: signal.confidence,
+          signal_strength: signal.strength,
+          risk_level: riskAssessment.riskLevel,
+          source: 'AUTO_GENERATION',
+          is_strategy_generated: true,
+          exclude_from_ml: false,
+          status: 'PENDING' as const
+        };
+        const recommendationId = await this.tracker.addRecommendation(recommendation);
+        this.postRecommendationToDBAPI(recommendationId, recommendation).catch(err => {
+          console.warn('Sync to DB API failed (auto generation):', err?.message || err);
+        });
+        console.log(`Auto recommendation created: ${recommendationId}`);
+        this.emit('auto_recommendation_created', { id: recommendationId, recommendation });
         return;
       }
 
-      // 仅在出现开仓机会时自动生成推荐，其它动作（如减仓/平仓）跳过
-      const action = strategyResult.recommendation.action;
-      if (action !== 'OPEN_LONG' && action !== 'OPEN_SHORT') {
-        console.log(`Skip auto recommendation for non-open action: ${action}`);
-        return;
+      // 情况B：无开仓动作（如 CLOSE/REDUCE/HOLD），考虑“反向并存”触发
+      if (allowOpposite && hasActive && direction && (riskAssessment.riskLevel !== 'HIGH' || allowAutoOnHighRisk)) {
+        // 仅在存在反向持仓/推荐时触发
+        const isOppositeToActive = (direction === 'LONG' && hasShort) || (direction === 'SHORT' && hasLong);
+        if (isOppositeToActive && (signal.confidence ?? confidence) >= oppositeMinConf) {
+          const recommendation = {
+            symbol: 'ETH-USDT',
+            direction,
+            entry_price: marketData.currentPrice,
+            current_price: marketData.currentPrice,
+            leverage: signal.leverage || 1,
+            stop_loss: signal.stopLoss,
+            take_profit: signal.takeProfit,
+            strategy_type: 'AUTO_OPPOSITE',
+            confidence: signal.confidence ?? confidence,
+            signal_strength: signal.strength ?? confidence,
+            risk_level: riskAssessment.riskLevel,
+            source: 'AUTO_GENERATION',
+            is_strategy_generated: true,
+            exclude_from_ml: false,
+            status: 'PENDING' as const
+          };
+          const recommendationId = await this.tracker.addRecommendation(recommendation);
+          this.postRecommendationToDBAPI(recommendationId, recommendation).catch(err => {
+            console.warn('Sync to DB API failed (auto generation opposite):', err?.message || err);
+          });
+          console.log(`Auto opposite recommendation created: ${recommendationId}`);
+          this.emit('auto_recommendation_created', { id: recommendationId, recommendation });
+          return;
+        }
       }
-      
-      // 获取交易信号
-      const signal = await this.signalService.generateSignal(marketData, strategyResult);
-      if (!signal || signal.confidence < 0.6) {
-        console.log('Signal confidence too low for auto recommendation');
-        return;
-      }
-      
-      // 风险评估
-      const riskAssessment = await this.riskService.assessRisk(marketData, signal);
-      if (riskAssessment.riskLevel === 'HIGH') {
-        console.log('Risk level too high for auto recommendation');
-        return;
-      }
-      
-      // 创建推荐记录
-      const recommendation = {
-        symbol: 'ETH-USDT',
-        direction: action === 'OPEN_LONG' ? 'LONG' : 'SHORT' as 'LONG' | 'SHORT',
-        entry_price: marketData.currentPrice,
-        current_price: marketData.currentPrice,
-        leverage: signal.leverage || 1,
-        stop_loss: signal.stopLoss,
-        take_profit: signal.takeProfit,
-        strategy_type: 'AUTO',
-        confidence: signal.confidence,
-        signal_strength: signal.strength,
-        risk_level: riskAssessment.riskLevel,
-        source: 'AUTO_GENERATION',
-        is_strategy_generated: true,
-        exclude_from_ml: false,
-        status: 'PENDING' as const
-      };
-      
-      // 添加推荐到跟踪器
-      const recommendationId = await this.tracker.addRecommendation(recommendation);
-      
-      // 将推荐同步写入本地数据库API（异步，不阻塞主流程）
-      this.postRecommendationToDBAPI(recommendationId, recommendation).catch(err => {
-        console.warn('Sync to DB API failed (auto generation):', err?.message || err);
-      });
-      
-      console.log(`Auto recommendation created: ${recommendationId}`);
-      this.emit('auto_recommendation_created', { id: recommendationId, recommendation });
+
+      console.log('No actionable recommendation from strategy engine');
       
     } catch (error) {
       console.error('Failed to generate auto recommendation:', error);
@@ -315,39 +384,49 @@ export class RecommendationIntegrationService extends EventEmitter {
    */
   private async handleStrategyRecommendation(strategyResult: any): Promise<void> {
     try {
-      if (strategyResult.recommendation === 'HOLD') {
-        return;
-      }
-      
-      // 获取当前市场数据
-      const marketData = await this.priceMonitor.getMarketData('ETH-USDT');
-      if (!marketData) {
-        return;
-      }
-      
-      // 创建推荐记录
-      const recommendation = {
-        symbol: 'ETH-USDT',
-        direction: strategyResult.recommendation as 'LONG' | 'SHORT',
-        entry_price: marketData.currentPrice,
-        current_price: marketData.currentPrice,
-        leverage: strategyResult.leverage || 1,
-        stop_loss: strategyResult.stopLoss,
-        take_profit: strategyResult.takeProfit,
-        strategy_type: strategyResult.strategyType || 'STRATEGY_ENGINE',
-        confidence: strategyResult.confidence || 0.5,
-        signal_strength: strategyResult.strength || 0.5,
-        source: 'STRATEGY_ENGINE',
-        is_strategy_generated: true,
-        exclude_from_ml: false
+      // 适配新版结构：recommendation 为对象，使用 action 字段
+      const action = strategyResult?.recommendation?.action as string | undefined;
+      const deriveDirection = (): 'LONG' | 'SHORT' | null => {
+      const a = String(action || '').toUpperCase();
+      if (a === 'OPEN_LONG') return 'LONG';
+      if (a === 'OPEN_SHORT') return 'SHORT';
+      const sig = String(strategyResult?.signal?.signal || '').toUpperCase();
+      if (sig === 'STRONG_BUY' || sig === 'BUY') return 'LONG';
+      if (sig === 'STRONG_SELL' || sig === 'SELL') return 'SHORT';
+      return null;
       };
-      
-      await this.createRecommendation(recommendation);
-      
-    } catch (error) {
-      console.error('Error handling strategy recommendation:', error);
-    }
-  }
+      const direction = deriveDirection();
+      if (!direction) return;
+       
+       // 获取当前市场数据
+       const marketData = await this.priceMonitor.getMarketData('ETH-USDT');
+       if (!marketData) {
+         return;
+       }
+       
+       // 创建推荐记录
+       const recommendation = {
+         symbol: 'ETH-USDT',
+         direction,
+         entry_price: marketData.currentPrice,
+         current_price: marketData.currentPrice,
+         leverage: strategyResult.leverage || 1,
+         stop_loss: strategyResult.stopLoss,
+         take_profit: strategyResult.takeProfit,
+         strategy_type: strategyResult.strategyType || 'STRATEGY_ENGINE',
+         confidence: (strategyResult?.recommendation?.confidence ?? strategyResult?.signal?.strength?.confidence ?? 0.5) as number,
+         signal_strength: strategyResult.strength || 0.5,
+         source: 'STRATEGY_ENGINE',
+         is_strategy_generated: true,
+         exclude_from_ml: false
+       };
+       
+       await this.createRecommendation(recommendation);
+       
+     } catch (error) {
+       console.error('Error handling strategy recommendation:', error);
+     }
+   }
   
   /**
    * 处理交易信号
@@ -479,6 +558,27 @@ export class RecommendationIntegrationService extends EventEmitter {
       }
       const baseUrl = process.env.DB_API_URL || 'http://localhost:3001';
       const apiKey = process.env.DB_API_KEY;
+
+      // 自调用环路防护：当 DB_API_URL 指向本进程所提供的 /api 时，直接跳过，避免重复插入
+      try {
+        const u = new URL(baseUrl);
+        const webPort = parseInt(
+          process.env.WEB_PORT || String((config as any)?.webServer?.port || (config as any)?.web?.port || 3001),
+          10
+        );
+        const webHost = (process.env.WEB_HOST || (config as any)?.webServer?.host || 'localhost') as string;
+        const urlPort = u.port ? parseInt(u.port, 10) : (u.protocol === 'https:' ? 443 : 80);
+        const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0', webHost].includes(u.hostname);
+        const samePort = urlPort === webPort;
+        if (isLocalHost && samePort) {
+          console.log(
+            `[RecommendationIntegration] Skip posting to DB API because baseUrl=${baseUrl} points to this process (${webHost}:${webPort}).`
+          );
+          return;
+        }
+      } catch {
+        // 解析失败不影响后续发送
+      }
       
       // 字段映射到数据库API所需的字段
       const payload: any = {
@@ -503,7 +603,7 @@ export class RecommendationIntegrationService extends EventEmitter {
         notes: data.notes
       };
       
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Loop-Guard': '1' };
       if (apiKey) headers['X-API-Key'] = String(apiKey);
       
       const resp = await fetchFn(`${baseUrl}/api/recommendations`, {

@@ -141,8 +141,16 @@ export class RecommendationTracker {
   async addRecommendation(recommendation: Omit<RecommendationRecord, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
     const id = uuidv4();
     const now = new Date();
-    
-    // 获取市场数据（可通过环境变量在创建阶段禁用外部请求，避免超时）
+  
+    // 统一字段命名（兼容 stop_loss/take_profit/confidence -> *_price/confidence_score）
+    const anyRec: any = recommendation as any;
+    const normalized = {
+      stop_loss_price: anyRec.stop_loss_price ?? (typeof anyRec.stop_loss === 'number' ? anyRec.stop_loss : undefined),
+      take_profit_price: anyRec.take_profit_price ?? (typeof anyRec.take_profit === 'number' ? anyRec.take_profit : undefined),
+      confidence_score: anyRec.confidence_score ?? (typeof anyRec.confidence === 'number' ? anyRec.confidence : undefined)
+    } as Partial<RecommendationRecord>;
+
+    // 获取市场数据（可通过环境变量在创建阶段禁用外部行情，避免超时）
     let marketData;
     if (DISABLE_EXTERNAL_MARKET_ON_CREATE) {
       console.log('[RecommendationTracker] Skip external market fetch on create (DISABLE_EXTERNAL_MARKET_ON_CREATE=true)');
@@ -168,9 +176,10 @@ export class RecommendationTracker {
         };
       }
     }
-    
+
     const record: RecommendationRecord = {
       ...recommendation,
+      ...normalized,
       id,
       created_at: now,
       updated_at: now,
@@ -181,13 +190,13 @@ export class RecommendationTracker {
       source: recommendation.source || 'STRATEGY_AUTO',
       is_strategy_generated: recommendation.is_strategy_generated !== false
     };
-    
+
     // 添加到内存缓存
     this.activeRecommendations.set(id, record);
-    
+
     // 保存到数据库
     await this.saveToDatabase(record);
-    
+
     console.log(`Added recommendation ${id} for tracking: ${record.symbol} ${record.direction} @ ${record.entry_price}`);
     return id;
   }
@@ -197,6 +206,13 @@ export class RecommendationTracker {
    */
   getActiveRecommendations(): RecommendationRecord[] {
     return Array.from(this.activeRecommendations.values());
+  }
+  
+  /**
+   * 从活跃缓存中移除指定推荐
+   */
+  removeFromActiveCache(id: string): boolean {
+    return this.activeRecommendations.delete(id);
   }
   
   /**

@@ -119,11 +119,13 @@ export class RiskManagementService {
         riskLevel = 'HIGH';
       }
       
+      const maxL = Math.min(20, this.riskConfig.maxLeverage);
+      
       return {
         riskLevel,
         riskScore,
         maxPosition: Math.max(0.1, 1 - riskScore), // 风险越高，仓位越小
-        recommendedLeverage: Math.max(1, Math.min(5, Math.floor((1 - riskScore) * 5))) // 风险越高，杠杆越低
+        recommendedLeverage: Math.max(2, Math.min(maxL, Math.floor((1 - riskScore) * maxL))) // 风险越高，杠杆越低，最少2x
       };
     } catch (error) {
       console.error('Error assessing risk:', error);
@@ -346,16 +348,32 @@ export class RiskManagementService {
   } {
     this.checkDailyReset();
     
-    const dailyLossRatio = this.dailyLoss / this.riskConfig.maxDailyLoss;
+    // 防御：确保分母为正且有限，避免出现 Infinity/NaN 导致调用方 toFixed 抛错
+    const lossLimitRaw = this.riskConfig.maxDailyLoss;
+    const lossLimit = Number.isFinite(lossLimitRaw) && lossLimitRaw > 0 ? lossLimitRaw : 0;
+
+    let dailyLossRatio = 0;
+    if (lossLimit > 0) {
+      dailyLossRatio = this.dailyLoss / lossLimit;
+    } else {
+      // 当配置为0或非法时，将比例钉在100%，并提升风险等级
+      dailyLossRatio = 1; // 相当于100%
+    }
+
+    // 归一化/钳制，保证是有限值
+    if (!Number.isFinite(dailyLossRatio) || isNaN(dailyLossRatio)) {
+      dailyLossRatio = 1;
+    }
+    dailyLossRatio = Math.max(0, Math.min(dailyLossRatio, 1e6));
+
     let riskLevel = 'LOW';
-    
     if (dailyLossRatio > 0.8) riskLevel = 'EXTREME';
     else if (dailyLossRatio > 0.6) riskLevel = 'HIGH';
     else if (dailyLossRatio > 0.4) riskLevel = 'MEDIUM';
-    
+
     return {
       dailyLoss: this.dailyLoss,
-      dailyLossLimit: this.riskConfig.maxDailyLoss,
+      dailyLossLimit: lossLimit, // 返回已校验后的limit
       dailyLossRatio,
       tradesCount: this.dailyTrades.length,
       riskLevel
@@ -387,13 +405,14 @@ export class RiskManagementService {
   }
 
   private calculateRecommendedLeverage(riskScore: number, signal: SmartSignalResult): number {
-    const maxLeverage = this.riskConfig.maxLeverage;
-    const baseLeverage = Math.min(maxLeverage, Math.max(1, Math.floor(10 * signal.strength.confidence)));
+    const maxLeverage = Math.min(20, this.riskConfig.maxLeverage);
+    const confidence = Math.max(0, Math.min(1, signal.strength?.confidence ?? 0));
+    const baseLeverage = Math.min(maxLeverage, Math.max(2, Math.floor(maxLeverage * confidence)));
     
     // 根据风险评分调整杠杆
     const riskMultiplier = Math.max(0.3, (10 - riskScore) / 10);
     
-    return Math.max(1, Math.floor(baseLeverage * riskMultiplier));
+    return Math.max(2, Math.min(maxLeverage, Math.floor(baseLeverage * riskMultiplier)));
   }
 
   private calculateStopLevels(signal: SmartSignalResult, marketData: MarketData): {

@@ -81,7 +81,7 @@ export const config = {
         ],
         intervals: ['1m', '5m', '15m', '1H', '4H', '1D'],
         defaultLeverage: parseInt(process.env.DEFAULT_LEVERAGE || '3'),
-        maxLeverage: parseInt(process.env.MAX_LEVERAGE || '10'),
+        maxLeverage: parseInt(process.env.MAX_LEVERAGE || '20'),
         maxPositions: parseInt(process.env.MAX_POSITIONS || '5')
     },
     
@@ -128,13 +128,41 @@ export const config = {
         },
         sma: {
             periods: [5, 10, 20, 50, 200]
+        },
+        adx: {
+            period: parseInt(process.env.ADX_PERIOD || '14'),
+            weak: parseFloat(process.env.ADX_WEAK || '20'),
+            strong: parseFloat(process.env.ADX_STRONG || '25')
+        },
+        obv: {
+            slopeWindow: parseInt(process.env.OBV_SLOPE_WINDOW || '14')
+        },
+        mfi: {
+            period: parseInt(process.env.MFI_PERIOD || '14'),
+            hot: parseFloat(process.env.MFI_HOT || '80'),
+            cold: parseFloat(process.env.MFI_COLD || '20')
+        },
+        vwap: {
+            enabled: (process.env.VWAP_ENABLED || 'true') === 'true',
+            distanceTrend: parseFloat(process.env.VWAP_DISTANCE_TREND || '0.015'),
+            distanceMeanRevert: parseFloat(process.env.VWAP_DISTANCE_MEAN_REVERT || '0.008')
+        },
+        keltner: {
+            period: parseInt(process.env.KC_PERIOD || '20'),
+            atrPeriod: parseInt(process.env.KC_ATR_PERIOD || '20'),
+            multiplier: parseFloat(process.env.KC_MULTIPLIER || '2'),
+            squeezeBandwidth: parseFloat(process.env.KC_SQUEEZE_BW || '0.05')
+        },
+        squeeze: {
+            bbBandwidth: parseFloat(process.env.SQUEEZE_BB_BW || '0.07'),
+            kcBandwidth: parseFloat(process.env.SQUEEZE_KC_BW || '0.05')
         }
     },
     
     // 策略配置
     strategy: {
         // 信号强度阈值（0-1），用于交易决策过滤
-        signalThreshold: parseFloat(process.env.SIGNAL_THRESHOLD || '0.65'),
+        signalThreshold: parseFloat(process.env.SIGNAL_THRESHOLD || '0.50'),
         // 最小历史胜率（百分比数值，如 55 表示 55%）
         minWinRate: parseFloat(process.env.MIN_WIN_RATE || '55'),
         // 是否启用机器学习辅助分析
@@ -151,10 +179,20 @@ export const config = {
         // 入场过滤规则（更严格以提高胜率）
         entryFilters: {
             trendFilter: (process.env.TREND_FILTER || 'true') === 'true',
-            minCombinedStrengthLong: parseFloat(process.env.MIN_COMBINED_LONG || '65'),
-            minCombinedStrengthShort: parseFloat(process.env.MIN_COMBINED_SHORT || '65'),
+            minCombinedStrengthLong: parseFloat(process.env.MIN_COMBINED_LONG || '55'),
+            minCombinedStrengthShort: parseFloat(process.env.MIN_COMBINED_SHORT || '55'),
             allowHighVolatilityEntries: (process.env.ALLOW_HIGH_VOL || 'false') === 'true'
-        }
+        },
+        // 新增：允许在已有持仓/推荐时生成反向推荐
+        allowOppositeWhileOpen: (process.env.ALLOW_OPPOSITE_WHILE_OPEN || 'true') === 'true',
+        // 新增：生成反向推荐的最低置信度阈值（默认0.70）
+        oppositeMinConfidence: parseFloat(process.env.OPPOSITE_MIN_CONFIDENCE || '0.70'),
+        // 新增：允许在风险评估为 HIGH 时仍自动出单（仅用于观测/调试）
+        allowAutoOnHighRisk: (process.env.ALLOW_AUTO_ON_HIGH_RISK || 'false') === 'true',
+        // 新增：自动推荐轮询间隔（毫秒），降低可更快出单
+        autoRecommendationIntervalMs: parseInt(process.env.AUTO_RECO_INTERVAL_MS || '15000'),
+        // 新增：策略信号冷却时间（毫秒），默认15分钟
+        signalCooldownMs: parseInt(process.env.SIGNAL_COOLDOWN_MS || '900000')
     },
     
     // 机器学习配置（仅本地模型）
