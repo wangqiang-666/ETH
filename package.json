@@ -13,7 +13,8 @@
     "monitor": "tsx src/monitor.ts",
     "web": "tsx src/server/web-server.ts",
     "selfcheck:proxy": "node ./scripts/selfcheck-proxy.cjs",
-    "ml:train": "tsx src/ml/train.ts"
+    "ml:train": "tsx src/ml/train.ts",
+    "backfill:targets": "tsx src/scripts/backfill-target-prices.ts"
   },
   "keywords": [
     "ethereum",

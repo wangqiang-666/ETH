@@ -65,15 +65,28 @@ export class PerformanceAnalyzer {
   generateReport(result: BacktestResult): PerformanceReport {
     const { summary, trades, monthlyReturns } = result;
 
+    // 短样本稳健展示控制（仅影响展示，不改变底层统计值）
+    const obsDays: number = (summary as any).observationDays ?? 0;
+    const returnObs: number = (summary as any).returnObservations ?? 0;
+    const sampleQuality: 'INSUFFICIENT' | 'LIMITED' | 'ADEQUATE' | undefined = (summary as any).sampleQuality;
+    const isShortTrades = summary.totalTrades < 10;
+    const isShortDays = obsDays > 0 && obsDays < 30;
+    const isLowReturnObs = returnObs > 0 && returnObs < 10;
+    const shortSample = isShortTrades || isShortDays || isLowReturnObs || sampleQuality === 'INSUFFICIENT';
+
+    const annualizedStr = shortSample ? 'N/A' : `${(summary.annualizedReturn * 100).toFixed(2)}%`;
+    const sharpeStr = shortSample ? 'N/A' : summary.sharpeRatio.toFixed(3);
+    const calmarStr = shortSample ? 'N/A' : summary.calmarRatio.toFixed(3);
+
     // 概览
     const overview = {
       totalReturn: `${(summary.totalReturnPercent * 100).toFixed(2)}%`,
-      annualizedReturn: `${(summary.annualizedReturn * 100).toFixed(2)}%`,
+      annualizedReturn: annualizedStr,
       winRate: `${(summary.winRate * 100).toFixed(2)}%`,
-      sharpeRatio: summary.sharpeRatio.toFixed(3),
+      sharpeRatio: sharpeStr,
       maxDrawdown: `${(summary.maxDrawdownPercent * 100).toFixed(2)}%`,
       profitFactor: summary.profitFactor.toFixed(2),
-      calmarRatio: summary.calmarRatio.toFixed(3)
+      calmarRatio: calmarStr
     };
 
     // 交易统计
@@ -142,6 +155,11 @@ export class PerformanceAnalyzer {
     // 生成建议和警告
     const recommendations = this.generateRecommendations(result);
     const warnings = this.generateWarnings(result);
+
+    // 如果样本较短，追加一条展示层面的提示
+    if (shortSample) {
+      warnings.push('ℹ️ 样本不足（交易<10、观测<30天或收益观测<10），已将年化收益率、夏普比率与 Calmar 比率显示为 N/A');
+    }
 
     return {
       overview,
@@ -361,9 +379,27 @@ export class PerformanceAnalyzer {
       warnings.push('⚠️ 收益波动率过高，策略不够稳定');
     }
 
-    // 数据质量警告
+    // 数据质量与样本稳健性警告
+    const obsDays: number = (summary as any).observationDays ?? 0;
+    const returnObs: number = (summary as any).returnObservations ?? 0;
+    const sampleQuality: 'INSUFFICIENT' | 'LIMITED' | 'ADEQUATE' | undefined = (summary as any).sampleQuality;
+
     if (summary.totalTrades < 30) {
       warnings.push('⚠️ 交易样本数量不足，统计结果可能不够可靠');
+    }
+    if (summary.totalTrades < 10) {
+      warnings.push('⚠️ 交易样本少于10笔，已对部分风险指标采取稳健处理');
+    }
+    if (obsDays > 0 && obsDays < 30) {
+      warnings.push('⚠️ 观测期少于30天，年化与风险指标参考意义有限');
+    }
+    if (returnObs > 0 && returnObs < 10) {
+      warnings.push('⚠️ 收益观测数量少于10，夏普/索提诺等风险指标不稳定');
+    }
+    if (sampleQuality === 'INSUFFICIENT') {
+      warnings.push('⚠️ 样本严重不足（观测<7天或收益观测<10），已将年化收益率与夏普等指标标记为 N/A');
+    } else if (sampleQuality === 'LIMITED') {
+      warnings.push('ℹ️ 样本有限（观测<30天或收益观测<30），已对风险指标做稳健折减与限幅');
     }
 
     return warnings;

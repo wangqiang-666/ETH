@@ -64,6 +64,11 @@ export interface BacktestResult {
     avgHoldingTime: number; // 小时
     totalFees: number;
     recoveryFactor: number;
+    // 新增：样本健壮性相关字段
+    observationDays: number; // 实际观测天数（未应用最小年化基准前）
+    effectiveAnnualizationDays: number; // 年化换算所用天数（>=30）
+    returnObservations: number; // 收益序列观测点数（equity 差分长度）
+    sampleQuality: 'INSUFFICIENT' | 'LIMITED' | 'ADEQUATE';
   };
   trades: BacktestTrade[];
   equity: { timestamp: number; value: number; drawdown: number }[];
@@ -468,8 +473,11 @@ export class BacktestEngine {
     const totalReturn = totalPnl;
     const totalReturnPercent = totalReturn / this.config.initialCapital;
 
-    const tradingDays = (this.config.endDate.getTime() - this.config.startDate.getTime()) / (1000 * 60 * 60 * 24);
-    const annualizedReturn = totalReturnPercent * (365 / tradingDays);
+    // 短样本稳健处理：观测期少于30天时，按30天基准进行年化，避免极端放大
+    const rawTradingDays = Math.max(0, (this.config.endDate.getTime() - this.config.startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const MIN_ANNUALIZATION_DAYS = 30; // 至少按30天基准年化
+    const tradingDays = Math.max(rawTradingDays, MIN_ANNUALIZATION_DAYS);
+    const annualizedReturn = tradingDays > 0 ? totalReturnPercent * (365 / tradingDays) : 0;
 
     const maxDrawdown = Math.max(...this.equity.map(e => e.drawdown));
     const maxDrawdownPercent = maxDrawdown;
@@ -508,17 +516,66 @@ export class BacktestEngine {
 
     const totalFees = this.trades.reduce((sum, t) => sum + t.fees, 0);
 
-    // 计算风险调整指标
-    const returns = this.equity.map((e, i) => i > 0 ? (e.value - this.equity[i-1].value) / this.equity[i-1].value : 0).slice(1);
-    const avgReturn = returns.length > 0 ? returns.reduce((sum, r) => sum + r, 0) / returns.length : 0;
-    const returnStd = returns.length > 0 ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length) : 0;
-    
-    const sharpeRatio = returnStd > 0 ? (annualizedReturn - 0.02) / (returnStd * Math.sqrt(365)) : 0; // 假设无风险利率2%
-    
+    // 计算风险调整指标（短样本稳健处理）
+    const returns = this.equity
+      .map((e, i) => (i > 0 ? (e.value - this.equity[i - 1].value) / this.equity[i - 1].value : 0))
+      .slice(1);
+
+    const DAYS_PER_YEAR = 365;
+    const EPS = 1e-6; // 防止除零
+
+    let avgReturn = 0;
+    let returnStd = 0;
+    if (returns.length > 0) {
+      avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    }
+    if (returns.length > 1) {
+      const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (returns.length - 1); // 样本标准差
+      returnStd = Math.sqrt(variance);
+    } else {
+      returnStd = 0;
+    }
+
+    // 对非常短的样本(少于30个观测)进行稳健折减，降低夏普与索提诺的过度乐观/悲观
+    const stabilityFactor = Math.min(1, returns.length / 30);
+
+    // 新增：样本质量判定与最小观测阈值
+    const returnObservations = returns.length;
+    const MIN_OBS_FOR_RISK_METRICS = 10; // 少于该值时不计算风险调整比率
+    let sampleQuality: 'INSUFFICIENT' | 'LIMITED' | 'ADEQUATE' = 'ADEQUATE';
+    if (returnObservations < MIN_OBS_FOR_RISK_METRICS || rawTradingDays < 7) {
+      sampleQuality = 'INSUFFICIENT';
+    } else if (returnObservations < 30 || rawTradingDays < 30) {
+      sampleQuality = 'LIMITED';
+    }
+
+    // 稳健夏普/索提诺
+    let sharpeRatio = 0;
+    if (returnStd > EPS && returnObservations >= MIN_OBS_FOR_RISK_METRICS) {
+      const denom = Math.max(returnStd, EPS) * Math.sqrt(DAYS_PER_YEAR);
+      sharpeRatio = ((annualizedReturn - 0.02) / denom) * stabilityFactor;
+      if (sampleQuality !== 'ADEQUATE') {
+        // 对于样本不足/有限，限制极端值
+        sharpeRatio = Math.max(-10, Math.min(10, sharpeRatio));
+      }
+    }
+
     const downReturns = returns.filter(r => r < 0);
-    const downsideStd = downReturns.length > 0 ? Math.sqrt(downReturns.reduce((sum, r) => sum + r * r, 0) / downReturns.length) : 0;
-    const sortinoRatio = downsideStd > 0 ? (annualizedReturn - 0.02) / (downsideStd * Math.sqrt(365)) : 0;
-    
+    let downsideStd = 0;
+    if (downReturns.length > 0) {
+      // 使用均方根作为下行波动率（当样本很少时也加入EPS保护）
+      downsideStd = Math.sqrt(downReturns.reduce((sum, r) => sum + r * r, 0) / downReturns.length);
+    }
+
+    let sortinoRatio = 0;
+    if (downsideStd > EPS && returnObservations >= MIN_OBS_FOR_RISK_METRICS) {
+      const denomDown = Math.max(downsideStd, EPS) * Math.sqrt(DAYS_PER_YEAR);
+      sortinoRatio = ((annualizedReturn - 0.02) / denomDown) * stabilityFactor;
+      if (sampleQuality !== 'ADEQUATE') {
+        sortinoRatio = Math.max(-10, Math.min(10, sortinoRatio));
+      }
+    }
+
     const calmarRatio = maxDrawdownPercent > 0 ? annualizedReturn / maxDrawdownPercent : 0;
     const recoveryFactor = maxDrawdownPercent > 0 ? totalReturnPercent / maxDrawdownPercent : 0;
 
@@ -544,7 +601,12 @@ export class BacktestEngine {
       maxConsecutiveLosses,
       avgHoldingTime,
       totalFees,
-      recoveryFactor
+      recoveryFactor,
+      // 新增返回字段
+      observationDays: rawTradingDays,
+      effectiveAnnualizationDays: tradingDays,
+      returnObservations,
+      sampleQuality
     };
   }
 

@@ -15,14 +15,16 @@ export class RecommendationAPI {
   private statisticsCalculator: StatisticsCalculator;
   // 新增：在创建成功后触发的钩子（由集成服务注入）
   private onCreateHook?: (id: string, data: any) => void | Promise<void>;
-  
+
   constructor(
     dataService: EnhancedOKXDataService,
-    database: RecommendationDatabase
+    database: RecommendationDatabase,
+    tracker?: RecommendationTracker
   ) {
     this.router = express.Router();
     this.database = database;
-    this.tracker = new RecommendationTracker();
+    // 使用外部注入的 tracker，否则回退到内部创建
+    this.tracker = tracker ?? new RecommendationTracker();
     this.statisticsCalculator = new StatisticsCalculator(database);
     
     this.setupRoutes();
@@ -43,15 +45,18 @@ export class RecommendationAPI {
     this.router.get('/recommendations/:id', this.getRecommendation.bind(this));
     this.router.put('/recommendations/:id/close', this.closeRecommendation.bind(this));
     this.router.delete('/recommendations/:id', this.deleteRecommendation.bind(this));
-    
+
     // 活跃推荐路由
     this.router.get('/active-recommendations', this.getActiveRecommendations.bind(this));
-    
+
     // 统计信息路由
     this.router.get('/statistics/overall', this.getOverallStatistics.bind(this));
     this.router.get('/statistics/strategy/:type', this.getStrategyStatistics.bind(this));
     this.router.get('/statistics/strategies', this.getAllStrategyStatistics.bind(this));
-    
+
+    // 维护路由：修剪历史，仅保留最近 N 条
+    this.router.post('/maintenance/trim', this.trimRecommendations.bind(this));
+
     // 系统状态路由
     this.router.get('/status', this.getSystemStatus.bind(this));
     this.router.post('/tracker/start', this.startTracker.bind(this));
@@ -66,6 +71,7 @@ export class RecommendationAPI {
   private async createRecommendation(req: express.Request, res: express.Response): Promise<void> {
     try {
       const recommendationData = req.body;
+      const loopGuard = String((req.headers['x-loop-guard'] as string | undefined) || '').trim() === '1';
       
       // 验证必需字段
       const requiredFields = ['symbol', 'direction', 'entry_price', 'current_price', 'leverage', 'strategy_type'];
@@ -103,12 +109,15 @@ export class RecommendationAPI {
       // 创建推荐
       const recommendationId = await this.tracker.addRecommendation(recommendationData);
       
-      // 新增：在创建成功后调用外部钩子（异步，不阻塞响应）
-      if (this.onCreateHook) {
+      // 在创建成功后调用外部钩子（异步，不阻塞响应）
+      if (!loopGuard && this.onCreateHook) {
         Promise.resolve(this.onCreateHook(recommendationId, recommendationData)).catch(err => {
           console.warn('onCreateHook error:', err?.message || String(err));
         });
       }
+      
+      // 创建后使统计缓存失效，保证前端统计实时
+      this.statisticsCalculator.clearAllCache();
       
       res.status(201).json({
         success: true,
@@ -242,6 +251,9 @@ export class RecommendationAPI {
         return;
       }
       
+      // 新增：关闭后使统计缓存失效，保证前端统计实时
+      this.statisticsCalculator.clearAllCache();
+      
       res.json({
         success: true,
         data: {
@@ -283,6 +295,9 @@ export class RecommendationAPI {
         return;
       }
 
+      // 新增：删除后使统计缓存失效，保证前端统计实时
+      this.statisticsCalculator.clearAllCache();
+
       res.json({ success: true, data: { id, message: 'Recommendation deleted successfully' } });
     } catch (error) {
       console.error('Error deleting recommendation:', error);
@@ -300,13 +315,22 @@ export class RecommendationAPI {
    */
   private async getActiveRecommendations(req: express.Request, res: express.Response): Promise<void> {
     try {
-      const activeRecommendations = Array.from(this.tracker.getActiveRecommendations().values());
-      
+      let activeRecommendations = Array.from(this.tracker.getActiveRecommendations());
+
+      // 接口层回退：若内存尚未加载或为空，则回退到数据库查询
+      if (!activeRecommendations || activeRecommendations.length === 0) {
+        try {
+          activeRecommendations = await this.database.getActiveRecommendations();
+        } catch (fallbackErr) {
+          console.warn('Fallback to DB for active recommendations failed:', fallbackErr);
+        }
+      }
+
       res.json({
         success: true,
         data: {
           recommendations: activeRecommendations,
-          count: activeRecommendations.length
+          count: activeRecommendations?.length ?? 0
         }
       });
       
@@ -524,6 +548,27 @@ export class RecommendationAPI {
     }
   }
   
+  // 新增：修剪历史，仅保留最近 N 条
+  private async trimRecommendations(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { keep } = req.body || {};
+      const keepNum = Number.isFinite(Number(keep)) ? Math.max(0, Math.floor(Number(keep))) : 100;
+      const result = await this.database.trimRecommendations(keepNum);
+  
+      // 清理统计缓存
+      this.statisticsCalculator.clearAllCache();
+  
+      res.json({ success: true, data: { keep: keepNum, ...result } });
+    } catch (error) {
+      console.error('Error trimming recommendations:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to trim recommendations',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+  
   /**
    * 获取路由器实例
    */
@@ -551,7 +596,8 @@ export class RecommendationAPI {
  */
 export function createRecommendationAPI(
   dataService: EnhancedOKXDataService,
-  database: RecommendationDatabase
+  database: RecommendationDatabase,
+  tracker?: RecommendationTracker
 ): RecommendationAPI {
-  return new RecommendationAPI(dataService, database);
+  return new RecommendationAPI(dataService, database, tracker);
 }

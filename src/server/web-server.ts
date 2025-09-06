@@ -2408,6 +2408,14 @@ export class WebServer {
 
     try {
       console.log('🚀 启动Web服务器...');
+
+      // 在启动前检查环境变量端口覆盖
+      const envPortStr = process.env.WEB_PORT;
+      const envPort = envPortStr ? parseInt(envPortStr, 10) : NaN;
+      if (!Number.isNaN(envPort) && envPort > 0 && envPort !== this.port) {
+        console.log(`🔧 端口覆盖: ${this.port} -> ${envPort} (来自环境变量 WEB_PORT)`);
+        this.port = envPort;
+      }
       
       return new Promise<void>((resolve, reject) => {
         this.server.listen(this.port, () => {
@@ -2426,7 +2434,7 @@ export class WebServer {
         });
         
         this.server.on('error', (error: any) => {
-          console.error('Failed to start web server:', error);
+          console.error(`Failed to start web server on port ${this.port}:`, error);
           reject(error);
         });
       });
@@ -2503,7 +2511,17 @@ export class WebServer {
 }
 
 // 导出单例实例
-export const webServer = new WebServer();
+const selectedPort = (() => {
+  const envPortStr = process.env.WEB_PORT;
+  const envPort = envPortStr ? parseInt(envPortStr, 10) : NaN;
+  if (!Number.isNaN(envPort) && envPort > 0) {
+    console.log(`🌐 使用环境变量端口 WEB_PORT=${envPort}`);
+    return envPort;
+  }
+  console.log(`🌐 使用配置端口 config.webServer.port=${config.webServer.port}`);
+  return config.webServer.port;
+})();
+export const webServer = new WebServer(selectedPort);
 
 // 当作为入口文件直接执行时，自动启动 Web 服务器
 console.log('🔍 检查是否需要自动启动Web服务器...');

@@ -680,10 +680,8 @@
                 <div class="recommendation-controls">
                     <select id="statusFilter" onchange="filterRecommendations()">
                         <option value="all">全部状态</option>
-                        <option value="PENDING">待确认</option>
                         <option value="ACTIVE">进行中</option>
                         <option value="CLOSED">已平仓</option>
-                        <option value="EXPIRED">已过期</option>
                     </select>
                     
                     <select id="sortBy" onchange="sortRecommendations()">
@@ -876,6 +874,42 @@
         let updateInterval;
         let lastMarketOk = false;
         let lastMarketUpdate = 0;
+
+        // 写操作后：拦截 fetch，针对关键写接口（/api/recommendations、/api/strategy/start|stop 等）
+        // 在请求成功后触发一次“立即刷新”（带去抖，避免批量删除触发多次）
+        (function(){
+            const _origFetch = window.fetch.bind(window);
+            let _refreshTimer = null;
+            function scheduleImmediateRefresh(){
+                if (_refreshTimer) clearTimeout(_refreshTimer);
+                _refreshTimer = setTimeout(async () => {
+                    try {
+                        await loadRecommendationHistory();
+                        await updateRecommendationStats();
+                    } catch (e) {
+                        console.warn('即时刷新失败：', e);
+                    }
+                }, 150); // 150ms 去抖
+            }
+            function shouldTriggerImmediateRefresh(url, method){
+                // 统一为大写方法
+                const m = String(method || 'GET').toUpperCase();
+                // 推荐相关：新增/修改/删除/关闭
+                if ((m === 'POST' || m === 'PUT' || m === 'DELETE') && /\/api\/recommendations(\b|\/)/.test(url)) return true;
+                // 策略启停：可能影响后续推荐生成，刷新列表/统计更直观
+                if (m === 'POST' && /\/api\/strategy\/(start|stop)(\b|\/)/.test(url)) return true;
+                return false;
+            }
+            window.fetch = async function(input, init){
+                const url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
+                const method = (init && init.method) || (typeof input === 'object' && input && input.method) || 'GET';
+                const res = await _origFetch(input, init);
+                try {
+                    if (res && res.ok && shouldTriggerImmediateRefresh(url, method)) scheduleImmediateRefresh();
+                } catch (_) { /* ignore */ }
+                return res;
+            };
+        })();
 
         // 工具函数：打开诊断页
         function openInspect() {
@@ -1167,8 +1201,8 @@
             const uptime = Date.now() - parseInt(startTime);
             const hours = Math.floor(uptime / (1000 * 60 * 60));
             const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
-            
-            document.getElementById('uptime').textContent = `${hours}h ${minutes}m`;
+            const el = document.getElementById('uptime');
+            if (el) el.textContent = `${hours}h ${minutes}m`;
         }
         
         // 刷新信号
@@ -1203,24 +1237,73 @@
             if (!container) return;
             container.innerHTML = '<div class="loading">正在获取推荐信号...</div>';
             try {
-                const res = await fetch('/api/strategy/analysis');
-                const json = await res.json();
-                if (!json.success || !json.data) {
-                    container.innerHTML = '<div class="error">暂无推荐数据</div>';
+                // 改为仅依赖 /api/active-recommendations
+                const res = await fetch('/api/active-recommendations');
+                const payload = await res.json();
+                const d = payload?.data ?? payload;
+                const list = Array.isArray(d?.recommendations)
+                    ? d.recommendations
+                    : Array.isArray(d)
+                        ? d
+                        : Array.isArray(d?.list)
+                            ? d.list
+                            : [];
+
+                // 无活跃推荐：顶部红色横幅提示，推荐字段置空
+                const hasActive = Array.isArray(list) && list.length > 0;
+                if (!hasActive) {
+                    container.innerHTML = '<div class="error">暂无推荐操作</div>';
+                    const actionEl = document.getElementById('recommendedAction');
+                    const entryEl = document.getElementById('entryPrice');
+                    const levEl = document.getElementById('recommendedLeverage');
+                    const posEl = document.getElementById('positionSizeRecommend');
+                    if (actionEl) actionEl.textContent = '';
+                    if (entryEl) entryEl.textContent = '';
+                    if (levEl) levEl.textContent = '';
+                    if (posEl) posEl.textContent = '';
+                    window.__lastRecommendation = null;
                     return;
                 }
-                const d = json.data;
-                const rec = d.recommendation || {};
-                const rm = d.riskManagement || {};
-                const market = d.market || d.marketAnalysis || {};
-                const action = rec.action || 'HOLD';
-                const entry = (d.signal && d.signal.price) || market.price || market.support || '--';
-                const leverage = rm.leverage || (d.signal && d.signal.metadata && d.signal.metadata.leverage) || '--';
-                const posSize = (typeof rm.positionSize === 'number') ? (rm.positionSize * 100).toFixed(1) + '%' : '--';
-                const tp = rm.takeProfit || (d.signal && d.signal.pricing && d.signal.pricing.takeProfit) || '--';
-                const sl = rm.stopLoss || (d.signal && d.signal.pricing && d.signal.pricing.stopLoss) || '--';
-                const conf = (typeof rec.confidence === 'number') ? (rec.confidence * 100).toFixed(1) + '%' : '--';
-                
+
+                // 存在活跃推荐：渲染详细信息
+                const latest = list
+                    .slice()
+                    .sort((a, b) => {
+                        const ta = new Date(a?.updated_at || a?.created_at || 0).getTime();
+                        const tb = new Date(b?.updated_at || b?.created_at || 0).getTime();
+                        return tb - ta;
+                    })[0] || list[0];
+
+                const actionRaw = latest?.direction || latest?.action || '';
+                const action = String(actionRaw).toUpperCase();
+
+                const entryVal = (typeof latest?.entry_price === 'number')
+                    ? latest.entry_price
+                    : (typeof latest?.current_price === 'number' ? latest.current_price : null);
+                const entry = (typeof entryVal === 'number') ? entryVal : '--';
+
+                const levVal = (typeof latest?.leverage === 'number') ? latest.leverage : null;
+                const leverage = (typeof levVal === 'number') ? (levVal + 'x') : '--';
+
+                let posSize;
+                if (typeof latest?.position_size === 'number') {
+                    if (latest.position_size > 0 && latest.position_size <= 1) {
+                        posSize = (latest.position_size * 100).toFixed(1) + '%';
+                    } else {
+                        posSize = String(latest.position_size);
+                    }
+                } else {
+                    posSize = '--';
+                }
+
+                const tpVal = (typeof latest?.take_profit_price === 'number') ? latest.take_profit_price : (typeof latest?.take_profit === 'number' ? latest.take_profit : null);
+                const slVal = (typeof latest?.stop_loss_price === 'number') ? latest.stop_loss_price : (typeof latest?.stop_loss === 'number' ? latest.stop_loss : null);
+                const tp = (typeof tpVal === 'number') ? tpVal : '--';
+                const sl = (typeof slVal === 'number') ? slVal : '--';
+
+                const confRaw = (typeof latest?.confidence_score === 'number') ? latest.confidence_score : (typeof latest?.confidence === 'number' ? latest.confidence : null);
+                const conf = (typeof confRaw === 'number') ? (((confRaw <= 1 ? confRaw * 100 : confRaw)).toFixed(1) + '%') : '--';
+
                 container.innerHTML = `
                     <div class="row"><span class="key">推荐操作</span><span class="val">${action}</span></div>
                     <div class="row"><span class="key">入场价位</span><span class="val">${typeof entry === 'number' ? '$' + entry.toFixed(2) : entry}</span></div>
@@ -1229,7 +1312,7 @@
                     <div class="row"><span class="key">止盈/止损</span><span class="val">${typeof tp === 'number' ? '$' + tp.toFixed(2) : tp} / ${typeof sl === 'number' ? '$' + sl.toFixed(2) : sl}</span></div>
                     <div class="row"><span class="key">置信度</span><span class="val">${conf}</span></div>
                 `;
-                
+
                 const actionEl = document.getElementById('recommendedAction');
                 const entryEl = document.getElementById('entryPrice');
                 const levEl = document.getElementById('recommendedLeverage');
@@ -1238,7 +1321,7 @@
                 if (entryEl) entryEl.textContent = (typeof entry === 'number') ? '$' + entry.toFixed(2) : String(entry);
                 if (levEl) levEl.textContent = (typeof leverage === 'number') ? leverage + 'x' : String(leverage);
                 if (posEl) posEl.textContent = posSize;
-                
+
                 window.__lastRecommendation = { action, entry, leverage, posSize, tp, sl, conf };            } catch (err) {
                 console.error('加载开单推荐失败:', err);
                 container.innerHTML = '<div class="error">推荐加载失败</div>';
@@ -1264,6 +1347,9 @@
         let currentPage = 1;
         let pageSize = 5; // 默认每页5条
         const selectedRecommendationIds = new Set();
+        // 来自后端的真实总数与活跃数（优先用于统计展示）
+        let serverTotalRecommendations = null;
+        let serverActiveRecommendationsCount = null;
         
         // 新增：获取当前页可见数据
         function getVisiblePageItems(){
@@ -1345,6 +1431,10 @@
                         : Array.isArray(data?.list)
                           ? data.list
                           : [];
+                // 读取后端总数（如果提供）
+                serverTotalRecommendations =
+                  (typeof data?.data?.total === 'number') ? data.data.total :
+                  (typeof data?.total === 'number') ? data.total : null;
                 
                 if ((data?.success === true && list) || list.length > 0) {
                     recommendationData = list;
@@ -1355,11 +1445,13 @@
                     sortRecommendations();
                     
                     // 更新统计信息
-                    updateRecommendationStats();
+                    await updateRecommendationStats();
                     
                     if (statusEl) {
                         statusEl.className = 'inline-status ok';
-                        statusEl.textContent = `已加载 ${recommendationData.length} 条记录`;
+                        // 若后端提供 total，则显示 total，否则显示当前批次条数
+                        const shown = (typeof serverTotalRecommendations === 'number') ? serverTotalRecommendations : recommendationData.length;
+                        statusEl.textContent = `已加载 ${shown} 条（当前批次 ${recommendationData.length}）`;
                     }
                     // 清空占位内容（如果存在）
                     if (listEl && listEl.innerHTML && listEl.innerHTML.includes('正在加载推荐记录')) {
@@ -1454,6 +1546,8 @@
             
             if (statusFilter === 'all') {
                 filteredRecommendations = [...recommendationData];
+            } else if (statusFilter === 'ACTIVE') {
+                filteredRecommendations = recommendationData.filter(rec => rec.status === 'ACTIVE' || rec.status === 'PENDING');
             } else {
                 filteredRecommendations = recommendationData.filter(rec => rec.status === statusFilter);
             }
@@ -1528,20 +1622,65 @@
         }
         window.goToPage = goToPage;
         
-        // 更新推荐统计
-        function updateRecommendationStats() {
-            const total = recommendationData.length;
-            const active = recommendationData.filter(rec => rec.status === 'ACTIVE' || rec.status === 'active').length;
+        // 更新推荐统计（使用后端真实 total/active、综合统计中的胜率与平均收益）
+        async function updateRecommendationStats() {
+            const total = (typeof serverTotalRecommendations === 'number') ? serverTotalRecommendations : recommendationData.length;
+            // 异步获取真实活跃数（兼容 {data:{recommendations, count}} 结构）
+            try {
+                const res = await fetch('/api/active-recommendations');
+                if (res.ok) {
+                    const act = await res.json();
+                    const payload = act?.data ?? act;
+                    const arr = Array.isArray(payload?.recommendations)
+                        ? payload.recommendations
+                        : Array.isArray(payload)
+                            ? payload
+                            : Array.isArray(payload?.list)
+                                ? payload.list
+                                : [];
+                    serverActiveRecommendationsCount = Array.isArray(arr) ? arr.length : null;
+                }
+            } catch(e) {
+                console.warn('获取活跃推荐失败，回退到本地统计', e);
+            }
+            const active = (typeof serverActiveRecommendationsCount === 'number')
+                ? serverActiveRecommendationsCount
+                : recommendationData.filter(rec => rec.status === 'ACTIVE' || rec.status === 'active').length;
+
+            // 胜率与平均收益优先读取综合统计接口（全量已平仓口径），失败回退到本地样本
+            let winRateFromServer = null;
+            let avgPnlFromServer = null;
+            try {
+                const res2 = await fetch('/api/statistics/overall');
+                if (res2.ok) {
+                    const ov = await res2.json();
+                    const d = ov?.data ?? ov;
+                    if (typeof d?.overall_win_rate === 'number') winRateFromServer = d.overall_win_rate;
+                    if (typeof d?.overall_avg_pnl === 'number') avgPnlFromServer = d.overall_avg_pnl;
+                    // 若此前未获得 total/active，可从统计接口补齐
+                    if (typeof serverTotalRecommendations !== 'number' && typeof d?.total_recommendations === 'number') {
+                        serverTotalRecommendations = d.total_recommendations;
+                    }
+                    if (typeof serverActiveRecommendationsCount !== 'number' && typeof d?.active_recommendations === 'number') {
+                        serverActiveRecommendationsCount = d.active_recommendations;
+                    }
+                }
+            } catch (e) {
+                console.warn('获取综合统计失败，回退到本地样本统计', e);
+            }
+
             const completed = recommendationData.filter(rec => rec.status === 'CLOSED' || rec.status === 'completed');
-            const winRate = completed.length > 0 ? 
+            const localWinRate = completed.length > 0 ? 
                 (completed.filter(rec => (rec.pnl_percent || rec.pnl_percentage || 0) > 0).length / completed.length * 100) : 0;
-            const avgPnl = completed.length > 0 ? 
+            const localAvgPnl = completed.length > 0 ? 
                 (completed.reduce((sum, rec) => sum + (rec.pnl_percent || rec.pnl_percentage || 0), 0) / completed.length) : 0;
+            const winRate = (typeof winRateFromServer === 'number') ? winRateFromServer : localWinRate;
+            const avgPnl = (typeof avgPnlFromServer === 'number') ? avgPnlFromServer : localAvgPnl;
             
             document.getElementById('totalRecommendations').textContent = total;
             document.getElementById('activeRecommendations').textContent = active;
-            document.getElementById('winRateRecommendations').textContent = winRate.toFixed(1) + '%';
-            document.getElementById('avgPnlRecommendations').textContent = avgPnl.toFixed(2) + '%';
+            document.getElementById('winRateRecommendations').textContent = `${winRate.toFixed(1)}%`;
+            document.getElementById('avgPnlRecommendations').textContent = `${avgPnl.toFixed(2)}%`;
         }
         
         // 刷新推荐历史
@@ -1568,6 +1707,8 @@
             selectedRecommendationIds.clear();
             updateDeleteButtonState();
             await loadRecommendationHistory();
+            // 确保统计同步服务端
+            await updateRecommendationStats();
             if (statusEl) {
                 statusEl.className = fail === 0 ? 'inline-status ok' : 'inline-status warn';
                 statusEl.textContent = fail === 0 ? '删除完成' : `部分删除失败 (${ok}/${ids.length})`;

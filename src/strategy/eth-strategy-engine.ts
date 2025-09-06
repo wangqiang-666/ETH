@@ -6,6 +6,7 @@ import { config } from '../config';
 import axios from 'axios';
 import NodeCache from 'node-cache';
 import { riskManagementService, RiskAssessment, PositionRisk, PortfolioRisk } from '../services/risk-management-service';
+import { logger } from '../utils/logger';
 
 // 交易策略结果
 export interface StrategyResult {
@@ -446,15 +447,51 @@ export class ETHStrategyEngine {
     const squeeze = (typeof bandwidth === 'number') ? (bandwidth < 0.02) : false;
     const squeezeOk = !squeeze || combined >= ((ef.minCombinedStrengthLong ?? 65) + 10);
 
+    // 调试日志：输出入场过滤每一项判断与关键阈值
+    logger.debug(
+      'EntryFilters | tf=%s signal=%s combined=%.2f conf=%.2f thr(signal)=%.2f risk=%s | trend=%s(%.1f) okL=%s okS=%s | highVol=%s volOk=%s allowHighVol=%s | bollPos=%s bw=%.4f squeeze=%s squeezeOk=%s | minStrength L=%s S=%s',
+      signalResult.timeframe,
+      signalResult.signal,
+      combined,
+      signalResult.strength?.confidence ?? 0,
+      config.strategy.signalThreshold,
+      riskAssessment.riskLevel,
+      trendDir ?? 'NA',
+      trendStrength,
+      String(trendOkLong),
+      String(trendOkShort),
+      String(highVol),
+      String(volOk),
+      String(ef.allowHighVolatilityEntries === true),
+      (typeof bollPos === 'number' ? bollPos.toFixed(3) : 'NA'),
+      Number.isFinite(bandwidth as number) ? (bandwidth as number).toFixed(4) : 0,
+      String(squeeze),
+      String(squeezeOk),
+      String(ef.minCombinedStrengthLong ?? 65),
+      String(ef.minCombinedStrengthShort ?? 65)
+    );
+
     // 新开仓逻辑 - 考虑风险评估与过滤器
     if (!this.currentPosition && signalResult.strength.confidence >= config.strategy.signalThreshold && riskAssessment.riskLevel !== 'EXTREME') {
       if ((signalResult.signal === 'STRONG_BUY' || signalResult.signal === 'BUY') && trendOkLong && strengthOkLong && volOk && bollOkLong && squeezeOk) {
+        logger.debug('Decision: OPEN_LONG | price=%s', String(marketData.price));
         action = 'OPEN_LONG';
         urgency = (signalResult.signal === 'STRONG_BUY' && riskAssessment.riskLevel === 'LOW' && combined >= 75) ? 'HIGH' : 'MEDIUM';
       } else if ((signalResult.signal === 'STRONG_SELL' || signalResult.signal === 'SELL') && trendOkShort && strengthOkShort && volOk && bollOkShort && squeezeOk) {
+        logger.debug('Decision: OPEN_SHORT | price=%s', String(marketData.price));
         action = 'OPEN_SHORT';
         urgency = (signalResult.signal === 'STRONG_SELL' && riskAssessment.riskLevel === 'LOW' && combined >= 75) ? 'HIGH' : 'MEDIUM';
+      } else {
+        logger.debug('Decision: HOLD (filters not satisfied)');
       }
+    } else {
+      logger.debug(
+        'Skip Open: pos=%s conf=%.2f<thr? %s risk=%s',
+        String(!!this.currentPosition),
+        signalResult.strength?.confidence ?? 0,
+        String((signalResult.strength?.confidence ?? 0) < config.strategy.signalThreshold),
+        riskAssessment.riskLevel
+      );
     }
 
     return {
@@ -550,10 +587,10 @@ export class ETHStrategyEngine {
     // 杠杆调整
     let leverage = recommendedLeverage;
     if (typeof fgi === 'number' && (fgi <= 20 || fgi >= 80)) {
-      leverage = Math.max(1, Math.floor(leverage * 0.7)); // 极端情绪下调杠杆
+      leverage = Math.max(2, Math.floor(leverage * 0.7)); // 极端情绪下调杠杆，最低2x
     }
     if (typeof bollBandwidth === 'number' && bollBandwidth < 0.02) {
-      leverage = Math.max(1, Math.floor(leverage * 0.8)); // 窄带震荡降低杠杆
+      leverage = Math.max(2, Math.floor(leverage * 0.8)); // 窄带震荡降低杠杆，最低2x
     }
 
     // 计算最大损失

@@ -77,6 +77,22 @@ router.post('/performance-report', async (req: Request, res: Response) => {
     }
 
     const report = performanceAnalyzer.generateReport(backtestResult);
+
+    // 短样本稳健展示兜底（双保险）：若样本过短，则强制将年化与夏普置为 N/A（仅影响展示层，不改动底层统计）
+    try {
+      const summary: any = backtestResult?.summary || {};
+      const obsDays: number = summary.observationDays ?? 0;
+      const returnObs: number = summary.returnObservations ?? 0;
+      const sampleQuality: 'INSUFFICIENT' | 'LIMITED' | 'ADEQUATE' | undefined = summary.sampleQuality;
+      const isShortTrades = (summary.totalTrades ?? 0) < 10;
+      const isShortDays = obsDays > 0 && obsDays < 30;
+      const isLowReturnObs = returnObs > 0 && returnObs < 10;
+      const shortSample = isShortTrades || isShortDays || isLowReturnObs || sampleQuality === 'INSUFFICIENT';
+      if (shortSample && report?.overview) {
+        report.overview.annualizedReturn = 'N/A';
+        report.overview.sharpeRatio = 'N/A';
+      }
+    } catch {}
     
     return res.json({
       success: true,

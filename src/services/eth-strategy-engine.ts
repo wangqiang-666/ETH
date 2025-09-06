@@ -62,7 +62,7 @@ export class ETHStrategyEngine {
    */
   getStrategyConfig(): any {
     return {
-      maxLeverage: 5,
+      maxLeverage: 20,
       defaultStopLoss: 0.05, // 5%
       defaultTakeProfit: 0.1, // 10%
       minConfidence: 0.6

@@ -297,7 +297,7 @@ export class RecommendationDatabase {
         quality_score, status, market_volatility, volume_24h, price_change_24h,
         source, is_strategy_generated, strategy_confidence_level, exclude_from_ml, notes
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ${new Array(31).fill('?').join(', ')}
       )
     `;
     
@@ -426,21 +426,57 @@ export class RecommendationDatabase {
    * 删除推荐记录（按ID）
    */
   async deleteRecommendation(id: string): Promise<boolean> {
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
-    const sql = `DELETE FROM recommendations WHERE id = ?`;
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, [id], function (this: any, err: Error | null) {
+    return new Promise<boolean>((resolve, reject) => {
+      const sql = `DELETE FROM recommendations WHERE id = ?`;
+      this.db!.run(sql, [id], function (this: any, err: any) {
         if (err) {
-          console.error('Error deleting recommendation:', err);
           reject(err);
         } else {
-          const affected = this && typeof this.changes === 'number' ? this.changes : 0;
-          resolve(affected > 0);
+          resolve(this.changes > 0);
         }
       });
     });
+  }
+
+  // 新增：修剪历史记录，仅保留按创建时间倒序的最近 keep 条，并执行 VACUUM 回收空间
+  async trimRecommendations(keep: number): Promise<{ deleted: number; kept: number; total: number }> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    const safeKeep = Math.max(0, Math.floor(keep));
+
+    // 统计总数
+    const total = await new Promise<number>((resolve, reject) => {
+      this.db!.get('SELECT COUNT(*) as total FROM recommendations', [], (err, row: any) => {
+        if (err) return reject(err);
+        resolve(row?.total ?? 0);
+      });
+    });
+
+    let deleted = 0;
+    if (total > safeKeep) {
+      // 删除不在最新 safeKeep 条中的记录（按 created_at DESC）
+      const deleteSql = `
+        DELETE FROM recommendations
+        WHERE id NOT IN (
+          SELECT id FROM recommendations
+          ORDER BY created_at DESC
+          LIMIT ?
+        )`;
+      deleted = await new Promise<number>((resolve, reject) => {
+        this.db!.run(deleteSql, [safeKeep], function (this: any, err: any) {
+          if (err) return reject(err);
+          resolve(this?.changes ?? 0);
+        });
+      });
+
+      // 回收空间
+      await new Promise<void>((resolve, reject) => {
+        this.db!.exec('VACUUM', (err) => (err ? reject(err) : resolve()));
+      });
+    }
+
+    return { deleted, kept: Math.min(safeKeep, total), total };
   }
   
   /**
@@ -838,6 +874,84 @@ export class RecommendationDatabase {
   }
   
   /**
+   * 查找需要回填止盈止损目标价的记录
+   */
+  async findRecommendationsForTargetBackfill(): Promise<Array<{
+    id: string;
+    entry_price: number;
+    direction: 'LONG' | 'SHORT';
+    leverage: number;
+    take_profit_percent: number | null;
+    stop_loss_percent: number | null;
+    take_profit_price: number | null;
+    stop_loss_price: number | null;
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT id, entry_price, direction, leverage,
+             take_profit_percent, stop_loss_percent,
+             take_profit_price, stop_loss_price
+      FROM recommendations
+      WHERE (take_profit_price IS NULL AND take_profit_percent IS NOT NULL)
+         OR (stop_loss_price IS NULL AND stop_loss_percent IS NOT NULL)
+    `;
+
+    return new Promise((resolve, reject) => {
+      this.db!.all(sql, [], (err, rows: any[]) => {
+        if (err) {
+          console.error('Error querying recommendations for backfill:', err);
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      });
+    });
+  }
+
+  /**
+   * 部分更新推荐记录的止盈/止损目标价
+   */
+  async updateTargetPrices(id: string, fields: { take_profit_price?: number | null; stop_loss_price?: number | null }): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const sets: string[] = ['updated_at = ?'];
+    const params: any[] = [new Date().toISOString()];
+
+    if (fields.take_profit_price !== undefined) {
+      sets.push('take_profit_price = ?');
+      params.push(fields.take_profit_price);
+    }
+    if (fields.stop_loss_price !== undefined) {
+      sets.push('stop_loss_price = ?');
+      params.push(fields.stop_loss_price);
+    }
+
+    // 如果没有需要更新的字段，直接返回
+    if (sets.length === 1) {
+      return;
+    }
+
+    const sql = `UPDATE recommendations SET ${sets.join(', ')} WHERE id = ?`;
+    params.push(id);
+
+    return new Promise((resolve, reject) => {
+      this.db!.run(sql, params, function (err: Error | null) {
+        if (err) {
+          console.error('Error updating target prices:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
    * 关闭数据库连接
    */
   async close(): Promise<void> {
@@ -859,5 +973,5 @@ export class RecommendationDatabase {
   }
 }
 
-// 导出单例实例
+// ... 导出数据库单例，供全局复用
 export const recommendationDatabase = new RecommendationDatabase();

@@ -38,6 +38,59 @@
 - **交互式图表**: 价格走势和指标可视化
 - **移动端适配**: 响应式设计支持移动设备
 
+## 系统核心逻辑（从信号到闭环）
+
+```mermaid
+flowchart TD
+    A[策略/分析层\n(多因子+ML)] --> B[集成服务\nrecommendation-integration-service]
+    B --> C[(SQLite: data/recommendations.db)]
+    B --> D[跟踪器\nrecommendation-tracker]
+    D --> E[ACTIVE\n进行中]
+    E -->|成交/止盈/止损| F[CLOSED\n已平仓]
+    F --> G[统计/报表\n胜率/平均收益/年化/Sharpe]
+    F --> H[样本回灌\n标签回填]
+    H --> I[模型训练/评估]
+    I --> A
+    P[PENDING\n瞬时态] -.合并到-> E
+    X[EXPIRED\n仅徽标] -.不参与过滤/统计.-> G
+    D --> J[API/前端\n筛选: 全部/进行中/已平仓]
+    J -.进行中=ACTIVE+PENDING.-> K[用户视图]
+```
+
+
+- 核心目标与口径：系统全自动闭环，无需人工确认；对外仅两种状态——进行中（ACTIVE）与已平仓（CLOSED）。历史兼容状态（如 PENDING/EXPIRED）已并入上述口径，不对外暴露或筛选，前端“进行中”已覆盖任何瞬时待确认态。
+
+- 数据流与职责分工：
+  1) 策略/分析层生成推荐（结合多因子与ML）；
+  2) 集成服务写入推荐记录并触发跟踪；
+  3) 跟踪器接管生命周期，负责状态流转、持久化与对前端推送。
+  相关代码：<mcfile name="recommendation-integration-service.ts" path="src/services/recommendation-integration-service.ts"></mcfile>、<mcfile name="recommendation-tracker.ts" path="src/services/recommendation-tracker.ts"></mcfile>
+
+- 状态模型与转换：
+  • 进行中（ACTIVE）：新推荐直接进入主路径进行跟踪与风控；
+  • 已平仓（CLOSED）：由成交/止盈/止损等闭环事件触发，写入盈亏并计入统计；
+  • 历史兼容态（PENDING/EXPIRED）：仅内部与历史数据兼容用，PENDING 视为进行中口径，EXPIRED 仅作为质量标识，不提供独立过滤；
+  • 前端筛选口径：下拉框仅保留“全部状态 / 进行中 / 已平仓”，其中“进行中”合并任何瞬时待确认。
+
+- 持久化与一致性：
+  • 数据库存储于 data/recommendations.db（SQLite）；
+  • 统一通过跟踪器写入/更新，确保状态一致性（避免旁路写入造成分叉）；
+  • 历史默认值若为 PENDING，将在跟踪接管后落入 ACTIVE 主路径；平仓时落 CLOSED 并记录收益。
+
+- 统计与口径：
+  • 胜率、平均收益等仅按“已平仓（CLOSED）”样本计算；进行中不计入；
+  • 短样本保护：当样本窗口<30天或已平仓交易<10笔时，年化收益与 Sharpe 比率显示为 N/A，避免误导；
+  • 指标计算不受“PENDING/EXPIRED”影响（因已并口径化）。
+
+- API 与前端：
+  • 列表过滤项仅“全部 / 进行中 / 已平仓”；
+  • 若启用“已过期”徽标，仅作为历史质量标记，不影响过滤与统计；
+  • 进行中包含任何瞬时待确认态，保障“无人工确认”的产品心智。
+
+- 机器学习样本闭环：
+  • 已平仓样本回填标签进入样本库供训练与评估；
+  • pending label samples 指“待回填标签的训练样本”，与订单状态无关。
+
 ## 快速开始
 
 ### 环境要求
