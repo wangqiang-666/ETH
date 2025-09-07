@@ -495,7 +495,6 @@
               '目标价 Target Price': (typeof s.targetPrice === 'number') ? s.targetPrice.toFixed(2) : '—',
               '止损 Stop Loss': (typeof s.stopLoss === 'number') ? s.stopLoss.toFixed(2) : '—',
               '止盈 Take Profit': (typeof s.takeProfit === 'number') ? s.takeProfit.toFixed(2) : '—',
-              '建议仓位 Position Size': (typeof s.positionSize === 'number') ? pct(s.positionSize) : '—',
               '风险分数 Risk Score': (typeof a?.riskManagement?.riskScore === 'number') ? a.riskManagement.riskScore.toFixed(2) : '—',
               '杠杆 Leverage': (typeof a?.riskManagement?.leverage === 'number') ? String(a.riskManagement.leverage) : '—',
               '预期胜率 Expected Win Rate': (typeof a?.performance?.expectedWinRate === 'number') ? pct(a.performance.expectedWinRate) : '—',

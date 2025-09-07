@@ -6,6 +6,27 @@ import { recommendationDatabase } from './recommendation-database';
 // 新增：通过环境变量控制是否在创建推荐时拉取外部行情（默认关闭以避免超时）
 const DISABLE_EXTERNAL_MARKET_ON_CREATE = (process.env.DISABLE_EXTERNAL_MARKET_ON_CREATE || 'true') === 'true';
 
+// 新增：冷却期错误类型，便于 API 精确映射 429
+export class CooldownError extends Error {
+  code: 'COOLDOWN_ACTIVE' = 'COOLDOWN_ACTIVE';
+  symbol: string;
+  remainingMs: number;
+  nextAvailableAt: string;
+  lastRecommendationId?: string;
+  lastCreatedAt?: string;
+  constructor(symbol: string, remainingMs: number, last?: RecommendationRecord) {
+    super(`Cooldown active for ${symbol}: ${remainingMs}ms remaining`);
+    this.symbol = symbol;
+    this.remainingMs = remainingMs;
+    this.nextAvailableAt = new Date(Date.now() + remainingMs).toISOString();
+    if (last) {
+      this.lastRecommendationId = last.id;
+      this.lastCreatedAt = last.created_at?.toISOString();
+    }
+    Object.setPrototypeOf(this, CooldownError.prototype);
+  }
+}
+
 // 推荐记录接口
 export interface RecommendationRecord {
   id: string;
@@ -139,7 +160,30 @@ export class RecommendationTracker {
    * 添加新的推荐记录进行跟踪
    */
   async addRecommendation(recommendation: Omit<RecommendationRecord, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
-    const id = uuidv4();
+    // 新增：按 symbol 冷却期校验（默认30分钟，可通过 config.strategy.signalCooldownMs 配置）
+    const cooldownMs = Number((config as any)?.strategy?.signalCooldownMs) || 30 * 60 * 1000;
+    try {
+      await recommendationDatabase.initialize();
+      const last = await recommendationDatabase.getLastRecommendationBySymbol(recommendation.symbol);
+      if (last?.created_at) {
+        const elapsed = Date.now() - last.created_at.getTime();
+        const remaining = cooldownMs - elapsed;
+        if (remaining > 0) {
+          throw new CooldownError(recommendation.symbol, remaining, last);
+        }
+      }
+    } catch (err) {
+      if (err instanceof CooldownError) {
+        // 直接向上抛出，供 API 或调用方处理
+        throw err;
+      }
+      // 其它错误仅记录，不阻塞创建（例如首次运行或查询失败）
+      if (err) {
+        console.warn('[RecommendationTracker] Cooldown check failed, proceeding without block:', (err as any)?.message || String(err));
+      }
+    }
+
+    const id = (recommendation as any)?.id ?? uuidv4();
     const now = new Date();
   
     // 统一字段命名（兼容 stop_loss/take_profit/confidence -> *_price/confidence_score）
@@ -520,94 +564,65 @@ export class RecommendationTracker {
     }
   }
   
-  /**
-   * 手动关闭推荐
-   */
   async manualCloseRecommendation(id: string, reason?: string): Promise<boolean> {
-    const rec = this.activeRecommendations.get(id);
-    if (!rec) {
-      return false;
-    }
-    
     try {
-      // 获取当前价格
-      const priceResult = await this.getCurrentPrice(rec.symbol);
-      const currentPrice = priceResult?.currentPrice || rec.current_price;
-      
-      // 计算盈亏
-      const checkResult = this.checkTriggerConditions(rec, currentPrice);
-      
-      await this.closeRecommendation(rec, (reason as any) || 'TIMEOUT', currentPrice, checkResult.pnlAmount, checkResult.pnlPercent);
+      const rec = this.activeRecommendations.get(id);
+      if (!rec) {
+        console.warn(`Recommendation ${id} not found in active cache`);
+        return false;
+      }
+      await this.closeRecommendation(rec, reason === 'LIQUIDATION' ? 'LIQUIDATION' : (reason === 'TAKE_PROFIT' ? 'TAKE_PROFIT' : (reason === 'STOP_LOSS' ? 'STOP_LOSS' : 'TIMEOUT')), rec.current_price);
       this.activeRecommendations.delete(id);
-      
       return true;
     } catch (error) {
-      console.error(`Failed to manually close recommendation ${id}:`, error);
+      console.error('Failed to manually close recommendation:', error);
       return false;
     }
   }
   
-  /**
-   * 保存推荐到数据库
-   */
   private async saveToDatabase(rec: RecommendationRecord): Promise<void> {
     try {
       await recommendationDatabase.initialize();
       await recommendationDatabase.saveRecommendation(rec);
     } catch (error) {
-      console.error(`Failed to save recommendation ${rec.id} to database:`, error);
+      console.error('Failed to save recommendation to database:', error);
     }
   }
   
-  /**
-   * 更新数据库中的推荐记录
-   */
   private async updateDatabase(rec: RecommendationRecord): Promise<void> {
     try {
       await recommendationDatabase.initialize();
       await recommendationDatabase.updateRecommendation(rec);
     } catch (error) {
-      console.error(`Failed to update recommendation ${rec.id} in database:`, error);
+      console.error('Failed to update recommendation in database:', error);
     }
   }
-
-  /**
-   * 获取指定推荐的当前价格
-   */
+  
   async getPrice(recommendationId: string): Promise<number | null> {
-    const rec = this.activeRecommendations.get(recommendationId);
-    if (!rec) {
-      return null;
-    }
-    
     try {
-      const priceData = await this.getCurrentPrice(rec.symbol);
-      return priceData?.currentPrice || null;
+      // 该方法原本依赖 enhancedOKXDataService.getPrice，不再提供该接口。
+      // 目前项目内未发现对本方法的实际调用，此处返回 null 并记录告警以保持兼容。
+      console.warn('getPrice(recommendationId) is deprecated and will always return null.');
+      return null;
     } catch (error) {
-      console.error(`Failed to get price for recommendation ${recommendationId}:`, error);
+      console.error('Failed to get price:', error);
       return null;
     }
   }
-
-  /**
-   * 清除价格缓存
-   */
+  
   clearPrices(): void {
-    // 这里可以清除价格相关的缓存
-    console.log('Price cache cleared');
+    // 使用现有的缓存清理接口
+    enhancedOKXDataService.clearCache();
   }
-
-  /**
-   * 获取价格监控统计信息
-   */
+  
   getPriceMonitorStats(): { symbols: number; size: number } {
-    const uniqueSymbols = new Set(Array.from(this.activeRecommendations.values()).map(r => r.symbol));
+    // 从通用缓存统计映射到 API 期望的字段
+    const stats = enhancedOKXDataService.getCacheStats();
     return {
-      symbols: uniqueSymbols.size,
-      size: this.activeRecommendations.size
+      symbols: stats?.itemCount ?? 0,
+      size: stats?.totalSize ?? 0
     };
   }
 }
 
-// 导出单例实例
 export const recommendationTracker = new RecommendationTracker();

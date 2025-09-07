@@ -24,6 +24,10 @@ import { RecommendationIntegrationService } from '../services/recommendation-int
 import { tradingSignalService } from '../services/trading-signal-service';
 import { riskManagementService } from '../services/risk-management-service';
 import { MLAnalyzer } from '../ml/ml-analyzer';
+import NodeCache from 'node-cache';
+
+// FGI 缓存（5分钟）
+const fgiCache = new NodeCache({ stdTTL: 300, useClones: false });
 
 // API响应接口
 interface ApiResponse<T = any> {
@@ -109,6 +113,23 @@ export class WebServer {
     this.app.get('/api/market/ticker', this.handleMarketTicker.bind(this));
     this.app.get('/api/market/kline', this.handleMarketKline.bind(this));
     this.app.get('/api/market/contract', this.handleContractInfo.bind(this));
+    // 新增：FGI 情绪指数
+    this.app.get('/api/sentiment/fgi', this.handleFGI.bind(this));
+    // 新增：资金费率(8h)
+    this.app.get('/api/market/funding-rate', async (req: Request, res: Response) => {
+      try {
+        const symbol = (req.query.symbol as string) || config.trading.defaultSymbol;
+        const rate = await enhancedOKXDataService.getFundingRate(symbol);
+        const response: ApiResponse = {
+          success: true,
+          data: { symbol, fundingRate: (typeof rate === 'number' ? rate : null) },
+          timestamp: Date.now()
+        };
+        res.json(response);
+      } catch (error) {
+        this.handleError(res, error, 'Failed to get funding rate');
+      }
+    });
 
     // 数据真实性诊断
     this.app.get('/api/diagnostics/validate', this.handleDiagnosticsValidate.bind(this));
@@ -522,6 +543,56 @@ export class WebServer {
       res.json(response);
     } catch (error) {
       this.handleError(res, error, 'Failed to get contract info');
+    }
+  }
+
+  // 新增：FGI 情绪指数（带缓存）
+  private async handleFGI(req: Request, res: Response): Promise<void> {
+    try {
+      const cacheKey = 'fgi-latest';
+      const cached = fgiCache.get(cacheKey) as any;
+      if (cached) {
+        const response: ApiResponse = { success: true, data: cached, timestamp: Date.now() };
+        res.json(response);
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const resp = await fetch('https://api.alternative.me/fng/?limit=1&format=json&date_format=cn', { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!resp.ok) throw new Error(`FGI request failed: ${resp.status}`);
+      const json: any = await resp.json();
+      const item = Array.isArray(json?.data) && json.data.length > 0 ? json.data[0] : null;
+      if (!item) throw new Error('FGI data empty');
+
+      const valueNum = Number(item.value);
+      const classification = (() => {
+        if (Number.isNaN(valueNum)) return '未知';
+        if (valueNum <= 25) return '极度恐惧';
+        if (valueNum <= 45) return '恐惧';
+        if (valueNum < 55) return '中性';
+        if (valueNum <= 75) return '贪婪';
+        return '极度贪婪';
+      })();
+
+      const normalized = {
+        value: Number.isFinite(valueNum) ? valueNum : null,
+        value_classification: classification,
+        timestamp: Number(item.timestamp) * 1000 || Date.now(),
+        time_until_update: Number((json as any)?.metadata?.time_until_update) || null,
+        source: 'alternative.me'
+      };
+
+      if (normalized.value === null) throw new Error('FGI value invalid');
+
+      fgiCache.set(cacheKey, normalized, 300);
+
+      const response: ApiResponse = { success: true, data: normalized, timestamp: Date.now() };
+      res.json(response);
+    } catch (error) {
+      this.handleError(res, error, 'Failed to fetch FGI');
     }
   }
 

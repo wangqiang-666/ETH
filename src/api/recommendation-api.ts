@@ -1,5 +1,5 @@
 import express from 'express';
-import { RecommendationTracker, RecommendationRecord } from '../services/recommendation-tracker';
+import { RecommendationTracker, RecommendationRecord, CooldownError } from '../services/recommendation-tracker';
 import { RecommendationDatabase } from '../services/recommendation-database';
 import { StatisticsCalculator, StrategyStatistics, OverallStatistics } from '../services/statistics-calculator';
 import { EnhancedOKXDataService } from '../services/enhanced-okx-data-service';
@@ -129,6 +129,19 @@ export class RecommendationAPI {
       
     } catch (error) {
       console.error('Error creating recommendation:', error);
+      // 新增：对冷却期错误映射为 429
+      if (error instanceof CooldownError) {
+        res.status(429).json({
+          success: false,
+          error: error.code,
+          symbol: error.symbol,
+          remainingMs: error.remainingMs,
+          nextAvailableAt: error.nextAvailableAt,
+          lastRecommendationId: error.lastRecommendationId,
+          lastCreatedAt: error.lastCreatedAt
+        });
+        return;
+      }
       res.status(500).json({
         success: false,
         error: 'Failed to create recommendation',
