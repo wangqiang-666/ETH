@@ -21,9 +21,9 @@ export const config = {
     
     // 代理服务器配置
     proxy: {
-        url: process.env.HK_PROXY_URL || 'http://43.132.123.32:8080',
-        baseUrl: process.env.HK_PROXY_URL || 'http://43.132.123.32:8080',
-        // 当 FORCE_PROXY=true 时，强制启用代理
+        url: process.env.HK_PROXY_URL || process.env.PROXY_URL || '',
+        baseUrl: process.env.HK_PROXY_URL || process.env.PROXY_URL || '',
+        // 当 FORCE_PROXY=true 或 USE_PROXY=true 时才启用代理
         enabled: (process.env.FORCE_PROXY === 'true') || (process.env.USE_PROXY === 'true'),
         // 强制仅走代理（大陆直连不可用场景）
         forceOnly: process.env.FORCE_PROXY === 'true',
@@ -191,8 +191,8 @@ export const config = {
         allowAutoOnHighRisk: (process.env.ALLOW_AUTO_ON_HIGH_RISK || 'false') === 'true',
         // 新增：自动推荐轮询间隔（毫秒），降低可更快出单
         autoRecommendationIntervalMs: parseInt(process.env.AUTO_RECO_INTERVAL_MS || '15000'),
-        // 新增：策略信号冷却时间（毫秒），默认15分钟
-        signalCooldownMs: parseInt(process.env.SIGNAL_COOLDOWN_MS || '900000')
+        // 新增：策略信号冷却时间（毫秒），默认30分钟
+        signalCooldownMs: parseInt(process.env.SIGNAL_COOLDOWN_MS || '1800000')
     },
     
     // 机器学习配置（仅本地模型）

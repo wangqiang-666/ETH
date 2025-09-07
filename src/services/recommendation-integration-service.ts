@@ -1,4 +1,4 @@
-import { RecommendationTracker } from './recommendation-tracker';
+import { RecommendationTracker, CooldownError } from './recommendation-tracker';
 import { RecommendationDatabase } from './recommendation-database';
 import { StatisticsCalculator } from './statistics-calculator';
 import { PriceMonitor } from './price-monitor';
@@ -363,18 +363,18 @@ export class RecommendationIntegrationService extends EventEmitter {
       };
       
       const recommendationId = await this.tracker.addRecommendation(enrichedData);
-      
-      // 将推荐同步写入本地数据库API（异步，不阻塞主流程）
       this.postRecommendationToDBAPI(recommendationId, enrichedData).catch(err => {
         console.warn('Sync to DB API failed (manual create):', err?.message || err);
       });
-      
       this.emit('recommendation_created', { id: recommendationId, recommendation: enrichedData });
-      
       return recommendationId;
       
     } catch (error) {
-      console.error('Error creating recommendation:', error);
+      if (error instanceof CooldownError) {
+        // 交由上层(API)统一映射为 429
+        throw error;
+      }
+      console.error('Failed to create recommendation manually:', error);
       throw error;
     }
   }

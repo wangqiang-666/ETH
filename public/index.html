@@ -143,6 +143,12 @@
             margin-bottom: 5px;
         }
         
+        /* 加载占位：字体小且淡黄色 */
+        .metric-value.loading-inline {
+            font-size: 1.2em;
+            color: #f6e58d;
+        }
+        
         .metric-label {
             font-size: 0.9em;
             color: #7f8c8d;
@@ -187,6 +193,32 @@
         
         .btn-danger {
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+
+        /* 独立气泡透明按钮（不依赖 .btn） */
+        .bubble-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 16px;border-radius:12px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#ffffff;text-shadow:0 1px 2px rgba(0,0,0,.35);font-weight:600;letter-spacing:.2px;cursor:pointer;outline:none;transition:transform .2s ease, box-shadow .3s ease, background .3s ease, border-color .3s ease;box-shadow:inset 0 1px 0 rgba(255,255,255,.2), 0 4px 16px rgba(46,126,255,.18);}
+        .bubble-btn .label{position:relative;z-index:2}
+        .bubble-btn .ring{position:absolute;inset:-2px;border-radius:inherit;padding:1px;background:conic-gradient(from 0deg,#79c0ff,#a78bfa,#60a5fa,#79c0ff);mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);-webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.9;transition:opacity .3s ease, filter .3s ease;filter:blur(.5px);}
+        .bubble-btn::before{content:"";position:absolute;inset:0;border-radius:inherit;background:radial-gradient(120% 60% at 30% 10%, rgba(255,255,255,.45), rgba(255,255,255,.1) 60%, transparent 70%), radial-gradient(120% 80% at 70% 120%, rgba(59,130,246,.25), transparent 60%);z-index:1;}
+        .bubble-btn::after{content:"";position:absolute;left:10px;top:6px;width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.85);filter:blur(1px);opacity:.9;z-index:2;}
+        .bubble-btn:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.25), 0 8px 24px rgba(46,126,255,.25);background:rgba(255,255,255,.08);}
+        .bubble-btn:active{transform:translateY(0);box-shadow:inset 0 2px 6px rgba(0,0,0,.25), 0 4px 12px rgba(46,126,255,.25);}
+        .bubble-btn:focus-visible{outline:2px solid rgba(125,211,252,.6);outline-offset:2px}
+        .bubble-btn.disabled, .bubble-btn:disabled{opacity:.6;cursor:not-allowed;box-shadow:none;}
+        .bubble-btn .ring{animation:spin 3.8s linear infinite;}
+        @keyframes spin{to{transform:rotate(360deg)}}
+
+        /* 灰暗禁用态 */
+        .btn:disabled, .btn.disabled {
+            background: linear-gradient(135deg, #bdc3c7 0%, #95a5a6 100%) !important;
+            box-shadow: none !important;
+            transform: none !important;
+            cursor: not-allowed;
+            color: #ffffff !important;
+            opacity: 1 !important;
+        }
+        .btn-success:disabled, .btn-danger:disabled {
+            background: linear-gradient(135deg, #bdc3c7 0%, #95a5a6 100%) !important;
         }
         
         .signal-display {
@@ -300,6 +332,7 @@
         .btn-sm {
             padding: 6px 12px;
             font-size: 14px;
+            color: #ffffff;
         }
         
         .recommendation-list {
@@ -581,11 +614,28 @@
         .pagination .page-number.active{background:#3498db;color:#fff;border-color:#3498db}
         .pagination .page-btn[disabled]{opacity:.5;cursor:not-allowed}
         .pagination .page-info{margin-left:8px;color:#6b7280;font-size:12px}
+        /* FGI 半圆仪表盘样式 */
+        .section-sep{height:1px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(148,163,184,.35) 15%,rgba(148,163,184,.35) 85%,rgba(255,255,255,0));margin:10px 0 12px}
+        .fgi-header{font-size:14px;color:#6b7280;letter-spacing:.4px;margin:-2px 0 2px}
+        .fgi-gauge{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 0 2px}
+        .fgi-gauge svg{width:100%;max-width:420px;height:200px;overflow:visible}
+        .fgi-track{fill:none;stroke:#e5e7eb;stroke-width:14;opacity:.45}
+        .fgi-arc{fill:none;stroke-width:14;stroke-linecap:butt;opacity:1;transition:opacity .3s ease;stroke-dasharray:18 82}
+        /* 五等分+空白分隔：每段18% + 2%间隔，起点分别为 0/20/40/60/80 */
+        #arc-red{stroke-dashoffset:0}
+         #arc-orange{stroke-dashoffset:-20.5}
+         #arc-yellow{stroke-dashoffset:-41}
+         #arc-green{stroke-dashoffset:-61.5}
+         #arc-darkgreen{stroke-dashoffset:-82}
+        .fgi-dot{filter:drop-shadow(0 2px 4px rgba(0,0,0,.35));transition:cx .5s cubic-bezier(.22,1,.36,1), cy .5s cubic-bezier(.22,1,.36,1);fill:#fff;stroke:#0f172a;stroke-width:3}
+        .fgi-value{font-size:40px;font-weight:800;color:#111827;margin-top:-10px;text-shadow:0 1px 1px rgba(0,0,0,.07)}
+        .fgi-label{font-size:13px;color:#6b7280;margin-top:4px}
+        .fgi-legend{font-size:12px;color:#9ca3af;margin-top:2px}
     </style>
 </head>
 <body>
     <div class="inspect-fab">
-        <button class="btn" onclick="openInspect()">数据与指标诊断面板</button>
+        <button class="bubble-btn" onclick="openInspect()"><span class="label">数据与指标诊断面板</span><span class="ring"></span></button>
     </div>
     <div class="container">
         <div class="header">
@@ -634,9 +684,31 @@
                     </div>
                     <div class="metric">
                         <div class="metric-value" id="volatility">--</div>
-                        <div class="metric-label">波动率</div>
+                        <div class="metric-label">振幅</div>
                     </div>
-                    
+                    <div class="metric">
+                        <div class="metric-value" id="lowHigh24h">--</div>
+                        <div class="metric-label">24h最低/最高</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="fundingRate">--</div>
+                        <div class="metric-label">资金费率(8h)</div>
+                    </div>
+                </div>
+                <div class="section-sep"></div>
+                <div class="fgi-header">恐惧贪婪指数</div>
+                <div class="fgi-gauge" id="fgiGauge">
+                    <svg viewBox="0 0 200 100" preserveAspectRatio="xMidYMid meet">
+                        <path class="fgi-track" d="M10,100 A90,90 0 0 1 190,100"/>
+                        <path class="fgi-arc" id="arc-red" d="M10,100 A90,90 0 0 1 190,100" stroke="#b91c1c" pathLength="100"/>
+                         <path class="fgi-arc" id="arc-orange" d="M10,100 A90,90 0 0 1 190,100" stroke="#ef4444" pathLength="100"/>
+                         <path class="fgi-arc" id="arc-yellow" d="M10,100 A90,90 0 0 1 190,100" stroke="#facc15" pathLength="100"/>
+                         <path class="fgi-arc" id="arc-green" d="M10,100 A90,90 0 0 1 190,100" stroke="#10b981" pathLength="100"/>
+                         <path class="fgi-arc" id="arc-darkgreen" d="M10,100 A90,90 0 0 1 190,100" stroke="#065f46" pathLength="100" style="stroke-dasharray:18.05 81.95"/>
+                        <circle id="fgiDot" class="fgi-dot" cx="100" cy="100" r="8" />
+                    </svg>
+                    <div class="fgi-value" id="fgiValue">--</div>
+                    <div class="fgi-label" id="fgiLabel">中性</div>
                 </div>
             </div>
             <!-- 开单推荐 -->
@@ -660,12 +732,12 @@
                     </div>
                     <div class="metric">
                         <div class="metric-value" id="positionSizeRecommend">--</div>
-                        <div class="metric-label">建议仓位</div>
+                        <div class="metric-label">置信度</div>
                     </div>
                 </div>
                 <div class="trading-buttons">
-                    <button class="btn btn-success" onclick="openLongPosition()">📈 做多 (LONG)</button>
-                    <button class="btn btn-danger" onclick="openShortPosition()">📉 做空 (SHORT)</button>
+                    <button id="btnLong" class="btn btn-success" onclick="openLongPosition()">📈 做多 (LONG)</button>
+                    <button id="btnShort" class="btn btn-danger" onclick="openShortPosition()">📉 做空 (SHORT)</button>
                 </div>
                 <div style="margin-top: 15px; font-size: 12px; color: #666; text-align: center;">
                     建议仅供参考，请注意风险控制
@@ -781,7 +853,7 @@
                     </div>
                     <div class="metric">
                         <div class="metric-value" id="positionSize">--</div>
-                        <div class="metric-label">建议仓位</div>
+                        <div class="metric-label">置信度</div>
                     </div>
                     <div class="metric">
                         <div class="metric-value" id="stopLoss">--</div>
@@ -963,6 +1035,59 @@
             throw lastErr;
         }
         
+        // FGI 渲染：根据数值在半圆上定位指示点，并更新文案（含动画与分段高亮）
+        function renderFGI(value, label) {
+            try {
+                const pointer = document.getElementById('fgiDot');
+                const valEl = document.getElementById('fgiValue');
+                const labEl = document.getElementById('fgiLabel');
+                if (!pointer || !valEl || !labEl) return;
+                if (typeof value !== 'number' || !isFinite(value)) {
+                    valEl.textContent = '--';
+                    labEl.textContent = '恐惧贪婪指数';
+                    return;
+                }
+                const v = Math.max(0, Math.min(100, value));
+                valEl.textContent = String(Math.round(v));
+                // 阈值分类：0-20 极度恐惧，20-40 恐惧，40-60 中性，60-80 贪婪，80-100 极度贪婪（左闭右开，最后一档含 100）
+                const classify = (n) => (n < 20 ? '极度恐惧' : n < 40 ? '恐惧' : n < 60 ? '中性' : n < 80 ? '贪婪' : '极度贪婪');
+                // 统一以数值阈值映射为准，避免接口标签覆盖造成错判（例如 44 应显示“中性”）
+                labEl.textContent = classify(v);
+                // 半圆映射：0 -> π, 100 -> 0
+                const angle = Math.PI * (1 - v / 100);
+                const r = 90;
+                const cx = 100 + r * Math.cos(angle);
+                const cy = 100 - r * Math.sin(angle);
+                pointer.setAttribute('cx', cx.toFixed(2));
+                pointer.setAttribute('cy', cy.toFixed(2));
+
+                // 保持所有颜色段固定显示，取消动态高亮，仅移动指示点
+                // 指示点样式已通过 CSS 定义，这里不修改颜色
+            } catch (e) {
+                console.warn('渲染FGI失败:', e);
+            }
+        }
+        
+        // 加载 FGI 数据（使用本地超时控制，避免复用市场数据的内联状态提示）
+        async function loadFGI() {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 8000);
+            try {
+                const res = await fetch('/api/sentiment/fgi', { signal: ctrl.signal, cache: 'no-store' });
+                clearTimeout(timer);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const payload = await res.json();
+                const d = payload?.data ?? payload;
+                const val = typeof d?.value === 'number' ? d.value : Number(d?.value);
+                const label = d?.value_classification || d?.classification || null;
+                renderFGI(val, label);
+            } catch (err) {
+                clearTimeout(timer);
+                console.warn('加载FGI失败:', err);
+                renderFGI(NaN, null);
+            }
+        }
+        
         // 页面加载时初始化
         window.onload = function() {
             // 优先加载“市场数据”，提升首屏感知速度
@@ -972,6 +1097,7 @@
             loadPerformanceData();
             loadTradeRecommendation();
             loadRecommendationHistory();
+            loadFGI();
             
             // 启动自动更新
             updateInterval = setInterval(() => {
@@ -980,6 +1106,7 @@
                 updateUptime();
                 loadTradeRecommendation();
                 loadRecommendationHistory();
+                loadFGI();
             }, 30000); // 30秒更新一次
         };
         
@@ -1066,8 +1193,7 @@
                     if (data.data.riskManagement) {
                         const risk = data.data.riskManagement;
                         if (typeof risk.riskScore === 'number') document.getElementById('riskScore').textContent = risk.riskScore.toFixed(1);
-                        if (typeof risk.positionSize === 'number') document.getElementById('positionSize').textContent = 
-                            (risk.positionSize * 100).toFixed(1) + '%';
+                        document.getElementById('positionSize').textContent = confText;
                         if (typeof risk.stopLoss === 'number') document.getElementById('stopLoss').textContent = '$' + risk.stopLoss.toFixed(2);
                         if (typeof risk.takeProfit === 'number') document.getElementById('takeProfit').textContent = '$' + risk.takeProfit.toFixed(2);
                     }
@@ -1138,6 +1264,8 @@
             // const changeEl = document.querySelector('#market-change'); // 已移除
             const volumeEl = document.getElementById('volume');
             const volEl = document.getElementById('volatility');
+            const lowHighEl = document.getElementById('lowHigh24h');
+            const fundingEl = document.getElementById('fundingRate');
             const statusEl = document.getElementById('marketInlineStatus');
             if (statusEl) {
                 statusEl.className = 'inline-status warn';
@@ -1160,17 +1288,48 @@
                         if (sodPct === null || !isFinite(sodPct)) {
                             changeElLegacy.textContent = '—';
                             changeElLegacy.style.color = '#6b7280';
-                            changeElLegacy.title = '今日涨跌幅(UTC+8)暂无数据';
                         } else {
                             changeElLegacy.textContent = sodPct.toFixed(2) + '%';
                             changeElLegacy.style.color = sodPct >= 0 ? '#10b981' : '#ef4444';
-                            changeElLegacy.title = '今日涨跌幅(UTC+8)：优先使用API字段changeFromSodUtc8；回退(last-sodUtc8)/sodUtc8。';
+                        }
+                    }
+                    // 24h最低/最高
+                    if (lowHighEl) {
+                        const h24 = Number(market.high24h);
+                        const l24 = Number(market.low24h);
+                        if (isFinite(h24) && isFinite(l24)) {
+                            lowHighEl.textContent = `$${l24.toFixed(2)} / $${h24.toFixed(2)}`;
+                        } else {
+                            lowHighEl.textContent = '--';
                         }
                     }
                     const turnoverUSDT = (typeof market.volume === 'number' && typeof market.price === 'number') ? (market.volume * market.price * 0.1) : NaN;
                     volumeEl.textContent = formatUSDT(turnoverUSDT);
-                    const volText = (typeof market.volatility === 'number') ? (market.volatility * 100).toFixed(2) + '%' : '—';
-                    volEl.textContent = volText;
+
+                    // 24h 振幅（高低区间/当前价），每10分钟计算一次，减少网络负担
+                    if (typeof window.__ampVal === 'undefined') { window.__ampVal = null; window.__ampTs = 0; }
+                    const now = Date.now();
+                    const ttl = 10 * 60 * 1000; // 10分钟
+                    const canUseCache = (typeof window.__ampVal === 'number' && isFinite(window.__ampVal) && (now - (window.__ampTs || 0) < ttl));
+
+                    if (canUseCache) {
+                        volEl.textContent = window.__ampVal.toFixed(2) + '%';
+                        volEl.classList.remove('loading-inline');
+                    } else {
+                        const h = Number(market.high24h);
+                        const l = Number(market.low24h);
+                        const p = Number(market.price ?? market.last);
+                        if (isFinite(h) && isFinite(l) && isFinite(p) && p > 0 && h >= l) {
+                            const amp = Math.max(0, ((h - l) / p) * 100);
+                            window.__ampVal = amp;
+                            window.__ampTs = now;
+                            volEl.textContent = amp.toFixed(2) + '%';
+                            volEl.classList.remove('loading-inline');
+                        } else {
+                            volEl.textContent = '加载中…';
+                            volEl.classList.add('loading-inline');
+                        }
+                    }
             
                     lastMarketOk = true;
                     lastMarketUpdate = Date.now();
@@ -1178,6 +1337,17 @@
                         statusEl.className = 'inline-status ok';
                         statusEl.textContent = '在线 · 已更新 ' + fmtTime(lastMarketUpdate);
                     }
+                }
+                // 并行请求资金费率(8h)
+                try {
+                    const frRes = await fetch('/api/market/funding-rate?symbol=ETH-USDT-SWAP');
+                    const frJson = await frRes.json();
+                    const val = (typeof frJson?.data?.fundingRate === 'number') ? frJson.data.fundingRate : null;
+                    if (fundingEl) {
+                        fundingEl.textContent = (val === null || !isFinite(val)) ? '--' : (val * 100).toFixed(4) + '%';
+                    }
+                } catch (e) {
+                    if (fundingEl) fundingEl.textContent = '--';
                 }
             } catch (error) {
                 console.error('加载市场数据失败:', error);
@@ -1308,9 +1478,8 @@
                     <div class="row"><span class="key">推荐操作</span><span class="val">${action}</span></div>
                     <div class="row"><span class="key">入场价位</span><span class="val">${typeof entry === 'number' ? '$' + entry.toFixed(2) : entry}</span></div>
                     <div class="row"><span class="key">推荐杠杆</span><span class="val">${typeof leverage === 'number' ? leverage + 'x' : leverage}</span></div>
-                    <div class="row"><span class="key">建议仓位</span><span class="val">${posSize}</span></div>
-                    <div class="row"><span class="key">止盈/止损</span><span class="val">${typeof tp === 'number' ? '$' + tp.toFixed(2) : tp} / ${typeof sl === 'number' ? '$' + sl.toFixed(2) : sl}</span></div>
                     <div class="row"><span class="key">置信度</span><span class="val">${conf}</span></div>
+                    <div class="row"><span class="key">止盈/止损</span><span class="val">${typeof tp === 'number' ? '$' + tp.toFixed(2) : tp} / ${typeof sl === 'number' ? '$' + sl.toFixed(2) : sl}</span></div>
                 `;
 
                 const actionEl = document.getElementById('recommendedAction');
@@ -1320,9 +1489,9 @@
                 if (actionEl) actionEl.textContent = action;
                 if (entryEl) entryEl.textContent = (typeof entry === 'number') ? '$' + entry.toFixed(2) : String(entry);
                 if (levEl) levEl.textContent = (typeof leverage === 'number') ? leverage + 'x' : String(leverage);
-                if (posEl) posEl.textContent = posSize;
+                if (posEl) posEl.textContent = conf;
 
-                window.__lastRecommendation = { action, entry, leverage, posSize, tp, sl, conf };            } catch (err) {
+                window.__lastRecommendation = { action, entry, leverage, tp, sl, conf };            } catch (err) {
                 console.error('加载开单推荐失败:', err);
                 container.innerHTML = '<div class="error">推荐加载失败</div>';
             }
@@ -1331,14 +1500,34 @@
         // 新增：开多/开空按钮（演示提示）
         function openLongPosition() {
             const rec = window.__lastRecommendation || {};
-            alert(`准备开多:\n入场: ${formatPrice(rec.entry)}\n杠杆: ${formatLev(rec.leverage)}\n止盈: ${formatPrice(rec.tp)} / 止损: ${formatPrice(rec.sl)}\n仓位: ${rec.posSize || '--'}`);
+            alert(`准备开多:\n入场: ${formatPrice(rec.entry)}\n杠杆: ${formatLev(rec.leverage)}\n止盈: ${formatPrice(rec.tp)} / 止损: ${formatPrice(rec.sl)}`);
         }
         function openShortPosition() {
             const rec = window.__lastRecommendation || {};
-            alert(`准备开空:\n入场: ${formatPrice(rec.entry)}\n杠杆: ${formatLev(rec.leverage)}\n止盈: ${formatPrice(rec.tp)} / 止损: ${formatPrice(rec.sl)}\n仓位: ${rec.posSize || '--'}`);
+            alert(`准备开空:\n入场: ${formatPrice(rec.entry)}\n杠杆: ${formatLev(rec.leverage)}\n止盈: ${formatPrice(rec.tp)} / 止损: ${formatPrice(rec.sl)}`);
         }
         function formatPrice(v){ return (typeof v === 'number') ? ('$' + v.toFixed(2)) : (v || '--'); }
         function formatLev(v){ return (typeof v === 'number') ? (v + 'x') : (v || '--'); }
+        
+        // 交易按钮状态控制：NONE/LONG/SHORT
+        function setTradeButtonsState(direction){
+            try{
+                const btnLong = document.getElementById('btnLong');
+                const btnShort = document.getElementById('btnShort');
+                const dir = String(direction||'NONE').toUpperCase();
+                if(!btnLong || !btnShort){ return; }
+                if(dir === 'LONG'){
+                    btnLong.disabled = false;
+                    btnShort.disabled = true;
+                } else if(dir === 'SHORT'){
+                    btnLong.disabled = true;
+                    btnShort.disabled = false;
+                } else {
+                    btnLong.disabled = true;
+                    btnShort.disabled = true;
+                }
+            }catch(e){ /* 忽略 UI 状态异常 */ }
+        }
         
         // 推荐历史相关功能
         let recommendationData = [];
@@ -1768,6 +1957,163 @@
                 clearInterval(updateInterval);
             }
         };
+    </script>
+    <script>
+    (function(){
+      if (window.__ACTIVE_UI_PATCHED__) return; // 防重复注入
+      window.__ACTIVE_UI_PATCHED__ = true;
+      if (typeof window.loadTradeRecommendation === 'function') {
+        window.__legacyLoadTradeRecommendation = window.loadTradeRecommendation;
+      }
+      const AUTO_MS_DEFAULT = 30000;
+      function ensureActiveStyles(){
+        if(document.getElementById('active-styles')) return;
+        const style=document.createElement('style');
+        style.id='active-styles';
+        style.textContent = `
+        .active-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border:1px solid #e8e8e8;border-radius:8px;background:#fafafa;margin-bottom:10px}
+        .active-bar .left{display:flex;align-items:center;gap:8px}
+        .active-bar .right{display:flex;align-items:center;gap:8px}
+        .active-bar .label{color:#555}
+        .active-bar .strong{font-weight:600}
+        .active-bar .muted{color:#888}
+        .active-bar .sep{color:#ddd}
+        .active-bar .countdown{font-variant-numeric:tabular-nums;color:#333}
+        .active-bar .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+        .active-bar .dot.on{background:#2ecc71}
+        .active-bar .dot.off{background:#e74c3c}
+        .btn.small{padding:6px 10px;font-size:12px;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer;color:#2980b9}
+.btn.small:hover{background:#f4f4f4}
+        .btn.danger{border-color:#ffb4b4;color:#c0392b}
+        .btn.danger:hover{background:#ffecec}
+        .rec-list{display:flex;flex-direction:column;gap:16px}
+        .rec-item{display:flex;align-items:stretch;justify-content:space-between;gap:16px;border:1px solid #eaeaea;border-radius:12px;padding:14px 16px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,0.03)}
+        .rec-item .col.main{flex:1}
+        .rec-item .col.side{width:168px;padding-left:12px;border-left:1px dashed #eee;display:flex;flex-direction:column;align-items:flex-end;justify-content:center}
+        .rec-item .title{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+        .rec-item .symbol{font-weight:600}
+        .rec-item .muted{color:#888;font-size:12px}
+        .rec-item .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px 14px}
+        .rec-item .k{color:#666;margin-right:6px}
+        .rec-item .v{font-variant-numeric:tabular-nums;line-height:1.5}
+        .rec-item .ttl{color:#666;font-size:12px;margin-bottom:4px}
+        .rec-item .ttl-val{font-variant-numeric:tabular-nums;font-weight:600;margin:8px 0;font-size:14px}
+        .rec-item.skeleton{min-height:140px}
+        .rec-item.skeleton .v{color:#bbb}
+        .badge{padding:2px 6px;border-radius:6px;background:#eef;border:1px solid #dde;font-size:12px}
+        .badge.long{background:#eafff3;border-color:#c4f2d8;color:#1e874b}
+        .badge.short{background:#fff0f0;border-color:#ffd6d6;color:#b03a2e}
+        .diff-blink{animation: diffFlash 1.2s ease-in-out 1}
+        @keyframes diffFlash{0%{background:transparent}30%{background:#fff6cc}100%{background:transparent}}
+        .empty-tip{padding:10px 12px;color:#666}
+        @media (max-width: 560px){.rec-item{flex-direction:column}.rec-item .col.side{width:100%;align-items:flex-start;border-left:0;border-top:1px dashed #eee;margin-top:8px;padding-top:8px}}
+        .loading{padding:8px 10px;color:#666}
+        .error{padding:8px 10px;color:#b03a2e}
+        .alert{padding:10px 12px;border-radius:8px;margin:10px 0;font-size:14px}
+        .alert-danger{background:#fff0f0;border:1px solid #ffd6d6;color:#b03a2e}
+        `;
+        document.head.appendChild(style);
+      }
+      function renderTopBar(count){
+        const nextAt = Date.now() + (window.__AUTO_REFRESH_INTERVAL_MS||AUTO_MS_DEFAULT);
+        window.__nextAutoRefreshAt = nextAt;
+        return `<div class="active-bar" id="activeSignalBar">
+          <div class="left">
+            <span class="dot ${count>0?'on':'off'}"></span>
+            <span class="label">活跃信号</span>
+            <span class="strong" id="activeSignalCount">${count}</span>
+            <span class="sep">|</span>
+            <span class="muted">下次自动刷新</span>
+            <span class="countdown" id="nextRefreshCountdown">${Math.round((nextAt-Date.now())/1000)}s</span>
+          </div>
+          <div class="right">
+            <button id="btnManualRefresh" class="btn small">刷新</button>
+          </div>
+        </div>`;
+      }
+      function ensureAutoRefreshTicker(){
+        if (window.__autoRefreshTickTimer) clearInterval(window.__autoRefreshTickTimer);
+        window.__autoRefreshTickTimer = setInterval(()=>{
+          const el = document.getElementById('nextRefreshCountdown');
+          if(!el||!window.__nextAutoRefreshAt) return;
+          const remain=Math.max(0,Math.round((window.__nextAutoRefreshAt-Date.now())/1000));
+          el.textContent = `${remain}s`;
+        },1000);
+      }
+      function scheduleAutoRefresh(){
+        const ms = window.__AUTO_REFRESH_INTERVAL_MS||AUTO_MS_DEFAULT;
+        if (window.__nextRefreshTimer) clearTimeout(window.__nextRefreshTimer);
+        window.__nextRefreshTimer = setTimeout(()=>{
+          try { window.loadTradeRecommendation(); } catch(e){}
+        }, ms);
+      }
+      function parseActiveList(d){
+        const list = Array.isArray(d?.recommendations) ? d.recommendations : Array.isArray(d) ? d : Array.isArray(d?.list) ? d.list : [];
+        return Array.isArray(list) ? list.filter(Boolean) : [];
+      }
+      function fmtPrice(v){ return (typeof v === 'number') ? ('$' + v.toFixed(2)) : (v ?? '--'); }
+      function fmtLev(v){ return (typeof v === 'number') ? (v + 'x') : (v ?? '--'); }
+      function fmtPct(v){ if (typeof v === 'number') return `${v<=1?(v*100).toFixed(1):v.toFixed(1)}%`; if (typeof v === 'string' && v.endsWith('%')) return v; return '--'; }
+      function formatRelative(ts){ if (!ts) return '--'; const t = (ts instanceof Date) ? ts.getTime() : new Date(ts).getTime(); if (!Number.isFinite(t)) return '--'; const s = Math.max(0, Math.floor((Date.now()-t)/1000)); if (s<60) return `${s}s前`; const m=Math.floor(s/60); if(m<60) return `${m}分钟前`; const h=Math.floor(m/60); if(h<24) return `${h}小时前`; const d=Math.floor(h/24); return `${d}天前`; }
+      function clearItemTimers(){ const map = window.__activeCountdownTimers||{}; Object.keys(map).forEach(k=>{ try{clearInterval(map[k]);}catch(e){} delete map[k]; }); }
+      function startItemCountdown(id, createdAt){ const ttlEl = document.getElementById(`ttl-${id}`); if(!ttlEl) return; const base = (createdAt instanceof Date)?createdAt.getTime():new Date(createdAt).getTime(); const deadline = base + 24*60*60*1000; const tick=()=>{ const leftMs=Math.max(0,deadline-Date.now()); const s=Math.floor(leftMs/1000); const h=Math.floor(s/3600); const m=Math.floor((s%3600)/60); const ss=s%60; ttlEl.textContent = `${h}h ${m}m ${ss}s`; }; tick(); const timer=setInterval(tick,1000); if(!window.__activeCountdownTimers) window.__activeCountdownTimers={}; window.__activeCountdownTimers[id]=timer; }
+      function diffHighlight(id,current){ const prev = (window.__lastActiveSnapshot||{})[id]; if(!window.__lastActiveSnapshot) window.__lastActiveSnapshot={}; window.__lastActiveSnapshot[id] = { direction: current.direction, entry_price: current.entry_price, take_profit_price: current.take_profit_price ?? current.take_profit, stop_loss_price: current.stop_loss_price ?? current.stop_loss, leverage: current.leverage, position_size: current.position_size }; if(!prev) return; ['direction','entry_price','take_profit_price','stop_loss_price','leverage','position_size'].forEach(k=>{ const pv=prev[k], cv=window.__lastActiveSnapshot[id][k]; if(String(pv)!==String(cv)){ const el=document.querySelector(`[data-field="${k}-${id}"]`); if(el){ el.classList.add('diff-blink'); setTimeout(()=>el.classList.remove('diff-blink'),1600); } } }); }
+
+      window.loadTradeRecommendation = async function(){
+        const container = document.getElementById('tradingRecommendation');
+        if (!container) return;
+        ensureActiveStyles();
+        if (typeof window.__AUTO_REFRESH_INTERVAL_MS !== 'number') window.__AUTO_REFRESH_INTERVAL_MS = AUTO_MS_DEFAULT;
+        container.innerHTML = '<div class="loading">正在获取推荐信号...</div>';
+        try {
+          const res = await fetch('/api/active-recommendations',{cache:'no-store'});
+          const payload = await res.json();
+          const d = payload?.data ?? payload;
+          const list = parseActiveList(d);
+          const hasActive = list.length>0;
+          const topBar = renderTopBar(list.length);
+          if(!hasActive){
+            clearItemTimers(); ensureAutoRefreshTicker(); scheduleAutoRefresh();
+            const a=document.getElementById('recommendedAction');
+            const e=document.getElementById('entryPrice');
+            const l=document.getElementById('recommendedLeverage');
+            const p=document.getElementById('positionSizeRecommend');
+            if(a) a.textContent=''; if(e) e.textContent=''; if(l) l.textContent=''; if(p) p.textContent=''; window.__lastRecommendation=null;
+            container.innerHTML = `${topBar}<div class="alert alert-danger">当前价格暂无开单推荐</div><div class="rec-list" id="activeSignalList"><div class="rec-item skeleton"><div class="col main"><div class="title"><span class="badge">--</span><span class="symbol">--</span></div><div class="grid"><div><span class="k">建议动作</span> <span class="v">--</span></div><div><span class="k">入场</span> <span class="v">--</span></div><div><span class="k">杠杆</span> <span class="v">--</span></div><div><span class="k">止盈</span> <span class="v">--</span></div><div><span class="k">止损</span> <span class="v">--</span></div><div><span class="k">置信度</span> <span class="v">--</span></div></div></div><div class="col side"><div class="ttl">到期倒计时</div><div class="ttl-val">--</div></div></div></div>`;
+            try{ setTradeButtonsState('NONE'); }catch(_){ }
+            const btn=document.getElementById('btnManualRefresh'); if(btn) btn.onclick=()=>{ window.loadTradeRecommendation(); };
+            return;
+          }
+          const sorted = list.slice().sort((a,b)=>{ const ta=new Date(a?.updated_at||a?.created_at||0).getTime(); const tb=new Date(b?.updated_at||b?.created_at||0).getTime(); return tb-ta; });
+          const itemsHtml = sorted.slice(0,1).map(rec=>{ const id=rec.id||rec._id||rec.uuid||''; const symbol=rec.symbol||'ETH-USDT-SWAP'; const direction=String(rec.direction||rec.action||'').toUpperCase(); const entry=(typeof rec.entry_price==='number')?rec.entry_price:(typeof rec.current_price==='number'?rec.current_price:null); const lev=(typeof rec.leverage==='number')?rec.leverage:null; const confRaw=(typeof rec.confidence_score==='number')?rec.confidence_score:(typeof rec.confidence==='number'?rec.confidence:null); const conf=(typeof confRaw==='number')?((confRaw<=1?confRaw*100:confRaw)):null; const tp=(typeof rec.take_profit_price==='number')?rec.take_profit_price:(typeof rec.take_profit==='number'?rec.take_profit:null); const sl=(typeof rec.stop_loss_price==='number')?rec.stop_loss_price:(typeof rec.stop_loss==='number'?rec.stop_loss:null); const cAt=rec.created_at||rec.createdAt||rec.create_time||null; const uAt=rec.updated_at||rec.updatedAt||null; const tag = direction==='LONG'?'做多':(direction==='SHORT'?'做空':(direction||'--')); const baseEr=(typeof entry==='number' && typeof tp==='number')?(direction==='LONG'?((tp-entry)/entry):((entry-tp)/entry)):null; const erL=(typeof baseEr==='number')?(baseEr * (typeof lev==='number' && lev>0 ? lev : 1) * 100):null; return `<div class=\"rec-item\" id=\"rec-${id}\"><div class=\"col main\"><div class=\"title\"><span class=\"badge ${direction==='LONG'?'long':(direction==='SHORT'?'short':'')}\">${tag}</span><span class=\"symbol\">${symbol}</span><span class=\"muted\">创建 ${formatRelative(cAt)}</span>${uAt?`<span class=\"muted\">更新 ${formatRelative(uAt)}</span>`:''}</div><div class=\"grid\"><div><span class=\"k\">入场</span> <span class=\"v\" data-field=\"entry_price-${id}\">${fmtPrice(entry)}</span></div><div><span class=\"k\">杠杆</span> <span class=\"v\" data-field=\"leverage-${id}\">${fmtLev(lev)}</span></div><div><span class=\"k\">止盈</span> <span class=\"v\" data-field=\"take_profit_price-${id}\">${fmtPrice(tp)}</span></div><div><span class=\"k\">止损</span> <span class=\"v\" data-field=\"stop_loss_price-${id}\">${fmtPrice(sl)}</span></div><div><span class=\"k\">预期收益</span> <span class=\"v\">${fmtPct(erL)}</span></div><div><span class=\"k\">置信度</span> <span class=\"v\">${fmtPct(conf)}</span></div></div></div><div class=\"col side\"><div class=\"ttl\">到期倒计时</div><div class=\"ttl-val\" id=\"ttl-${id}\">--</div></div></div>`; }).join('');
+          container.innerHTML = `${topBar}<div class="rec-list" id="activeSignalList">${itemsHtml}</div>`;
+          const btn=document.getElementById('btnManualRefresh'); if(btn) btn.onclick=()=>{ window.loadTradeRecommendation(); window.loadRecommendationHistory?.(); window.updateRecommendationStats?.(); };
+          clearItemTimers(); ensureAutoRefreshTicker(); scheduleAutoRefresh();
+          sorted.slice(0,1).forEach(rec=>{ const id=rec.id||rec._id||rec.uuid||''; startItemCountdown(id, rec.created_at||rec.createdAt||rec.create_time); diffHighlight(id,rec); });
+          document.querySelectorAll('[data-close-id]').forEach(el=>{ el.addEventListener('click', async()=>{ const id=el.getAttribute('data-close-id'); if(!id) return; if(el instanceof HTMLButtonElement){ el.disabled=true; el.textContent='关闭中...'; } try{ const resp=await fetch(`/api/recommendations/${id}/close`,{ method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reason:'USER_CLOSED'}) }); if(!resp.ok) throw new Error(`关闭失败: ${resp.status}`); await window.loadTradeRecommendation(); window.updateRecommendationStats?.(); window.loadRecommendationHistory?.(); }catch(e){ alert('关闭失败：'+(e?.message||e)); if(el instanceof HTMLButtonElement){ el.disabled=false; el.textContent='关闭'; } } }); });
+          // 同步旧版字段
+          const latest=sorted[0];
+          const actionRaw=latest?.direction||latest?.action||''; const action=String(actionRaw).toUpperCase();
+          const entryVal=(typeof latest?.entry_price==='number')?latest.entry_price:(typeof latest?.current_price==='number'?latest.current_price:null);
+          const levVal=(typeof latest?.leverage==='number')?latest.leverage:null;
+          const tpVal=(typeof latest?.take_profit_price==='number')?latest.take_profit_price:(typeof latest?.take_profit==='number'?latest.take_profit:null);
+          const slVal=(typeof latest?.stop_loss_price==='number')?latest.stop_loss_price:(typeof latest?.stop_loss==='number'?latest.stop_loss:null);
+          const confRaw=(typeof latest?.confidence_score==='number')?latest.confidence_score:(typeof latest?.confidence==='number'?latest.confidence:null);
+          const conf=(typeof confRaw==='number')?(((confRaw<=1?confRaw*100:confRaw)).toFixed(1)+'%'):'--';
+          const a=document.getElementById('recommendedAction'); const e=document.getElementById('entryPrice'); const l=document.getElementById('recommendedLeverage'); const p=document.getElementById('positionSizeRecommend');
+          if(a) a.textContent=action; if(e) e.textContent=(typeof entryVal==='number')?'$'+entryVal.toFixed(2):String(entryVal??'--'); if(l) l.textContent=(typeof levVal==='number')?(levVal+'x'):'--'; if(p) p.textContent=conf;
+          window.__lastRecommendation={action, entry:entryVal, leverage:levVal, tp:tpVal, sl:slVal, conf};
+          try{ setTradeButtonsState(action); }catch(_){ }
+        } catch(err) {
+          console.error('加载开单推荐失败:', err);
+          const container = document.getElementById('tradingRecommendation');
+          if (container) container.innerHTML = `${renderTopBar?.(0)||''}<div class=\"error\">推荐加载失败</div>`;
+          ensureAutoRefreshTicker(); scheduleAutoRefresh();
+        }
+      };
+      // 首次装载
+      window.addEventListener('load', function(){ try{ window.loadTradeRecommendation(); }catch(e){} });
+    })();
     </script>
 </body>
 </html>

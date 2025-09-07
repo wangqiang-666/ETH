@@ -118,13 +118,15 @@ export class HighWinrateAlgorithm {
   private multiFactorAnalyzer: MultiFactorAnalyzer;
   private signalHistory: HighWinrateSignal[] = [];
   private performanceStats!: SignalPerformanceStats;
-  private lastSignalTime: number = 0;
+  // private lastSignalTime: number = 0;
+  // 改为按 symbol 独立冷却
+  private lastSignalTimeBySymbol: Map<string, number> = new Map();
   
   // 算法参数
   private readonly MIN_CONFIDENCE = 0.75;           // 最小置信度
   private readonly MIN_QUALITY_SCORE = 70;          // 最小质量评分
   private readonly MIN_RISK_REWARD_RATIO = 2.0;     // 最小风险收益比
-  private readonly MAX_SIGNALS_PER_HOUR = 3;        // 每小时最大信号数
+  private readonly MAX_SIGNALS_PER_HOUR = 3;        // 每小时最大信号数（按 symbol 统计）
   private signalCooldownMs: number = 15 * 60 * 1000; // 信号冷却时间，默认15分钟，支持配置覆盖
   
   constructor() {
@@ -149,8 +151,9 @@ export class HighWinrateAlgorithm {
   ): Promise<HighWinrateSignal | null> {
     
     try {
-      // 1. 检查信号生成条件
-      if (!this.canGenerateSignal()) {
+      // 1. 检查信号生成条件（按 symbol 冷却与频率限制）
+      const symbol = (marketData as any)?.symbol || 'ETH-USDT-SWAP';
+      if (!this.canGenerateSignal(symbol)) {
         console.log('信号生成冷却中或达到频率限制');
         return null;
       }
@@ -196,23 +199,24 @@ export class HighWinrateAlgorithm {
   }
 
   /**
-   * 检查是否可以生成信号
+   * 检查是否可以生成信号（按 symbol 控制冷却与频率）
    */
-  private canGenerateSignal(): boolean {
+  private canGenerateSignal(symbol?: string): boolean {
     const now = Date.now();
+    const key = symbol || 'GLOBAL';
     
-    // 检查冷却时间
-    if (now - this.lastSignalTime < this.signalCooldownMs) {
+    // 按 symbol 检查冷却时间：30分钟内（由配置决定）不再对同一品种给出新信号（无论方向）
+    const last = this.lastSignalTimeBySymbol.get(key) || 0;
+    if (now - last < this.signalCooldownMs) {
       return false;
     }
     
-    // 检查每小时信号频率
+    // 按 symbol 检查每小时信号频率
     const oneHourAgo = now - 60 * 60 * 1000;
-    const recentSignals = this.signalHistory.filter(
-      signal => signal.timestamp > oneHourAgo
+    const recentForSymbol = this.signalHistory.filter(
+      s => s.symbol === key && s.timestamp > oneHourAgo
     );
-    
-    return recentSignals.length < this.MAX_SIGNALS_PER_HOUR;
+    return recentForSymbol.length < this.MAX_SIGNALS_PER_HOUR;
   }
 
   /**
@@ -615,7 +619,11 @@ export class HighWinrateAlgorithm {
    */
   private recordSignal(signal: HighWinrateSignal): void {
     this.signalHistory.push(signal);
-    this.lastSignalTime = signal.timestamp;
+    // this.lastSignalTime = signal.timestamp;
+    // 更新按 symbol 的最后信号时间
+    if (signal.symbol) {
+      this.lastSignalTimeBySymbol.set(signal.symbol, signal.timestamp);
+    }
     
     // 保持最近1000个信号
     if (this.signalHistory.length > 1000) {

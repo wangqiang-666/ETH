@@ -149,7 +149,8 @@ export class EnhancedOKXDataService extends EventEmitter {
       enablePerformanceLogging: false, // 避免日志过多
       logLevel: 'info'
     });
-    this.useProxy = true; // 强制启用代理
+    // 按配置决定是否使用代理：当 FORCE_PROXY=true 或 USE_PROXY=true 时启用代理
+    this.useProxy = !!(config.proxy.forceOnly || config.okx.useProxy);
     // 强制仅走代理模式提示
     if (config.proxy.forceOnly) {
       console.log('🔒 已启用强制代理模式：所有OKX请求将仅通过香港代理转发，直连已禁用');
