@@ -513,7 +513,7 @@
             rawPayloads.perf = res;
             const p = res?.data || {};
             kv($('perfKv'), {
-              '累计收益率 Total PnL%': (typeof p.totalPnlPercent === 'number') ? pct(p.totalPnlPercent) : '—',
+              '累计收益率 Total PnL%': (typeof p.totalPnlPercent === 'number') ? pctp(p.totalPnlPercent) : '—',
               '胜率 Win Rate': (typeof p.winRate === 'number') ? pct(p.winRate) : '—',
               '利润因子 Profit Factor': p.profitFactor ?? '—',
               '夏普比率 Sharpe Ratio': p.sharpeRatio ?? '—',

@@ -5,10 +5,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>回测性能报告</title>
+    <!-- 站点图标：使用 ETH SVG 作为标题栏图标（favicon） -->
+    <link rel="icon" type="image/svg+xml" href="/eth-logo.svg">
+    <link rel="shortcut icon" href="/eth-logo.svg" type="image/svg+xml">
+    <meta name="theme-color" content="#667eea">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
         .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
         .section { padding: 20px; border-bottom: 1px solid #eee; }
         .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
         .metric-card { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }
@@ -23,15 +27,25 @@
         .good { background: #cce5ff; color: #004085; }
         .fair { background: #fff3cd; color: #856404; }
         .poor { background: #f8d7da; color: #721c24; }
+        .actions { display: flex; gap: 8px; align-items: center; }
+        .btn { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.5); padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+        .btn:hover { background: rgba(255,255,255,0.3); }
+        .note { font-size: 12px; opacity: 0.85; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>📊 回测性能报告</h1>
-            <p>生成时间: 2025/9/5 17:25:07</p>
-            <div class="stability-badge poor">
-                策略稳定性: POOR (19分)
+            <div>
+                <h1>📊 回测性能报告</h1>
+                <p class="note">生成时间: <span id="genTime">2025/9/5 17:25:07</span></p>
+                <div class="stability-badge poor" id="stabilityBadge">
+                    策略稳定性: POOR (19分)
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn" id="runE2EBtn">▶ 运行最新 e2e 回测</button>
+                <span class="note" id="e2eHint">将读取 last_minimal_payload.json 并刷新核心指标</span>
             </div>
         </div>
 
@@ -39,31 +53,27 @@
             <h2>📈 核心指标</h2>
             <div class="metrics-grid">
                 <div class="metric-card">
-                    <div class="metric-value negative">
-                        -0.04%
-                    </div>
+                    <div class="metric-value negative" id="totalReturn">-0.04%</div>
                     <div class="metric-label">总收益率</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value negative">
-                        -110.88%
-                    </div>
+                    <div class="metric-value negative" id="annualized">-110.88%</div>
                     <div class="metric-label">年化收益率</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">0.00%</div>
+                    <div class="metric-value" id="winRate">0.00%</div>
                     <div class="metric-label">胜率</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">0.000</div>
+                    <div class="metric-value" id="sharpe">0.000</div>
                     <div class="metric-label">夏普比率</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value negative">0.06%</div>
+                    <div class="metric-value negative" id="maxDrawdown">0.06%</div>
                     <div class="metric-label">最大回撤</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">0.00</div>
+                    <div class="metric-value" id="profitFactor">0.00</div>
                     <div class="metric-label">盈亏比</div>
                 </div>
             </div>
@@ -73,19 +83,19 @@
             <h2>📊 交易统计</h2>
             <div class="metrics-grid">
                 <div class="metric-card">
-                    <div class="metric-value">1</div>
+                    <div class="metric-value" id="totalTrades">1</div>
                     <div class="metric-label">总交易次数</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">0.0小时</div>
+                    <div class="metric-value" id="avgHolding">0.0小时</div>
                     <div class="metric-label">平均持仓时间</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value positive">-0.30%</div>
+                    <div class="metric-value positive" id="bestTrade">-0.30%</div>
                     <div class="metric-label">最佳交易</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value negative">-0.30%</div>
+                    <div class="metric-value negative" id="worstTrade">-0.30%</div>
                     <div class="metric-label">最差交易</div>
                 </div>
             </div>
@@ -95,19 +105,19 @@
             <h2>⚠️ 风险分析</h2>
             <div class="metrics-grid">
                 <div class="metric-card">
-                    <div class="metric-value">0.00%</div>
+                    <div class="metric-value" id="volatility">0.00%</div>
                     <div class="metric-label">收益波动率</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">0.00%</div>
+                    <div class="metric-value" id="var95">0.00%</div>
                     <div class="metric-label">95% VaR</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">1</div>
+                    <div class="metric-value" id="maxConsecLoss">1</div>
                     <div class="metric-label">最大连续亏损</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">-0.75</div>
+                    <div class="metric-value" id="recoveryFactor">-0.75</div>
                     <div class="metric-label">恢复因子</div>
                 </div>
             </div>
@@ -115,46 +125,97 @@
 
         <div class="section">
             <h2>📅 月度表现</h2>
-            <p><strong>最佳月份:</strong> 2025-09 (-0.04%)</p>
-            <p><strong>最差月份:</strong> 2025-09 (-0.04%)</p>
-            <p><strong>盈利月份:</strong> 0/1 (0.00%)</p>
-            <p><strong>平均月收益:</strong> -0.04%</p>
+            <p><strong>最佳月份:</strong> <span id="bestMonth">2025-09 (-0.04%)</span></p>
+            <p><strong>最差月份:</strong> <span id="worstMonth">2025-09 (-0.04%)</span></p>
+            <p><strong>盈利月份:</strong> <span id="profitMonths">0/1 (0.00%)</span></p>
+            <p><strong>平均月收益:</strong> <span id="avgMonthly">-0.04%</span></p>
         </div>
 
         
         <div class="section">
             <h2>⚠️ 风险警告</h2>
-            <div class="warning">⚠️ 胜率过低，策略可能存在系统性问题</div><div class="warning">⚠️ 盈亏比小于1，总体亏损</div><div class="warning">⚠️ 交易样本数量不足，统计结果可能不够可靠</div>
+            <div class="warning" id="warnings">⚠️ 胜率过低，策略可能存在系统性问题</div>
         </div>
         
 
         <div class="section">
             <h2>💡 优化建议</h2>
-            <div class="recommendation">胜率偏低，建议优化入场条件或信号筛选标准</div><div class="recommendation">盈亏比偏低，建议优化止盈止损策略</div><div class="recommendation">夏普比率偏低，需要在收益和风险之间找到更好的平衡</div><div class="recommendation">交易次数较少，可能需要更多数据来验证策略有效性</div><div class="recommendation">平均持仓时间很短，可能受到市场噪音影响较大</div>
+            <div class="recommendation" id="recomms">胜率偏低，建议优化入场条件或信号筛选标准</div>
         </div>
 
         <div class="section">
             <h2>🎯 稳定性分析</h2>
             <div class="metrics-grid">
                 <div class="metric-card">
-                    <div class="metric-value">0%</div>
+                    <div class="metric-value" id="monthlyConsistency">0%</div>
                     <div class="metric-label">月度一致性</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">0%</div>
+                    <div class="metric-value" id="drawdownRecovery">0%</div>
                     <div class="metric-label">回撤恢复</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">95%</div>
+                    <div class="metric-value" id="winrateStability">95%</div>
                     <div class="metric-label">胜率稳定性</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-value">0%</div>
+                    <div class="metric-value" id="returnDistribution">0%</div>
                     <div class="metric-label">收益分布</div>
                 </div>
             </div>
         </div>
     </div>
+
+    <script>
+        async function fetchJSON(url, body) {
+            const res = await fetch(url, body ? {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            } : undefined);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return await res.json();
+        }
+
+        function setText(id, value) { const el = document.getElementById(id); if (el) el.textContent = value; }
+        function setClass(id, cls) { const el = document.getElementById(id); if (el) el.className = cls; }
+
+        async function runLatestE2E() {
+            const btn = document.getElementById('runE2EBtn');
+            const hint = document.getElementById('e2eHint');
+            btn.disabled = true; hint.textContent = '运行中...';
+            try {
+                const payload = await (await fetch('/last_minimal_payload.json')).json();
+                const run = await fetchJSON('/api/backtest/run', payload);
+                const report = await fetchJSON('/api/backtest/performance-report', { backtestResult: run.result });
+                const ov = report?.report?.overview || {};
+                const now = new Date();
+                setText('genTime', now.toLocaleString());
+                setText('totalReturn', ov.totalReturn || 'N/A');
+                setText('annualized', ov.annualizedReturn || 'N/A');
+                setText('winRate', ov.winRate || 'N/A');
+                setText('sharpe', ov.sharpeRatio || 'N/A');
+                setText('maxDrawdown', ov.maxDrawdown || 'N/A');
+                setText('profitFactor', ov.profitFactor || 'N/A');
+                // 交易统计（如果 report.summary 提供）
+                const summary = run?.result?.summary || {};
+                setText('totalTrades', summary.totalTrades ?? 'N/A');
+                setText('avgHolding', summary.avgHoldingHours ? `${summary.avgHoldingHours.toFixed(1)}小时` : 'N/A');
+                // 简单稳定性徽章风格调整
+                const qual = summary.sampleQuality || 'INSUFFICIENT';
+                const badge = document.getElementById('stabilityBadge');
+                badge.textContent = `样本质量: ${qual} (观测天数 ${Number(summary.observationDays||0).toFixed(2)})`;
+                const map = { INSUFFICIENT: 'poor', LIMITED: 'fair', ADEQUATE: 'good', GOOD: 'good', EXCELLENT: 'excellent' };
+                badge.className = `stability-badge ${map[qual]||'poor'}`;
+            } catch (e) {
+                alert('运行失败: ' + (e?.message || e));
+            } finally {
+                btn.disabled = false; hint.textContent = '将读取 last_minimal_payload.json 并刷新核心指标';
+            }
+        }
+
+        document.getElementById('runE2EBtn').addEventListener('click', runLatestE2E);
+    </script>
 </body>
 </html>
     

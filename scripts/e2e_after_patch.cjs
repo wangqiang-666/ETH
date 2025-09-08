@@ -51,14 +51,33 @@ function post(base, path, body) {
     const run = await post(base, '/api/backtest/run', payload);
     const report = await post(base, '/api/backtest/performance-report', { backtestResult: run.result });
 
+    // --- New: extract quality metrics
+    const summary = run?.result?.summary || {};
+    const observationDays = Number(summary.observationDays || 0);
+    const returnObservations = typeof summary.returnObservations === 'number' ? summary.returnObservations : null;
+    const sampleQuality = summary.sampleQuality || '';
+
+    // --- New: quality assertion (ADEQUATE or better, and >=30 days/observations when available)
+    const qualityRank = { INSUFFICIENT: 0, LIMITED: 1, ADEQUATE: 2, GOOD: 3, EXCELLENT: 4 };
+    const rank = qualityRank[sampleQuality] ?? -1;
+    const hasEnoughDays = observationDays >= 30;
+    const hasEnoughObs = returnObservations == null ? true : returnObservations >= 30;
+    if (!(rank >= qualityRank.ADEQUATE && hasEnoughDays && hasEnoughObs)) {
+      throw new Error(`Sample quality check failed: sampleQuality=${sampleQuality}, observationDays=${observationDays}, returnObservations=${returnObservations}`);
+    }
+
     const out = {
       marker: 'BACKTEST_SMOKE_RESULT_AFTER_PATCH',
       run: {
-        trades: run.result.summary.totalTrades,
-        winRatePct: +(run.result.summary.winRate * 100).toFixed(2),
-        totalReturnPct: +(run.result.summary.totalReturnPercent * 100).toFixed(2),
-        sharpe: +run.result.summary.sharpeRatio.toFixed(6),
-        annualized: +run.result.summary.annualizedReturn.toFixed(6)
+        trades: summary.totalTrades,
+        winRatePct: +((summary.winRate || 0) * 100).toFixed(2),
+        totalReturnPct: +((summary.totalReturnPercent || 0) * 100).toFixed(2),
+        sharpe: +Number(summary.sharpeRatio || 0).toFixed(6),
+        annualized: +Number(summary.annualizedReturn || 0).toFixed(6),
+        // --- New: export quality fields
+        observationDays,
+        returnObservations: returnObservations == null ? undefined : returnObservations,
+        sampleQuality
       },
       report: { overview: report.report.overview }
     };

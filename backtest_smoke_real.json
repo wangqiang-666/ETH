@@ -1,39 +1,4 @@
 {
-  "timestamp": 1757147485787,
-  "baseUrl": "http://127.0.0.1:3010",
-  "symbol": "ETH-USDT-SWAP",
-  "interval": "1m",
-  "stats": {
-    "totalTrades": 3,
-    "winRate": 0.6666666666666666,
-    "totalReturn": 3.538485071061978,
-    "totalReturnPercent": 0.00035384850710619783,
-    "sharpeRatio": 2528667148381287.5,
-    "annualizedReturn": 0.7781706080963078
-  },
-  "summary": {
-    "totalTrades": 3,
-    "winningTrades": 2,
-    "losingTrades": 1,
-    "winRate": 0.6666666666666666,
-    "totalReturn": 3.538485071061978,
-    "totalReturnPercent": 0.00035384850710619783,
-    "annualizedReturn": 0.7781706080963078,
-    "maxDrawdown": 1.7998920021618687,
-    "maxDrawdownPercent": 0.00017998920021618687,
-    "sharpeRatio": 2528667148381287.5,
-    "sortinoRatio": 661.4077228031322,
-    "calmarRatio": 4323.429445553617,
-    "profitFactor": 1.288415519136221,
-    "avgWin": 7.903595294459198,
-    "avgLoss": 12.268705517856418,
-    "avgWinPercent": 0.0007903595294459197,
-    "avgLossPercent": 0.0012268705517856418,
-    "maxConsecutiveWins": 1,
-    "maxConsecutiveLosses": 1,
-    "avgHoldingTime": 1.9833333333333334,
-    "totalFees": 3.629066995983162,
-    "recoveryFactor": 1.965942993697326
-  },
-  "notes": "Used live analysis with spaced timestamps."
+  "error": "AggregateError",
+  "ts": 1757338257450
 }
