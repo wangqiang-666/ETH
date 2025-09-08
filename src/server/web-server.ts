@@ -104,6 +104,7 @@ export class WebServer {
     // 策略相关API
     this.app.get('/api/strategy/status', this.handleStrategyStatus.bind(this));
     this.app.get('/api/strategy/analysis', this.handleLatestAnalysis.bind(this));
+    this.app.get('/api/strategy/progress', this.handleAnalysisProgress.bind(this));
     this.app.post('/api/strategy/start', this.handleStartStrategy.bind(this));
     this.app.post('/api/strategy/stop', this.handleStopStrategy.bind(this));
     this.app.get('/api/strategy/performance', this.handlePerformance.bind(this));
@@ -246,6 +247,19 @@ export class WebServer {
     this.recommendationService.on('auto_recommendation_created', (data) => {
       this.io.emit('auto-recommendation-created', data);
     });
+
+    // 监听策略引擎分析进度并通过 Socket.IO 转发
+    try {
+      ethStrategyEngine.on('analysis-progress', (payload: any) => {
+        try {
+          this.io.to('strategy-updates').emit('analysis-progress', payload);
+        } catch (e) {
+          console.warn('broadcast analysis-progress error:', e);
+        }
+      });
+    } catch (e) {
+      console.warn('setup analysis-progress listener failed:', e);
+    }
   }
 
   // 设置WebSocket
@@ -260,6 +274,16 @@ export class WebServer {
       socket.on('subscribe-updates', () => {
         socket.join('strategy-updates');
         console.log(`Client ${socket.id} subscribed to updates`);
+        
+        // 订阅后立即推送一次当前的分析进度
+        try {
+          const progress = ethStrategyEngine.getAnalysisProgress();
+          if (progress) {
+            socket.emit('analysis-progress', progress);
+          }
+        } catch (e) {
+          console.warn('send initial analysis-progress failed:', e);
+        }
       });
       
       socket.on('unsubscribe-updates', () => {
@@ -313,6 +337,21 @@ export class WebServer {
       res.json(response);
     } catch (error) {
       this.handleError(res, error, 'Failed to get latest analysis');
+    }
+  }
+
+  // 新增：分析实时进度
+  private async handleAnalysisProgress(req: Request, res: Response): Promise<void> {
+    try {
+      const progress = ethStrategyEngine.getAnalysisProgress();
+      const response: ApiResponse = {
+        success: true,
+        data: progress,
+        timestamp: Date.now()
+      };
+      res.json(response);
+    } catch (error) {
+      this.handleError(res, error, 'Failed to get analysis progress');
     }
   }
 
@@ -2308,7 +2347,8 @@ export class WebServer {
           signalThreshold: config.strategy.signalThreshold,
           minWinRate: config.strategy.minWinRate,
           useMLAnalysis: config.strategy.useMLAnalysis,
-          analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : 30000
+          analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : 30000,
+          signalCooldownMs: (config as any)?.strategy?.signalCooldownMs
         }
       };
       
@@ -2326,7 +2366,7 @@ export class WebServer {
   private async handleUpdateConfig(req: Request, res: Response): Promise<void> {
     try {
       // 为了安全，只允许更新特定的配置项
-      const allowedUpdates = ['signalThreshold', 'maxPositionSize', 'stopLossPercent', 'useMLAnalysis', 'analysisInterval'];
+      const allowedUpdates = ['signalThreshold', 'maxPositionSize', 'stopLossPercent', 'useMLAnalysis', 'analysisInterval', 'signalCooldownMs'];
       const updates = req.body || {};
       
       // 验证更新请求
@@ -2377,6 +2417,16 @@ export class WebServer {
               }
             }
             break;
+          case 'signalCooldownMs':
+            if (typeof val === 'number' && Number.isFinite(val) && val >= 0) {
+              (config as any).strategy.signalCooldownMs = val;
+            } else if (typeof val === 'string') {
+              const n = parseInt(val, 10);
+              if (!Number.isNaN(n) && n >= 0) {
+                (config as any).strategy.signalCooldownMs = n;
+              }
+            }
+            break;
         }
       }
       
@@ -2388,7 +2438,8 @@ export class WebServer {
             signalThreshold: config.strategy.signalThreshold,
             minWinRate: config.strategy.minWinRate,
             useMLAnalysis: config.strategy.useMLAnalysis,
-            analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : undefined
+            analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : undefined,
+            signalCooldownMs: (config as any)?.strategy?.signalCooldownMs
           },
           risk: {
             maxPositionSize: config.risk.maxPositionSize,

@@ -196,12 +196,12 @@
         }
 
         /* 独立气泡透明按钮（不依赖 .btn） */
-        .bubble-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 16px;border-radius:12px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#ffffff;text-shadow:0 1px 2px rgba(0,0,0,.35);font-weight:600;letter-spacing:.2px;cursor:pointer;outline:none;transition:transform .2s ease, box-shadow .3s ease, background .3s ease, border-color .3s ease;box-shadow:inset 0 1px 0 rgba(255,255,255,.2), 0 4px 16px rgba(46,126,255,.18);}
+        .bubble-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 16px;border-radius:12px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#ffffff;text-shadow:0 1px 2px rgba(0,0,0,.35);font-weight:600;letter-spacing:.2px;cursor:pointer;outline:none;transition:transform .2s ease, box-shadow .3s ease, background .3s ease, border-color .3s ease, color .3s ease;box-shadow:inset 0 1px 0 rgba(255,255,255,.2), 0 4px 16px rgba(46,126,255,.18);}
         .bubble-btn .label{position:relative;z-index:2}
         .bubble-btn .ring{position:absolute;inset:-2px;border-radius:inherit;padding:1px;background:conic-gradient(from 0deg,#79c0ff,#a78bfa,#60a5fa,#79c0ff);mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);-webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.9;transition:opacity .3s ease, filter .3s ease;filter:blur(.5px);}
         .bubble-btn::before{content:"";position:absolute;inset:0;border-radius:inherit;background:radial-gradient(120% 60% at 30% 10%, rgba(255,255,255,.45), rgba(255,255,255,.1) 60%, transparent 70%), radial-gradient(120% 80% at 70% 120%, rgba(59,130,246,.25), transparent 60%);z-index:1;}
         .bubble-btn::after{content:"";position:absolute;left:10px;top:6px;width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.85);filter:blur(1px);opacity:.9;z-index:2;}
-        .bubble-btn:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.25), 0 8px 24px rgba(46,126,255,.25);background:rgba(255,255,255,.08);}
+        .bubble-btn:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.25), 0 8px 24px rgba(46,126,255,.25);background:rgba(255,255,255,.08);color:#e2e8f0;}
         .bubble-btn:active{transform:translateY(0);box-shadow:inset 0 2px 6px rgba(0,0,0,.25), 0 4px 12px rgba(46,126,255,.25);}
         .bubble-btn:focus-visible{outline:2px solid rgba(125,211,252,.6);outline-offset:2px}
         .bubble-btn.disabled, .bubble-btn:disabled{opacity:.6;cursor:not-allowed;box-shadow:none;}
@@ -817,7 +817,13 @@
             
             <!-- 策略性能 -->
             <div class="card">
-                <h2><span class="card-icon">📈</span>策略性能</h2>
+                <h2 style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                    <span><span class="card-icon">📈</span>策略性能</span>
+                    <button class="bubble-btn" onclick="window.open('/backtest-report-latest.html','_blank')" title="查看回测性能报告">
+                        <span class="ring" aria-hidden="true"></span>
+                        <span class="label">查看报告</span>
+                    </button>
+                </h2>
                 <div class="metric-grid">
                     <div class="metric">
                         <div class="metric-value" id="totalReturn">--</div>
@@ -836,7 +842,8 @@
                         <div class="metric-label">最大回撤</div>
                     </div>
                 </div>
-                <button class="btn btn-success" onclick="viewPerformance()">📊 详细报告</button>
+                <div class="metric-label" style="margin-top:10px">策略单进度</div>
+                <div id="perfOrderProgressList" class="order-progress-list" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
             </div>
             
             <!-- 风险管理 --><!-- 删除 -->
@@ -1099,6 +1106,18 @@
             loadRecommendationHistory();
             loadFGI();
             
+            // 新增：首屏兜底渲染“策略单进度”，避免用户刷新后短时间内看不到
+            setTimeout(async () => {
+                try {
+                    const listEl = document.getElementById('perfOrderProgressList');
+                    if (listEl && !listEl.innerHTML.trim()) {
+                        const cfg = await ensureAppConfig();
+                        const fallbackAnalysis = { signal: { type: 'HOLD', strength: 0, confidence: 0.5 } };
+                        renderOrderProgressFromAnalysis(fallbackAnalysis, cfg);
+                    }
+                } catch (_) {}
+            }, 200);
+            
             // 启动自动更新
             updateInterval = setInterval(() => {
                 loadLatestSignal();
@@ -1109,6 +1128,356 @@
                 loadFGI();
             }, 30000); // 30秒更新一次
         };
+        
+        // 预取一次配置，供进度阈值计算
+        ensureAppConfig().catch(()=>{});
+        
+        // 拉取系统配置（阈值/分析周期）
+        async function ensureAppConfig() {
+            if (window.__appConfig && window.__appConfig.strategy) return window.__appConfig;
+            try {
+                const res = await fetch('/api/config');
+                const payload = await res.json();
+                const cfg = payload?.data || payload || {};
+                window.__appConfig = cfg;
+                return cfg;
+            } catch (e) {
+                console.warn('拉取配置失败, 使用默认阈值', e);
+                const fallback = { strategy: { signalThreshold: 0.5, analysisInterval: 30000, signalCooldownMs: 1800000 } };
+                window.__appConfig = fallback;
+                return fallback;
+            }
+        }
+        
+        // 根据最新分析渲染“策略单进度”
+        function renderOrderProgressFromAnalysis(analysis, cfg) {
+            try {
+                const listEl = document.getElementById('perfOrderProgressList');
+                if (!listEl) return;
+                const s = analysis?.signal || {};
+                const rec = analysis?.recommendation || {};
+                // 强度归一化
+                let combined = 0;
+                if (typeof s.strength === 'number') {
+                    combined = Math.max(0, Math.min(1, s.strength));
+                } else if (s.strength && typeof s.strength.combined === 'number') {
+                    combined = s.strength.combined > 1 ? s.strength.combined / 100 : s.strength.combined;
+                    combined = Math.max(0, Math.min(1, combined));
+                }
+                // 置信度
+                let confidence = null;
+                if (typeof s.confidence === 'number') confidence = s.confidence;
+                else if (s.strength && typeof s.strength.confidence === 'number') confidence = s.strength.confidence;
+                else if (typeof rec.confidence === 'number') confidence = rec.confidence;
+                const threshold = Math.max(0, Math.min(1, cfg?.strategy?.signalThreshold ?? 0.5));
+                const progress = Math.max(0, Math.min(1, threshold === 0 ? 0 : combined / threshold));
+                const pct = Math.round(progress * 100);
+                const intervalMs = Number(cfg?.strategy?.analysisInterval ?? 30000);
+                let etaText = '--';
+                if (combined >= threshold) {
+                    etaText = '已达阈值，随时可能出单';
+                } else {
+                    const speed = Math.max(0.01, (confidence ?? 0.6) * 0.08);
+                    const remaining = Math.max(0, threshold - combined);
+                    const cycles = Math.ceil(remaining / speed);
+                    const etaMs = cycles * intervalMs;
+                    const m = Math.floor(etaMs / 60000);
+                    const sLeft = Math.round((etaMs % 60000) / 1000);
+                    etaText = (m > 0 ? (m + '分') : '') + sLeft + '秒';
+                }
+                const side = (s.type || s.signal || rec.action || '').includes('SELL') ? '做空' : '做多';
+                const title = `当前信号 ${side}`;
+                const detail = `强度 ${(combined*100).toFixed(1)}% · 置信度 ${confidence!=null? (confidence*100).toFixed(0)+'%':'--'} · 阈值 ${(threshold*100).toFixed(0)}%`;
+                const barHtml = `
+                    <div class="order-progress-item" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                            <div style="font-weight:600;color:#111827">${title}</div>
+                            <div id="orderProgressEta" style="font-size:12px;color:#6b7280">预计达标: ${etaText}</div>
+                        </div>
+                        <div class="progress" style="background:#e5e7eb;border-radius:6px;height:10px;position:relative;overflow:hidden">
+                            <div id="orderProgressFill" class="progress-fill" style="height:100%;width:${pct}%;background:linear-gradient(90deg,#34d399,#10b981);transition:width .4s ease"></div>
+                            <div style="position:absolute;left:${Math.min(100, threshold*100)}%;top:0;bottom:0;width:2px;background:#fbbf24"></div>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-top:4px">
+                            <span>${detail}</span>
+                            <span id="orderProgressPct">${pct}%</span>
+                        </div>
+                    </div>`;
+                // 追加“冷却期进度”容器
+                listEl.innerHTML = barHtml + '<div id="analysisProgressItem" style="margin-top:8px"></div>' + '<div id="cooldownProgressItem" style="margin-top:8px"></div>';
+                try { renderCooldownProgressToDom(cfg); } catch(_ ){}
+                // 新增：策略单生成进度（非冷却期）的每秒动态刷新
+                try {
+                    if (window.__orderProgressTimer) { clearInterval(window.__orderProgressTimer); }
+                    const etaEl = document.getElementById('orderProgressEta');
+                    const fillEl = document.getElementById('orderProgressFill');
+                    const pctEl  = document.getElementById('orderProgressPct');
+                    const intervalMsLocal = Number(intervalMs);
+                    const thresholdLocal = Number(threshold);
+                    const confidenceLocal = (confidence != null ? Number(confidence) : 0.6);
+                    const baseCombined = Number(combined);
+                    const t0 = Date.now();
+                    const speed = Math.max(0.01, confidenceLocal * 0.08); // 每个分析周期的期望提升量
+                    function updateOrderProgress(){
+                        const elapsed = Date.now() - t0;
+                        const combinedPred = Math.min(thresholdLocal, baseCombined + (elapsed / intervalMsLocal) * speed);
+                        const prog = Math.max(0, Math.min(1, thresholdLocal === 0 ? 0 : combinedPred / thresholdLocal));
+                        const pct2 = Math.round(prog * 100);
+                        if (fillEl) fillEl.style.width = pct2 + '%';
+                        if (pctEl) pctEl.textContent = pct2 + '%';
+                        if (etaEl) {
+                            if (combinedPred >= thresholdLocal) {
+                                etaEl.textContent = '已达阈值，随时可能出单';
+                            } else {
+                                const remaining = Math.max(0, thresholdLocal - combinedPred);
+                                const cycles = Math.ceil(remaining / speed);
+                                const etaMs2 = cycles * intervalMsLocal;
+                                const m = Math.floor(etaMs2 / 60000);
+                                const sLeft = Math.round((etaMs2 % 60000) / 1000);
+                                etaEl.textContent = '预计达标: ' + (m > 0 ? (m + '分') : '') + sLeft + '秒';
+                            }
+                        }
+                        if (combinedPred >= thresholdLocal) {
+                            clearInterval(window.__orderProgressTimer);
+                        }
+                    }
+                    window.__orderProgressTimer = setInterval(updateOrderProgress, 1000);
+                    updateOrderProgress();
+                } catch(__e) { /* 忽略单次刷新失败 */ }
+            } catch (e) { console.warn('renderOrderProgressFromAnalysis error:', e); }
+        }
+        
+        // 新增：渲染“冷却期进度条”
+        function renderCooldownProgressToDom(cfg){
+            try{
+                const listEl = document.getElementById('perfOrderProgressList');
+                if(!listEl) return;
+                let holder = document.getElementById('cooldownProgressItem');
+                if(!holder){
+                    holder = document.createElement('div');
+                    holder.id = 'cooldownProgressItem';
+                    holder.style.marginTop = '8px';
+                    listEl.appendChild(holder);
+                }
+                const cooldownMs = Number(cfg?.strategy?.signalCooldownMs ?? 1800000);
+                const now = Date.now();
+                // 计算最近一次推荐时间（全局最新）
+                let lastTs = null;
+                if(Array.isArray(recommendationData) && recommendationData.length>0){
+                    for(const r of recommendationData){
+                        const t = new Date(r.created_at || r.timestamp || r.time || r.ts || 0).getTime();
+                        if(Number.isFinite(t)){
+                            if(lastTs==null || t>lastTs) lastTs = t;
+                        }
+                    }
+                }
+                // 无记录时，显示中性提示
+                if(!Number.isFinite(lastTs) || lastTs==null){
+                    holder.innerHTML = `
+                    <div class="order-progress-item" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                            <div style="font-weight:600;color:#111827">冷却期</div>
+                            <div style="font-size:12px;color:#6b7280">暂无历史记录</div>
+                        </div>
+                        <div class="progress" style="background:#e5e7eb;border-radius:6px;height:10px;position:relative;overflow:hidden">
+                            <div class="progress-fill" style="height:100%;width:100%;background:linear-gradient(90deg,#93c5fd,#60a5fa)"></div>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-top:4px">
+                            <span>未找到最近推荐，默认视为已冷却</span>
+                            <span>100%</span>
+                        </div>
+                    </div>`;
+                    if (window.__cooldownTimer) { try{ clearInterval(window.__cooldownTimer); }catch(_){ } window.__cooldownTimer = null; }
+                    return;
+                }
+                function renderOnce(){
+                    const now2 = Date.now();
+                    const elapsed = Math.max(0, now2 - lastTs);
+                    const progress = Math.max(0, Math.min(1, cooldownMs>0 ? (elapsed / cooldownMs) : 1));
+                    const pct = Math.round(progress * 100);
+                    const remaining = Math.max(0, cooldownMs - elapsed);
+                    const m = Math.floor(remaining / 60000);
+                    const s = Math.round((remaining % 60000) / 1000);
+                    const etaText = remaining>0 ? `${m>0? m+'分':''}${s}秒` : '已冷却，可再次发出推荐';
+                    const detail = `最近推荐: ${fmtTime(lastTs)} · 冷却 ${Math.round(cooldownMs/60000)} 分钟`;
+                    holder.innerHTML = `
+                        <div class="order-progress-item" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                                <div style="font-weight:600;color:#111827">冷却期</div>
+                                <div style="font-size:12px;color:#6b7280">${etaText}</div>
+                            </div>
+                            <div class="progress" style="background:#e5e7eb;border-radius:6px;height:10px;position:relative;overflow:hidden">
+                                <div class="progress-fill" style="height:100%;width:${pct}%;background:linear-gradient(90deg,#93c5fd,#60a5fa);transition:width .4s ease"></div>
+                                <div style="position:absolute;left:100%;top:0;bottom:0;width:2px;background:#bfdbfe"></div>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-top:4px">
+                                <span>${detail}</span>
+                                <span>${pct}%</span>
+                            </div>
+                        </div>`;
+                    return remaining;
+                }
+                // 首次渲染
+                let remaining = renderOnce();
+                // 启动计时器按秒刷新
+                if (window.__cooldownTimer) { try{ clearInterval(window.__cooldownTimer); }catch(_){ } }
+                window.__cooldownTimer = setInterval(() => {
+                    const rest = renderOnce();
+                    if (rest <= 0) { try{ clearInterval(window.__cooldownTimer); }catch(_){ } window.__cooldownTimer = null; }
+                }, 1000);
+            }catch(e){ console.warn('renderCooldownProgressToDom error:', e); }
+        }
+
+        // 阶段名称映射（如需调整可修改此处中文文案）
+        const stageLabels = { 1:'数据拉取', 2:'信号检测', 3:'回测', 4:'风控', 5:'下发推荐' };
+
+        // 新增：渲染“实时分析进度”（Socket 推送） - 增强版
+        function renderRealtimeAnalysisProgress(progress){
+            try {
+                const listEl = document.getElementById('perfOrderProgressList');
+                if (!listEl) return;
+                let holder = document.getElementById('analysisProgressItem');
+                if (!holder) {
+                    holder = document.createElement('div');
+                    holder.id = 'analysisProgressItem';
+                    holder.style.marginTop = '8px';
+                    listEl.prepend(holder);
+                }
+
+                const isConnected = !!(window.__analysisSocket && window.__analysisSocket.connected);
+
+                // 无进度：显示占位 + 连接状态
+                if (!progress) {
+                    const connectionStatus = isConnected ? '已连接' : '断线';
+                    const statusColor = isConnected ? '#22c55e' : '#ef4444';
+                    holder.innerHTML = `
+                        <div class="order-progress-item" style="background:#fafbfc;border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;text-align:center">
+                            <div style="color:#64748b;font-size:14px;margin-bottom:8px">暂无分析任务</div>
+                            <div style="display:flex;align-items:center;justify-content:center;gap:6px">
+                                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${statusColor}"></span>
+                                <span style="font-size:12px;color:#64748b">实时连接: ${connectionStatus}</span>
+                                ${!isConnected ? '<a href="#" onclick="window.__analysisSocket?.connect?.();return false;" style="color:#3b82f6;margin-left:6px">重连</a>' : ''}
+                            </div>
+                        </div>`;
+                    return;
+                }
+
+                const p = typeof progress.percent === 'number' ? Math.max(0, Math.min(1, progress.percent)) : 0;
+                const pct = Math.round(p * 100);
+                const VISUAL_TOTAL = 5; // 固定为5段
+                const rawStep = Number.isFinite(progress.step) ? progress.step : 0;
+                const step = Math.max(0, Math.min(VISUAL_TOTAL, rawStep));
+                const total = VISUAL_TOTAL;
+                const label = stageLabels[step] || (progress && progress.label ? String(progress.label) : '等待下一次分析');
+                const startedAt = Number.isFinite(progress.startedAt) ? progress.startedAt : null;
+                const updatedAt = Number.isFinite(progress.updatedAt) ? progress.updatedAt : null;
+                const timeUsed = startedAt ? (()=>{ const ms=Math.max(0, Date.now()-startedAt); const m=Math.floor(ms/60000); const s=Math.round((ms%60000)/1000); return `${m>0? m+'分':''}${s}秒`; })() : '--';
+                const lastUpd = updatedAt ? (()=>{ const diff=Math.max(0, Date.now()-updatedAt); const s=Math.floor(diff/1000); if (s<60) return `${s}s前`; const m=Math.floor(s/60); if (m<60) return `${m}分钟前`; const h=Math.floor(m/60); return `${h}小时前`; })() : '--';
+                const etaText = (()=>{ if(!startedAt || p<=0 || p>=1) return '—'; const elapsed=Date.now()-startedAt; const remain=Math.max(0, Math.round(elapsed*(1/p-1))); const m=Math.floor(remain/60000); const s=Math.round((remain%60000)/1000); return `${m>0? m+'分':''}${s}秒后`; })();
+
+                const statusText = p>=1 ? '分析完成' : `阶段 ${label} (${Math.min(step,5)}/5)`;
+                const fillStyle = p>=1 ? 'linear-gradient(90deg,#10b981,#059669)' : (pct>=90 ? 'linear-gradient(90deg,#34d399,#10b981)' : 'linear-gradient(90deg,#a78bfa,#7c3aed)');
+
+                // 阶段刻度 + 顶部中文标签（均匀分布：i/(total-1)；首尾避免贴边）
+                const ticks = (total && total>1) ? Array.from({length: total}, (_, i)=>{
+                    const stageNum = i+1;
+                    const stageName = stageLabels[stageNum] || `阶段${stageNum}`;
+                    const isActive = step >= stageNum;
+                    const isFirst = stageNum === 1;
+                    const isLast = stageNum === total;
+                    const left = ((i/(total-1))*100).toFixed(2);
+                    // 首尾标签位移策略：
+                    // - 第1个：translateX(0) + 竖线贴左
+                    // - 最后1个：translateX(-100%) + 竖线贴右（保证边界内可见）
+                    const labelTransform = isLast ? 'translateX(-100%)' : (isFirst ? 'translateX(0)' : 'translateX(-50%)');
+                    const lineMargin = isLast ? 'margin-left:auto;margin-right:0' : (isFirst ? 'margin-left:0;margin-right:auto' : 'margin:0 auto');
+                    return `
+                        <div class="stage-tick" style="position:absolute;left:${left}%;top:-22px;transform:${labelTransform};cursor:help" title="${stageName}">
+                            <div style="font-size:10px;color:${isActive?'#059669':'#9ca3af'};font-weight:600;margin-bottom:2px;white-space:nowrap;">${stageName}</div>
+                            <div style="width:1px;height:18px;background:${isActive?'#10b981':'#d1d5db'};${lineMargin};display:${isFirst?'none':'block'}"></div>
+                        </div>`;
+                }).join('') : '';
+
+                // 完成勾号动画
+                const completionIcon = p>=1 ? `
+                    <div style="position:absolute;left:calc(${pct}% - 9px);top:-2px;width:18px;height:18px;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center;animation:checkmark .6s ease-in-out">
+                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                            <path d="M1 4L4 7L9 1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <style>
+                        @keyframes checkmark { 0%{ transform:scale(0) rotate(-180deg); opacity:0 } 50%{ transform:scale(1.2) rotate(-90deg); opacity:1 } 100%{ transform:scale(1) rotate(0); opacity:1 } }
+                    </style>
+                ` : `<div style="position:absolute;left:calc(${pct}%);top:50%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid ${p>=1?'#10b981':(pct>=90?'#34d399':'#a78bfa')};box-shadow:0 1px 2px rgba(0,0,0,.12)"></div>`;
+
+                holder.innerHTML = `
+                    <div class="order-progress-item" style="background:#f9fbff;border:1px solid #e6eaf0;border-radius:12px;padding:12px 14px;box-shadow:0 1px 2px rgba(0,0,0,.04), 0 4px 10px rgba(17,24,39,.06);position:relative">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                            <div style="font-weight:700;color:#0f172a;letter-spacing:.2px">策略单进展</div>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${isConnected?'#22c55e':'#ef4444'}"></span>
+                                <div style="font-size:12px;color:#64748b">${statusText} · 预计${etaText}完成</div>
+                            </div>
+                        </div>
+                        <div class="progress" style="background:#e9edf3;border-radius:8px;height:14px;position:relative;overflow:visible;margin:24px 0 8px 0">
+                            ${ticks}
+                            <div style="background:#e9edf3;border-radius:8px;height:14px;position:relative;overflow:hidden">
+                                <div class="progress-fill" style="height:100%;width:${pct}%;background:${fillStyle};transition:width .45s cubic-bezier(.4,0,.2,1);${p>=1 ? 'border-radius:8px' : 'border-radius:0 8px 8px 0'}"></div>
+                                <div style="position:absolute;right:-2px;top:-18px;font-size:10px;color:#6b7280;">出单</div>
+                                <div style="position:absolute;left:100%;top:0;bottom:0;width:2px;background:#d7dce3"></div>
+                            </div>
+                            ${completionIcon}
+                        </div>
+                        <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-top:8px">
+                            <span>已用 ${timeUsed} · 上次更新 ${lastUpd} · <span style="color:${isConnected?'#22c55e':'#ef4444'}">${isConnected?'已连接':'断线'}</span>${!isConnected ? ' <a href="#" onclick="window.__analysisSocket?.connect?.();return false;" style="color:#3b82f6">重连</a>' : ''}</span>
+                            <span style="font-variant-numeric:tabular-nums">${pct}% · 阶段 ${Math.min(step,5)}/5</span>
+                        </div>
+                    </div>`;
+
+                if (p >= 1 && !window.__completionAnimationTriggered) {
+                    window.__completionAnimationTriggered = true;
+                    setTimeout(() => {
+                        const progressEl = holder.querySelector('.progress');
+                        if (progressEl) {
+                            progressEl.style.opacity = '0.85';
+                            progressEl.style.transition = 'opacity 1s ease-out';
+                        }
+                        setTimeout(() => { window.__completionAnimationTriggered = false; }, 10000);
+                    }, 3000);
+                }
+            } catch (e) {
+                console.warn('renderRealtimeAnalysisProgress error:', e);
+            }
+        }
+
+        // 新增：Socket.IO 推送替代轮询（含断线重连提示）
+        (function initAnalysisProgressSocket(){
+            try {
+                function ensureRenderPlaceholder(){ try { renderRealtimeAnalysisProgress(null); } catch {} }
+                ensureRenderPlaceholder();
+                if (!window.io) {
+                    const s = document.createElement('script');
+                    s.src = '/socket.io/socket.io.js';
+                    s.onload = () => { try { initSocketLogic(); } catch (e) { console.warn('initSocketLogic error:', e); } };
+                    s.onerror = () => { console.warn('加载 socket.io 客户端失败'); };
+                    document.head.appendChild(s);
+                } else {
+                    initSocketLogic();
+                }
+                function initSocketLogic(){
+                    try {
+                        const socket = window.__analysisSocket || io();
+                        window.__analysisSocket = socket;
+                        socket.on('connect', () => { try { socket.emit('subscribe-updates'); } catch {} try { renderRealtimeAnalysisProgress(null); } catch {} });
+                        socket.on('disconnect', () => { try { renderRealtimeAnalysisProgress(null); } catch {} });
+                        socket.on('reconnect_attempt', () => { try { renderRealtimeAnalysisProgress(null); } catch {} });
+                        socket.on('reconnect', () => { try { renderRealtimeAnalysisProgress(null); } catch {} });
+                        socket.on('connect_error', () => { try { renderRealtimeAnalysisProgress(null); } catch {} });
+                        socket.on('analysis-progress', (payload) => { renderRealtimeAnalysisProgress(payload); });
+                    } catch (e) { console.warn('socket logic error:', e); }
+                }
+            } catch (e) { console.warn('initAnalysisProgressSocket error:', e); }
+        })();
         
         // 加载系统状态（容错：元素不存在时跳过）
         async function loadSystemStatus() {
@@ -1197,16 +1566,36 @@
                         if (typeof risk.stopLoss === 'number') document.getElementById('stopLoss').textContent = '$' + risk.stopLoss.toFixed(2);
                         if (typeof risk.takeProfit === 'number') document.getElementById('takeProfit').textContent = '$' + risk.takeProfit.toFixed(2);
                     }
+                    
+                    // 渲染“策略单进度”（使用最新分析结果 + 配置阈值）
+                    try {
+                        const cfg = await ensureAppConfig();
+                        renderOrderProgressFromAnalysis(data.data, cfg);
+                    } catch (e) {
+                        console.warn('渲染策略单进度失败:', e);
+                    }
                 } else {
                     const el = document.getElementById('currentSignal');
                     if (el) el.innerHTML = 
                         '<div class="loading">暂无信号数据</div>';
+                    // 新增：在缺少分析数据时也渲染“策略单进度”的回退UI
+                    try {
+                        const cfg = await ensureAppConfig();
+                        const fallbackAnalysis = { signal: { type: 'HOLD', strength: 0, confidence: 0.5 } };
+                        renderOrderProgressFromAnalysis(fallbackAnalysis, cfg);
+                    } catch (_) {}
                 }
             } catch (error) {
                 console.error('加载信号失败:', error);
                 const el = document.getElementById('currentSignal');
                 if (el) el.innerHTML = 
                     '<div class="error">信号加载失败</div>';
+                // 新增：请求失败时也渲染回退进度，让用户能看到“推荐单生成进度条”
+                try {
+                    const cfg = await ensureAppConfig();
+                    const fallbackAnalysis = { signal: { type: 'HOLD', strength: 0, confidence: 0.5 } };
+                    renderOrderProgressFromAnalysis(fallbackAnalysis, cfg);
+                } catch (_) {}
             }
         }
         
@@ -1223,7 +1612,7 @@
                     const totalReturnEl = document.getElementById('totalReturn');
                     if (totalReturnEl) {
                         totalReturnEl.textContent = typeof perf.totalPnlPercent === 'number' 
-                            ? (perf.totalPnlPercent * 100).toFixed(2) + '%' 
+                            ? (perf.totalPnlPercent).toFixed(2) + '%' 
                             : '0.00%';
                     }
                     
@@ -1439,9 +1828,13 @@
                 const latest = list
                     .slice()
                     .sort((a, b) => {
-                        const ta = new Date(a?.updated_at || a?.created_at || 0).getTime();
-                        const tb = new Date(b?.updated_at || b?.created_at || 0).getTime();
-                        return tb - ta;
+                        // 优先按 created_at 倒序，其次按 updated_at 倒序，防止旧单因心跳更新被排在最前
+                        const ca = new Date(a?.created_at || 0).getTime();
+                        const cb = new Date(b?.created_at || 0).getTime();
+                        if (cb !== ca) return cb - ca;
+                        const ua = new Date(a?.updated_at || 0).getTime();
+                        const ub = new Date(b?.updated_at || 0).getTime();
+                        return ub - ua;
                     })[0] || list[0];
 
                 const actionRaw = latest?.direction || latest?.action || '';
@@ -1646,6 +2039,11 @@
                     if (listEl && listEl.innerHTML && listEl.innerHTML.includes('正在加载推荐记录')) {
                         listEl.innerHTML = '';
                     }
+                    // 成功加载推荐后，刷新冷却期进度
+                    try{
+                        const cfg = await ensureAppConfig();
+                        renderCooldownProgressToDom(cfg);
+                    }catch(_){ /* 忽略 */ }
                 } else {
                     if (listEl) {
                         listEl.innerHTML = '<div class="error">暂无推荐记录</div>';
@@ -2084,7 +2482,7 @@
             const btn=document.getElementById('btnManualRefresh'); if(btn) btn.onclick=()=>{ window.loadTradeRecommendation(); };
             return;
           }
-          const sorted = list.slice().sort((a,b)=>{ const ta=new Date(a?.updated_at||a?.created_at||0).getTime(); const tb=new Date(b?.updated_at||b?.created_at||0).getTime(); return tb-ta; });
+          const sorted = list.slice().sort((a,b)=>{ const ca=new Date(a?.created_at||a?.createdAt||a?.create_time||0).getTime(); const cb=new Date(b?.created_at||b?.createdAt||b?.create_time||0).getTime(); if(cb!==ca) return cb-ca; const ua=new Date(a?.updated_at||a?.updatedAt||0).getTime(); const ub=new Date(b?.updated_at||b?.updatedAt||0).getTime(); return ub-ua; });
           const itemsHtml = sorted.slice(0,1).map(rec=>{ const id=rec.id||rec._id||rec.uuid||''; const symbol=rec.symbol||'ETH-USDT-SWAP'; const direction=String(rec.direction||rec.action||'').toUpperCase(); const entry=(typeof rec.entry_price==='number')?rec.entry_price:(typeof rec.current_price==='number'?rec.current_price:null); const lev=(typeof rec.leverage==='number')?rec.leverage:null; const confRaw=(typeof rec.confidence_score==='number')?rec.confidence_score:(typeof rec.confidence==='number'?rec.confidence:null); const conf=(typeof confRaw==='number')?((confRaw<=1?confRaw*100:confRaw)):null; const tp=(typeof rec.take_profit_price==='number')?rec.take_profit_price:(typeof rec.take_profit==='number'?rec.take_profit:null); const sl=(typeof rec.stop_loss_price==='number')?rec.stop_loss_price:(typeof rec.stop_loss==='number'?rec.stop_loss:null); const cAt=rec.created_at||rec.createdAt||rec.create_time||null; const uAt=rec.updated_at||rec.updatedAt||null; const tag = direction==='LONG'?'做多':(direction==='SHORT'?'做空':(direction||'--')); const baseEr=(typeof entry==='number' && typeof tp==='number')?(direction==='LONG'?((tp-entry)/entry):((entry-tp)/entry)):null; const erL=(typeof baseEr==='number')?(baseEr * (typeof lev==='number' && lev>0 ? lev : 1) * 100):null; return `<div class=\"rec-item\" id=\"rec-${id}\"><div class=\"col main\"><div class=\"title\"><span class=\"badge ${direction==='LONG'?'long':(direction==='SHORT'?'short':'')}\">${tag}</span><span class=\"symbol\">${symbol}</span><span class=\"muted\">创建 ${formatRelative(cAt)}</span>${uAt?`<span class=\"muted\">更新 ${formatRelative(uAt)}</span>`:''}</div><div class=\"grid\"><div><span class=\"k\">入场</span> <span class=\"v\" data-field=\"entry_price-${id}\">${fmtPrice(entry)}</span></div><div><span class=\"k\">杠杆</span> <span class=\"v\" data-field=\"leverage-${id}\">${fmtLev(lev)}</span></div><div><span class=\"k\">止盈</span> <span class=\"v\" data-field=\"take_profit_price-${id}\">${fmtPrice(tp)}</span></div><div><span class=\"k\">止损</span> <span class=\"v\" data-field=\"stop_loss_price-${id}\">${fmtPrice(sl)}</span></div><div><span class=\"k\">预期收益</span> <span class=\"v\">${fmtPct(erL)}</span></div><div><span class=\"k\">置信度</span> <span class=\"v\">${fmtPct(conf)}</span></div></div></div><div class=\"col side\"><div class=\"ttl\">到期倒计时</div><div class=\"ttl-val\" id=\"ttl-${id}\">--</div></div></div>`; }).join('');
           container.innerHTML = `${topBar}<div class="rec-list" id="activeSignalList">${itemsHtml}</div>`;
           const btn=document.getElementById('btnManualRefresh'); if(btn) btn.onclick=()=>{ window.loadTradeRecommendation(); window.loadRecommendationHistory?.(); window.updateRecommendationStats?.(); };

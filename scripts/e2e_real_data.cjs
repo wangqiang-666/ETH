@@ -16,7 +16,7 @@ const WEB_PORT = process.env.WEB_PORT || '3010';
 const BASE = process.env.BASE_URL || `http://localhost:${WEB_PORT}`;
 const SYMBOL = process.env.SYMBOL || 'ETH-USDT-SWAP';
 const INTERVAL = process.env.INTERVAL || '1m';
-const LIMIT = parseInt(process.env.LIMIT || '240', 10);
+const LIMIT = parseInt(process.env.LIMIT || '1440', 10);
 
 const OUT_DIR = process.cwd();
 const LAST_PAYLOAD = path.join(OUT_DIR, 'last_minimal_payload.json');
@@ -67,7 +67,7 @@ function generateSyntheticKlines(limit = 240, interval = '1m', seedPrice = 2000)
     const change = (Math.random() - 0.5) * vol + (Math.random() > 0.5 ? drift : -drift);
     const open = price;
     const close = Math.max(1, open * (1 + change));
-    const high = Math.max(open, close) * (1 + Math.random() * 0.0015);
+    const high = Math.max(open, close) * (Math.random() * 0.0015 + 1);
     const low = Math.min(open, close) * (1 - Math.random() * 0.0015);
     const volume = 100 + Math.random() * 900;
     out.push({ timestamp: ts, open, high, low, close, volume });
@@ -80,55 +80,75 @@ function synthesizeSignalFromTicker(ticker, direction = 'BUY') {
   const price = ticker?.price ?? 0;
   const buy = direction === 'BUY';
   const rr = 2.0;
-  const sl = buy ? price * 0.98 : price * 1.02;
-  const tp = buy ? price * 1.02 : price * 0.98;
+  const sl = buy ? price * 0.99 : price * 1.01;
+  const tp = buy ? price * 1.01 : price * 0.99;
   return {
     signal: buy ? 'BUY' : 'SELL',
-    strength: { confidence: 0.6 },
+    strength: { technical: 50, ml: 50, combined: 60, confidence: 0.7 },
     targetPrice: tp,
     stopLoss: sl,
     takeProfit: tp,
     riskReward: rr,
     positionSize: 0.05,
     timeframe: '1m',
-    reasoning: 'Synthesized for smoke test based on 24h change.',
+    reasoning: { technical: 'synthetic', ml: 'synthetic', risk: 'synthetic', final: 'synthetic for smoke test' },
     metadata: {
       timestamp: ticker?.timestamp || Date.now(),
-      source: 'smoke-test'
+      marketCondition: 'RANGING',
+      volatility: 0.5,
+      volume: 'MEDIUM',
+      momentum: 'NEUTRAL'
     }
   };
 }
 
 function buildSignalsFromAnalysis(analysis, klines) {
   // analysis may be null; when present it should include { signal: SmartSignalResult }
-  const slots = 3; // space signals across the kline window
+  const desired = Math.min(64, Math.max(12, Math.floor((klines?.length || 0) / 1000))); // ~1 signal per ~1000 bars
+  const slots = desired; // increase spaced signals to improve sample size on long windows
   const idx = (i) => Math.max(0, Math.min(klines.length - 1, Math.floor((i / (slots + 1)) * klines.length)));
-  const timestamps = [idx(1), idx(2), idx(3)].map(i => klines[i]?.timestamp || Date.now());
+  const timestamps = Array.from({ length: slots }, (_, i) => klines[idx(i + 1)]?.timestamp || Date.now());
 
   const base = analysis?.signal; // SmartSignalResult or undefined
   let seed;
   if (base && typeof base === 'object') {
     seed = clone(base);
     // ensure required fields exist with sensible defaults
-    seed.strength = seed.strength || { confidence: 0.6 };
-    if (typeof seed.strength.confidence !== 'number') seed.strength.confidence = 0.6;
+    seed.strength = seed.strength || { technical: 50, ml: 50, combined: 60, confidence: 0.7 };
+    if (typeof seed.strength.confidence !== 'number') seed.strength.confidence = 0.7;
     if (typeof seed.riskReward !== 'number') seed.riskReward = 2.0;
     if (typeof seed.stopLoss !== 'number' || typeof seed.takeProfit !== 'number') {
       const p = klines[Math.floor(klines.length * 0.8)]?.close || klines[0]?.close || 0;
-      const buy = (seed.signal || 'BUY') === 'BUY';
-      seed.stopLoss = buy ? p * 0.98 : p * 1.02;
-      seed.takeProfit = buy ? p * 1.02 : p * 0.98;
+      const buy = normalizeToEngineSignal(seed.signal) === 'BUY';
+      seed.stopLoss = buy ? p * 0.99 : p * 1.01;
+      seed.takeProfit = buy ? p * 1.01 : p * 0.99;
     }
     if (!seed.timeframe) seed.timeframe = '1m';
-    if (!seed.reasoning) seed.reasoning = 'Using latest analysis as seed for smoke test.';
+    if (!seed.reasoning || typeof seed.reasoning !== 'object') {
+      seed.reasoning = { technical: 'from analysis', ml: 'from analysis', risk: 'from analysis', final: 'seeded' };
+    }
   }
 
-  // Build array with spaced timestamps
+  // Build array with spaced timestamps and normalize signal to BUY/SELL for BacktestEngine
   const signals = timestamps.map((ts, i) => {
-    const s = seed ? clone(seed) : synthesizeSignalFromTicker(null, i % 2 === 0 ? 'BUY' : 'SELL');
+    const alt = i % 2 === 0 ? 'BUY' : 'SELL';
+    const s = seed ? clone(seed) : synthesizeSignalFromTicker(null, alt);
+    s.signal = normalizeToEngineSignal(s.signal, alt);
+    // ensure strength/confidence exist
+    if (!s.strength) s.strength = { technical: 50, ml: 50, combined: 60, confidence: 0.7 };
+    if (typeof s.strength.confidence !== 'number') s.strength.confidence = 0.7;
+    // ensure stop/take present
+    if (typeof s.stopLoss !== 'number' || typeof s.takeProfit !== 'number') {
+      const p = klines[Math.max(0, Math.min(klines.length - 1, Math.floor(klines.length * (0.05 + 0.9 * (i + 1) / (slots + 1)))))]?.close || klines[0]?.close || 0;
+      const buy = s.signal === 'BUY';
+      s.stopLoss = buy ? p * 0.99 : p * 1.01;
+      s.takeProfit = buy ? p * 1.01 : p * 0.99;
+    }
     s.metadata = Object.assign({}, s.metadata || {}, { timestamp: ts });
     return s;
   });
+
+  try { console.log('[SMOKE] Signals:', signals.map(x => x.signal).join(',')); } catch {}
   return signals;
 }
 
@@ -192,7 +212,7 @@ async function main() {
     maxPositionSize: 0.1,
     tradingFee: 0.001,
     slippage: 0.001,
-    maxHoldingTime: 24,
+    maxHoldingTime: 6,
     riskManagement: {
       maxDailyLoss: 0.05,
       maxDrawdown: 0.2,
@@ -203,6 +223,14 @@ async function main() {
   const payload = { config, signals, marketData };
   await saveJSON(LAST_PAYLOAD, payload);
   console.log(`[SMOKE] Payload saved: ${path.basename(LAST_PAYLOAD)} [signals=${signals.length}, md=${marketData.length}]`);
+  // 复制到 public 目录，供前端页面 /last_minimal_payload.json 读取
+  try {
+    const publicPayload = path.resolve(__dirname, '..', 'public', 'last_minimal_payload.json');
+    await saveJSON(publicPayload, payload);
+    console.log(`[SMOKE] Payload copied to public: ${publicPayload}`);
+  } catch (e) {
+    console.warn('[SMOKE] Failed to copy payload to public:', e?.message || e);
+  }
 
   // Step 5: Run backtest
   const runResp = await postJSON('/api/backtest/run', payload);
@@ -247,3 +275,19 @@ main().catch(async (err) => {
   } catch {}
   process.exit(1);
 });
+
+
+function normalizeToEngineSignal(sig, fallback = 'BUY') {
+  switch (sig) {
+    case 'BUY':
+    case 'SELL':
+      return sig;
+    case 'STRONG_BUY':
+      return 'BUY';
+    case 'STRONG_SELL':
+      return 'SELL';
+    case 'HOLD':
+    default:
+      return fallback === 'SELL' ? 'SELL' : 'BUY';
+  }
+}

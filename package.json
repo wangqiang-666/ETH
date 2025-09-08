@@ -14,7 +14,10 @@
     "web": "tsx src/server/web-server.ts",
     "selfcheck:proxy": "node ./scripts/selfcheck-proxy.cjs",
     "ml:train": "tsx src/ml/train.ts",
-    "backfill:targets": "tsx src/scripts/backfill-target-prices.ts"
+    "backfill:targets": "tsx src/scripts/backfill-target-prices.ts",
+    "e2e:real": "cross-env WEB_PORT=3013 LIMIT=1440 node scripts/e2e_real_data.cjs",
+    "e2e:after-patch": "cross-env WEB_PORT=3013 node scripts/e2e_after_patch.cjs",
+    "e2e:adequate": "cross-env WEB_PORT=3013 LIMIT=43210 node scripts/e2e_real_data.cjs"
   },
   "keywords": [
     "ethereum",
@@ -58,6 +61,7 @@
     "@types/node": "^20.19.11",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.5.0",
+    "cross-env": "^7.0.3",
     "tsx": "^4.0.0",
     "typescript": "^5.2.0"
   }

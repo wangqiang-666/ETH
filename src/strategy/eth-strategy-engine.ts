@@ -7,6 +7,7 @@ import axios from 'axios';
 import NodeCache from 'node-cache';
 import { riskManagementService, RiskAssessment, PositionRisk, PortfolioRisk } from '../services/risk-management-service';
 import { logger } from '../utils/logger';
+import { EventEmitter } from 'events';
 
 // 交易策略结果
 export interface StrategyResult {
@@ -104,7 +105,7 @@ export interface StrategyPerformance {
 }
 
 // ETH策略引擎
-export class ETHStrategyEngine {
+export class ETHStrategyEngine extends EventEmitter {
   private signalAnalyzer: SmartSignalAnalyzer;
   // private dataService: OKXDataService; // 已禁用基础服务
   private enhancedDataService: EnhancedOKXDataService;
@@ -126,6 +127,7 @@ export class ETHStrategyEngine {
   private lastResetDate = new Date().toDateString();
 
   constructor() {
+    super();
     this.signalAnalyzer = new SmartSignalAnalyzer();
     // this.dataService = new OKXDataService(); // 基础服务实例已移除
     this.enhancedDataService = new EnhancedOKXDataService();
@@ -234,24 +236,32 @@ export class ETHStrategyEngine {
   private async performAnalysis(): Promise<StrategyResult> {
     try {
       console.log('Performing strategy analysis...');
+      // 新增：开始阶段进度
+      try { (this as any).updateAnalysisProgress?.(0, 0, 8, '开始分析'); } catch {}
       
       // 1. 获取市场数据
       const marketData = await this.getMarketData();
       if (!marketData) {
+        try { (this as any).updateAnalysisProgress?.(0.05, 1, 8, '获取市场数据失败'); } catch {}
         throw new Error('Failed to get market data');
       }
+      try { (this as any).updateAnalysisProgress?.(0.125, 1, 8, '已获取市场数据'); } catch {}
 
       // 2. 获取K线数据
       const klineData = await this.getKlineData();
       if (klineData.length === 0) {
+        try { (this as any).updateAnalysisProgress?.(0.15, 2, 8, '获取K线失败'); } catch {}
         throw new Error('Failed to get kline data');
       }
+      try { (this as any).updateAnalysisProgress?.(0.25, 2, 8, '已获取K线数据'); } catch {}
 
       // 3. 执行智能信号分析
       const signalResult = await this.signalAnalyzer.analyzeSignal(marketData, klineData);
+      try { (this as any).updateAnalysisProgress?.(0.375, 3, 8, '完成信号分析'); } catch {}
       
       // 4. 风险评估
       const riskAssessment = riskManagementService.assessSignalRisk(signalResult, marketData, this.currentPosition ? [this.currentPosition] : []);
+      try { (this as any).updateAnalysisProgress?.(0.5, 4, 8, '完成风险评估'); } catch {}
       console.log(`⚠️ 风险等级: ${riskAssessment.riskLevel}, 评分: ${riskAssessment.riskScore}`);
       
       // 5. 检查是否可以开新仓
@@ -259,15 +269,19 @@ export class ETHStrategyEngine {
       if (!canTrade.allowed) {
         console.log(`🚫 无法开仓: ${canTrade.reason}`);
       }
+      try { (this as any).updateAnalysisProgress?.(0.625, 5, 8, '检查开仓条件'); } catch {}
       
       // 6. 生成策略结果
       const strategyResult = await this.generateStrategyResult(signalResult, marketData, riskAssessment);
+      try { (this as any).updateAnalysisProgress?.(0.75, 6, 8, '生成策略结果'); } catch {}
       
       // 7. 执行交易决策
       await this.executeTradeDecision(strategyResult, riskAssessment, canTrade);
+      try { (this as any).updateAnalysisProgress?.(0.875, 7, 8, '执行交易决策'); } catch {}
       
       // 8. 缓存结果
       this.cache.set('latest_analysis', strategyResult);
+      try { (this as any).updateAnalysisProgress?.(1, 8, 8, '分析完成'); } catch {}
       
       console.log(`Analysis completed. Signal: ${signalResult.signal}, Confidence: ${signalResult.strength.confidence.toFixed(2)}`);
       
@@ -275,6 +289,7 @@ export class ETHStrategyEngine {
       
     } catch (error) {
       console.error('Strategy analysis failed:', error);
+      try { (this as any).updateAnalysisProgress?.(0, 0, 8, '分析失败'); } catch {}
       throw error;
     }
   }
@@ -1068,6 +1083,21 @@ export class ETHStrategyEngine {
       this.performance.profitFactor = Math.abs(this.performance.averageWin / this.performance.averageLoss);
     }
 
+    // 新增：计算夏普比率与最大回撤
+    try {
+      const portfolio = riskManagementService.analyzePortfolioRisk(
+        this.currentPosition ? [this.currentPosition] : [],
+        this.tradeHistory
+      );
+      // 夏普比率直接使用
+      this.performance.sharpeRatio = Number.isFinite(portfolio.sharpeRatio) ? portfolio.sharpeRatio : 0;
+      // 风险服务返回的最大回撤是百分比数值（例如 12.34），转换为小数（0.1234）供前端乘以100显示
+      const mddPercent = Number.isFinite(portfolio.maxDrawdown) ? portfolio.maxDrawdown : 0;
+      this.performance.maxDrawdown = (Number(mddPercent) || 0) / 100;
+    } catch (_) {
+      // 避免计算异常影响主流程
+    }
+
     this.performance.lastUpdated = Date.now();
   }
 
@@ -1116,6 +1146,37 @@ export class ETHStrategyEngine {
   // 新增：获取当前分析间隔（毫秒）
   getAnalysisInterval(): number {
     return this.analysisInterval;
+  }
+
+  // 新增：获取分析实时进度
+  getAnalysisProgress(): { percent: number; step: number; total: number; label: string; startedAt: number; updatedAt: number } | null {
+    try {
+      return this.cache.get('analysis_progress') || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 新增：更新分析实时进度
+  private updateAnalysisProgress(percent: number, step: number, total: number, label: string): void {
+    try {
+      const prev: any = this.cache.get('analysis_progress');
+      const startedAt = prev?.startedAt || Date.now();
+      const payload = {
+        percent: Math.max(0, Math.min(1, Number(percent) || 0)),
+        step: Number(step) || 0,
+        total: Number(total) || 0,
+        label: String(label || ''),
+        startedAt,
+        updatedAt: Date.now()
+      };
+      // 15秒TTL，防止过期太慢
+      try { (this.cache as any).set('analysis_progress', payload, 15); }
+      catch { this.cache.set('analysis_progress', payload); }
+      
+      // 新增：通过事件推送实时进度
+      try { this.emit('analysis-progress', payload); } catch {}
+    } catch {}
   }
 
   // 切换数据服务
