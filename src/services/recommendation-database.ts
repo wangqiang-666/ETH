@@ -125,7 +125,7 @@ export class RecommendationDatabase {
         result TEXT CHECK (result IN ('WIN', 'LOSS', 'BREAKEVEN')),
         exit_price REAL,
         exit_time DATETIME,
-        exit_reason TEXT CHECK (exit_reason IN ('TAKE_PROFIT', 'STOP_LOSS', 'TIMEOUT', 'LIQUIDATION')),
+        exit_reason TEXT CHECK (exit_reason IN ('TAKE_PROFIT', 'STOP_LOSS', 'TIMEOUT', 'LIQUIDATION', 'MANUAL', 'BREAKEVEN')),
         
         -- 理论收益统计
         pnl_amount REAL,

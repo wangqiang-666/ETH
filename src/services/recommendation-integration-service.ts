@@ -24,7 +24,8 @@ export class RecommendationIntegrationService extends EventEmitter {
   private strategyEngine: ETHStrategyEngine;
   private signalService: TradingSignalService;
   private riskService: RiskManagementService;
-  
+  // 新增：维护策略持仓与推荐记录的映射
+  private positionToRecommendation: Map<string, string> = new Map();
   private isInitialized: boolean = false;
   private isRunning: boolean = false;
   private autoRecommendationEnabled: boolean = false;
@@ -61,14 +62,105 @@ export class RecommendationIntegrationService extends EventEmitter {
    * 设置事件监听器
    */
   private setupEventListeners(): void {
-    // 注意：当前策略引擎和交易信号服务不支持事件监听
-    // 将使用轮询方式或直接调用方式来获取推荐
-    
-    // 注意：推荐跟踪器和统计计算器也不支持事件监听
-    // 将使用直接调用方式来处理推荐状态变化
-    
-    console.log('Event listeners setup completed (using polling mode)');
-  }
+    // 订阅策略引擎事件，桥接到推荐系统
+    try {
+      // 开仓 -> 创建推荐记录并建立映射
+      this.strategyEngine.on('position-opened', async (payload: any) => {
+        try {
+          const position = payload?.position;
+          if (!position?.positionId) return;
+          const recInput = {
+            symbol: position.symbol || 'ETH-USDT',
+            direction: position.side,
+            entry_price: position.entryPrice,
+            current_price: position.currentPrice || position.entryPrice,
+            leverage: position.leverage || 1,
+            stop_loss_price: position.stopLoss,
+            take_profit_price: position.takeProfit,
+            position_size: position.size,
+            risk_level: payload?.riskAssessment?.riskLevel,
+            strategy_type: 'ETH_STRATEGY_ENGINE',
+            algorithm_name: payload?.strategyResult?.signal?.algorithm || payload?.strategyResult?.strategyName,
+            confidence_score: payload?.strategyResult?.recommendation?.confidence || payload?.strategyResult?.signal?.strength?.confidence,
+            signal_strength: payload?.strategyResult?.signal?.strength?.value,
+            source: 'STRATEGY_ENGINE',
+            is_strategy_generated: true,
+            exclude_from_ml: false
+          } as any;
+          const recommendationId = await this.tracker.addRecommendation(recInput);
+          this.positionToRecommendation.set(position.positionId, recommendationId);
+          this.emit('recommendation_created_from_position', { positionId: position.positionId, recommendationId });
+        } catch (e) {
+          console.error('[Integration] failed to create recommendation from position-opened:', e);
+        }
+      });
+
+      // TP1 命中 -> 止损上移至保本
+      this.strategyEngine.on('position-tp1', async (payload: any) => {
+        try {
+          const position = payload?.position;
+          const posId = position?.positionId;
+          if (!posId) return;
+          const recId = this.positionToRecommendation.get(posId);
+          if (!recId) return;
+          // 将止损上移至入场价（保本）
+          await this.database.updateTargetPrices(recId, {
+            stop_loss_price: position.entryPrice ?? undefined
+          });
+        } catch (e) {
+          console.warn('[Integration] updateTargetPrices on TP1 failed:', (e as any)?.message || String(e));
+        }
+      });
++
+      // TP2 命中 -> 止损抬到 TP1，止盈切到 TP3
+      this.strategyEngine.on('position-tp2', async (payload: any) => {
+        try {
+          const position = payload?.position;
+          const posId = position?.positionId;
+          if (!posId) return;
+          const recId = this.positionToRecommendation.get(posId);
+          if (!recId) return;
+          await this.database.updateTargetPrices(recId, {
+            stop_loss_price: position.tp1 ?? position.stopLoss ?? undefined,
+            take_profit_price: position.tp3 ?? position.takeProfit ?? undefined
+          });
+        } catch (e) {
+          console.warn('[Integration] updateTargetPrices on TP2 failed:', (e as any)?.message || String(e));
+        }
+      });
+
+      // 减仓事件（可选：记录日志或后续扩展）
+      this.strategyEngine.on('position-reduced', async (payload: any) => {
+        const position = payload?.position;
+        if (!position?.positionId) return;
+        const recId = this.positionToRecommendation.get(position.positionId);
+        if (!recId) return;
+        // 暂不需要数据库变更，仅打点
+        this.emit('recommendation_partial_close', { recommendationId: recId, reductionRatio: payload?.reductionRatio });
+      });
+
+      // 平仓 -> 关闭推荐（按 MANUAL 或传入原因）
+      this.strategyEngine.on('position-closed', async (payload: any) => {
+        try {
+          const position = payload?.position;
+          const posId = position?.positionId;
+          if (!posId) return;
+          const recId = this.positionToRecommendation.get(posId);
+          if (!recId) return;
+          const reason: string = payload?.reason || 'MANUAL';
+          await this.tracker.manualCloseRecommendation(recId, reason);
+          this.positionToRecommendation.delete(posId);
+        } catch (e) {
+          console.error('[Integration] failed to close recommendation from position-closed:', e);
+        }
+      });
+
+      console.log('Event listeners setup completed (strategy engine events subscribed)');
+    } catch (e) {
+      console.warn('Failed to attach strategy engine listeners, fallback to polling mode:', e);
+      console.log('Event listeners setup completed (using polling mode)');
+    }
+   }
   
   /**
    * 初始化推荐系统

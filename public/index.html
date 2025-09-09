@@ -963,7 +963,7 @@
                 if (_refreshTimer) clearTimeout(_refreshTimer);
                 _refreshTimer = setTimeout(async () => {
                     try {
-                        await loadRecommendationHistory();
+                        await loadRecommendationHistory(true);
                         await updateRecommendationStats();
                     } catch (e) {
                         console.warn('即时刷新失败：', e);
@@ -1124,7 +1124,7 @@
                 loadMarketData();
                 updateUptime();
                 loadTradeRecommendation();
-                loadRecommendationHistory();
+                loadRecommendationHistory(true);
                 loadFGI();
             }, 30000); // 30秒更新一次
         };
@@ -1985,7 +1985,7 @@
         }
         
         // 加载推荐历史
-        async function loadRecommendationHistory() {
+        async function loadRecommendationHistory(preservePage = false) {
             const statusEl = document.getElementById('recommendationInlineStatus');
             const listEl = document.getElementById('recommendationList');
             
@@ -2022,9 +2022,9 @@
                     recommendationData = list;
                     filteredRecommendations = [...recommendationData];
                     
-                    // 应用当前筛选和排序
-                    filterRecommendations();
-                    sortRecommendations();
+                    // 应用当前筛选和排序（自动刷新时保留页码）
+                    filterRecommendations(preservePage);
+                    sortRecommendations(preservePage);
                     
                     // 更新统计信息
                     await updateRecommendationStats();
@@ -2127,8 +2127,8 @@
             resetHeaderCheckbox();
         }
         
-        // 筛选推荐（重置到第1页）
-        function filterRecommendations() {
+        // 筛选推荐（可选：保留当前页）
+        function filterRecommendations(preservePage = false) {
             const statusFilter = document.getElementById('statusFilter')?.value || 'all';
             
             if (statusFilter === 'all') {
@@ -2138,12 +2138,12 @@
             } else {
                 filteredRecommendations = recommendationData.filter(rec => rec.status === statusFilter);
             }
-            currentPage = 1;
+            if (!preservePage) currentPage = 1;
             renderRecommendationList();
         }
         
-        // 排序推荐（重置到第1页）
-        function sortRecommendations() {
+        // 排序推荐（可选：保留当前页）
+        function sortRecommendations(preservePage = false) {
             const sortBy = document.getElementById('sortBy')?.value || 'created_at';
             const sortOrder = document.getElementById('sortOrder')?.value || 'desc';
             
@@ -2173,7 +2173,7 @@
                     return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
                 }
             });
-            currentPage = 1;
+            if (!preservePage) currentPage = 1;
             renderRecommendationList();
         }
         
@@ -2270,8 +2270,8 @@
             document.getElementById('avgPnlRecommendations').textContent = `${avgPnl.toFixed(2)}%`;
         }
         
-        // 刷新推荐历史
-        function refreshRecommendations() { loadRecommendationHistory(); }
+        // 刷新推荐历史（保留当前页）
+        function refreshRecommendations() { loadRecommendationHistory(true); }
         
         // 批量删除所选推荐
         async function deleteSelectedRecommendations(){
@@ -2293,7 +2293,7 @@
             // 清理选择 & 刷新
             selectedRecommendationIds.clear();
             updateDeleteButtonState();
-            await loadRecommendationHistory();
+            await loadRecommendationHistory(true);
             // 确保统计同步服务端
             await updateRecommendationStats();
             if (statusEl) {
@@ -2483,7 +2483,7 @@
             return;
           }
           const sorted = list.slice().sort((a,b)=>{ const ca=new Date(a?.created_at||a?.createdAt||a?.create_time||0).getTime(); const cb=new Date(b?.created_at||b?.createdAt||b?.create_time||0).getTime(); if(cb!==ca) return cb-ca; const ua=new Date(a?.updated_at||a?.updatedAt||0).getTime(); const ub=new Date(b?.updated_at||b?.updatedAt||0).getTime(); return ub-ua; });
-          const itemsHtml = sorted.slice(0,1).map(rec=>{ const id=rec.id||rec._id||rec.uuid||''; const symbol=rec.symbol||'ETH-USDT-SWAP'; const direction=String(rec.direction||rec.action||'').toUpperCase(); const entry=(typeof rec.entry_price==='number')?rec.entry_price:(typeof rec.current_price==='number'?rec.current_price:null); const lev=(typeof rec.leverage==='number')?rec.leverage:null; const confRaw=(typeof rec.confidence_score==='number')?rec.confidence_score:(typeof rec.confidence==='number'?rec.confidence:null); const conf=(typeof confRaw==='number')?((confRaw<=1?confRaw*100:confRaw)):null; const tp=(typeof rec.take_profit_price==='number')?rec.take_profit_price:(typeof rec.take_profit==='number'?rec.take_profit:null); const sl=(typeof rec.stop_loss_price==='number')?rec.stop_loss_price:(typeof rec.stop_loss==='number'?rec.stop_loss:null); const cAt=rec.created_at||rec.createdAt||rec.create_time||null; const uAt=rec.updated_at||rec.updatedAt||null; const tag = direction==='LONG'?'做多':(direction==='SHORT'?'做空':(direction||'--')); const baseEr=(typeof entry==='number' && typeof tp==='number')?(direction==='LONG'?((tp-entry)/entry):((entry-tp)/entry)):null; const erL=(typeof baseEr==='number')?(baseEr * (typeof lev==='number' && lev>0 ? lev : 1) * 100):null; return `<div class=\"rec-item\" id=\"rec-${id}\"><div class=\"col main\"><div class=\"title\"><span class=\"badge ${direction==='LONG'?'long':(direction==='SHORT'?'short':'')}\">${tag}</span><span class=\"symbol\">${symbol}</span><span class=\"muted\">创建 ${formatRelative(cAt)}</span>${uAt?`<span class=\"muted\">更新 ${formatRelative(uAt)}</span>`:''}</div><div class=\"grid\"><div><span class=\"k\">入场</span> <span class=\"v\" data-field=\"entry_price-${id}\">${fmtPrice(entry)}</span></div><div><span class=\"k\">杠杆</span> <span class=\"v\" data-field=\"leverage-${id}\">${fmtLev(lev)}</span></div><div><span class=\"k\">止盈</span> <span class=\"v\" data-field=\"take_profit_price-${id}\">${fmtPrice(tp)}</span></div><div><span class=\"k\">止损</span> <span class=\"v\" data-field=\"stop_loss_price-${id}\">${fmtPrice(sl)}</span></div><div><span class=\"k\">预期收益</span> <span class=\"v\">${fmtPct(erL)}</span></div><div><span class=\"k\">置信度</span> <span class=\"v\">${fmtPct(conf)}</span></div></div></div><div class=\"col side\"><div class=\"ttl\">到期倒计时</div><div class=\"ttl-val\" id=\"ttl-${id}\">--</div></div></div>`; }).join('');
+          const itemsHtml = sorted.slice(0,1).map(rec=>{ const id=rec.id||rec._id||rec.uuid||''; const symbol=rec.symbol||'ETH-USDT-SWAP'; const direction=String(rec.direction||rec.action||'').toUpperCase(); const entry=(typeof rec.entry_price==='number')?rec.entry_price:(typeof rec.current_price==='number'?rec.current_price:null); const lev=(typeof rec.leverage==='number')?rec.leverage:null; const confRaw=(typeof rec.confidence_score==='number')?rec.confidence_score:(typeof rec.confidence==='number'?rec.confidence:null); const conf=(typeof confRaw==='number')?((confRaw<=1?confRaw*100:confRaw)):null; const tp=(typeof rec.take_profit_price==='number')?rec.take_profit_price:(typeof rec.take_profit==='number'?rec.take_profit:null); const sl=(typeof rec.stop_loss_price==='number')?rec.stop_loss_price:(typeof rec.stop_loss==='number'?rec.stop_loss:null); const cAt=rec.created_at||rec.createdAt||rec.create_time||null; const uAt=rec.updated_at||rec.updatedAt||null; const tag = direction==='LONG'?'做多':(direction==='SHORT'?'做空':(direction||'--')); const baseEr=(typeof entry==='number' && typeof tp==='number')?(direction==='LONG'?((tp-entry)/entry):((entry-tp)/entry)):null; const erL=(typeof baseEr==='number')?((baseEr * (typeof lev==='number' && lev>0 ? lev : 1)) * 100):null; return `<div class=\"rec-item\" id=\"rec-${id}\"><div class=\"col main\"><div class=\"title\"><span class=\"badge ${direction==='LONG'?'long':(direction==='SHORT'?'short':'')}\">${tag}</span><span class=\"symbol\">${symbol}</span><span class=\"muted\">创建 ${formatRelative(cAt)}</span>${uAt?`<span class=\"muted\">更新 ${formatRelative(uAt)}</span>`:''}</div><div class=\"grid\"><div><span class=\"k\">入场</span> <span class=\"v\" data-field=\"entry_price-${id}\">${fmtPrice(entry)}</span></div><div><span class=\"k\">杠杆</span> <span class=\"v\" data-field=\"leverage-${id}\">${fmtLev(lev)}</span></div><div><span class=\"k\">止盈</span> <span class=\"v\" data-field=\"take_profit_price-${id}\">${fmtPrice(tp)}</span></div><div><span class=\"k\">止损</span> <span class=\"v\" data-field=\"stop_loss_price-${id}\">${fmtPrice(sl)}</span></div><div><span class=\"k\">预期收益</span> <span class=\"v\">${fmtPct(erL)}</span></div><div><span class=\"k\">置信度</span> <span class=\"v\">${fmtPct(conf)}</span></div></div></div><div class=\"col side\"><div class=\"ttl\">到期倒计时</div><div class=\"ttl-val\" id=\"ttl-${id}\">--</div></div></div>`; }).join('');
           container.innerHTML = `${topBar}<div class="rec-list" id="activeSignalList">${itemsHtml}</div>`;
           const btn=document.getElementById('btnManualRefresh'); if(btn) btn.onclick=()=>{ window.loadTradeRecommendation(); window.loadRecommendationHistory?.(); window.updateRecommendationStats?.(); };
           clearItemTimers(); ensureAutoRefreshTicker(); scheduleAutoRefresh();
