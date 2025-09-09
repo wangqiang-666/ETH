@@ -67,6 +67,8 @@ export interface Position {
   tp2Hit?: boolean;
   timestamp: number;
   strategyId: string;
+  // 新增：用于与推荐记录建立关联的内部持仓ID
+  positionId: string;
 }
 
 // 交易历史记录
@@ -823,6 +825,8 @@ export class ETHStrategyEngine extends EventEmitter {
     const tp2 = riskManagement.takeProfit;                     // 原始目标
     const tp3 = marketData.price + sign * baseDistance * 1.2;  // 拉伸目标
 
+    const positionId = `pos_${Date.now()}`;
+
     const position: Position = {
       symbol: config.trading.defaultSymbol,
       side,
@@ -840,7 +844,8 @@ export class ETHStrategyEngine extends EventEmitter {
       tp1Hit: false,
       tp2Hit: false,
       timestamp: Date.now(),
-      strategyId: `strategy_${Date.now()}`
+      strategyId: `strategy_${Date.now()}`,
+      positionId
     };
 
     this.currentPosition = position;
@@ -860,6 +865,15 @@ export class ETHStrategyEngine extends EventEmitter {
     this.tradeHistory.push(tradeRecord);
     
     console.log(`Opened ${side} position: ${position.size} at ${position.entryPrice} (TP1=${tp1.toFixed(2)}, TP2=${tp2.toFixed(2)}, TP3=${tp3.toFixed(2)}) (Risk Level: ${riskAssessment.riskLevel})`);
+
+    // 新增：发出开仓事件，供推荐系统建立映射与保存推荐
+    try {
+      this.emit('position-opened', {
+        position: { ...position },
+        riskAssessment,
+        strategyResult
+      });
+    } catch {}
   }
 
   // 平仓
@@ -904,6 +918,15 @@ export class ETHStrategyEngine extends EventEmitter {
     this.updatePerformanceStats(tradeRecord);
     
     console.log(`Closed ${position.side} position: PnL = ${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%)`);
+
+    // 新增：发出平仓事件，默认作为手动/策略指令平仓
+    try {
+      this.emit('position-closed', {
+        position: { ...position },
+        trade: { ...tradeRecord },
+        reason: 'MANUAL' as const
+      });
+    } catch {}
     
     this.currentPosition = null;
   }
@@ -943,6 +966,15 @@ export class ETHStrategyEngine extends EventEmitter {
     this.tradeHistory.push(tradeRecord);
     
     console.log(`Reduced position by ${(reductionRatio * 100).toFixed(1)}%`);
+
+    // 新增：发出减仓事件
+    try {
+      this.emit('position-reduced', {
+        position: { ...position },
+        trade: { ...tradeRecord },
+        reductionRatio
+      });
+    } catch {}
   }
 
   // 更新持仓状态
@@ -969,6 +1001,7 @@ export class ETHStrategyEngine extends EventEmitter {
           await this.reducePosition(0.5);
         }
         // 上移止损到保本
+        const prevSL = position.stopLoss;
         if (position.side === 'LONG') {
           position.stopLoss = Math.max(position.stopLoss, position.entryPrice);
         } else {
@@ -976,6 +1009,13 @@ export class ETHStrategyEngine extends EventEmitter {
         }
         position.tp1Hit = true;
         console.log('TP1 reached: moved stop to breakeven');
+        // 新增：发出 TP1 事件
+        try {
+          this.emit('position-tp1', {
+            position: { ...position },
+            previousStopLoss: prevSL
+          });
+        } catch {}
       }
     }
 
@@ -991,6 +1031,7 @@ export class ETHStrategyEngine extends EventEmitter {
           await this.reducePosition(0.5);
         }
         // 将止损抬到TP1位置
+        const prevSL2 = position.stopLoss;
         if (position.tp1 !== undefined) {
           if (position.side === 'LONG') {
             position.stopLoss = Math.max(position.stopLoss, position.tp1);
@@ -999,11 +1040,20 @@ export class ETHStrategyEngine extends EventEmitter {
           }
         }
         // 更新剩余仓位的止盈到 TP3，让利润奔跑
+        const prevTP = position.takeProfit;
         if (position.tp3 !== undefined) {
           position.takeProfit = position.tp3;
         }
         position.tp2Hit = true;
         console.log('TP2 reached: tightened stop to TP1 and set TP to TP3');
+        // 新增：发出 TP2 事件
+        try {
+          this.emit('position-tp2', {
+            position: { ...position },
+            previousStopLoss: prevSL2,
+            previousTakeProfit: prevTP
+          });
+        } catch {}
       }
     }
     

@@ -45,6 +45,8 @@ export class RecommendationAPI {
     this.router.get('/recommendations/:id', this.getRecommendation.bind(this));
     this.router.put('/recommendations/:id/close', this.closeRecommendation.bind(this));
     this.router.delete('/recommendations/:id', this.deleteRecommendation.bind(this));
+    // 新增：手动过期（测试/维护用途）
+    this.router.post('/recommendations/:id/expire', this.expireRecommendationById.bind(this));
 
     // 活跃推荐路由
     this.router.get('/active-recommendations', this.getActiveRecommendations.bind(this));
@@ -218,9 +220,8 @@ export class RecommendationAPI {
         return;
       }
       
-      // 从数据库查找
-      const { recommendations } = await this.database.getRecommendationHistory(1, 0, {});
-      const recommendation = recommendations.find(r => r.id === id);
+      // 从数据库按ID精确查找（修复：不再仅查询最新一条后筛选）
+      const recommendation = await this.database.getRecommendationById(id);
       
       if (!recommendation) {
         res.status(404).json({
@@ -279,6 +280,37 @@ export class RecommendationAPI {
       res.status(500).json({
         success: false,
         error: 'Failed to close recommendation',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+  
+  // 新增：手动标记过期（仅测试/维护用）
+  private async expireRecommendationById(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { reason = 'TIMEOUT' } = (req.body || {}) as { reason?: string };
+
+      if (!id) {
+        res.status(400).json({ success: false, error: 'Missing recommendation id' });
+        return;
+      }
+
+      const ok = await (this.tracker as any).manualExpireRecommendation?.(id, reason);
+      if (!ok) {
+        res.status(404).json({ success: false, error: 'Recommendation not found or not active' });
+        return;
+      }
+
+      // 过期后清理统计缓存
+      this.statisticsCalculator.clearAllCache();
+
+      res.json({ success: true, data: { id, message: 'Recommendation expired successfully' } });
+    } catch (error) {
+      console.error('Error expiring recommendation:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to expire recommendation',
         details: error instanceof Error ? error.message : 'Unknown error'
       });
     }
@@ -457,7 +489,7 @@ export class RecommendationAPI {
         success: true,
         data: {
           tracker: {
-            is_running: true, // TODO: 从tracker获取实际状态
+            is_running: this.tracker.isRunningStatus(),
             active_recommendations: trackerStats.active,
             total_recommendations: trackerStats.total,
             win_rate: trackerStats.winRate

@@ -321,9 +321,9 @@ router.get('/alerts', async (req, res) => {
         alerts.push({
           level: 'CRITICAL',
           type: 'LIQUIDATION_RISK',
-          message: `持仓 ${position.id} 接近强平价格`,
+          message: `持仓 ${position.positionId} 接近强平价格`,
           timestamp: Date.now(),
-          positionId: position.id
+          positionId: position.positionId
         });
       }
       
@@ -331,9 +331,9 @@ router.get('/alerts', async (req, res) => {
         alerts.push({
           level: 'WARNING',
           type: 'UNREALIZED_LOSS',
-          message: `持仓 ${position.id} 未实现损失 ${positionRisk.unrealizedPnLPercent.toFixed(1)}%`,
+          message: `持仓 ${position.positionId} 未实现损失 ${positionRisk.unrealizedPnLPercent.toFixed(1)}%`,
           timestamp: Date.now(),
-          positionId: position.id
+          positionId: position.positionId
         });
       }
     });
