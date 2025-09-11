@@ -187,41 +187,46 @@ export class RecommendationTracker {
       // 统一 symbol：将 ETH-USDT 标准化为 ETH-USDT-SWAP（仅用于内部一致性）
       const symbol = this.normalizeSymbol(recommendation.symbol);
 
+      // 读取原始入参（用于可选跳过冷却）
+      const anyRec: any = recommendation as any;
+
       // 新增：按 symbol 冷却期校验（默认30分钟，可通过 config.strategy.signalCooldownMs 配置）
       const cooldownMs = Number((config as any)?.strategy?.signalCooldownMs) || 30 * 60 * 1000;
-      try {
-        await recommendationDatabase.initialize();
-        const last = await recommendationDatabase.getLastRecommendationBySymbol(symbol);
-        if (last?.created_at) {
-          const elapsed = Date.now() - last.created_at.getTime();
-          const remaining = cooldownMs - elapsed;
-          if (remaining > 0) {
-            throw new CooldownError(symbol, remaining, last);
-          }
-        }
-      } catch (err) {
-        if (err instanceof CooldownError) {
-          // 直接向上抛出，供 API 或调用方处理
-          throw err;
-        }
-        // 其它错误：增加内存兜底，尽量防止冷却被绕过
+      if (!anyRec?.bypass_cooldown) {
         try {
-          let latest: RecommendationRecord | undefined;
-          for (const rec of this.activeRecommendations.values()) {
-            if (String(rec.symbol).toUpperCase().trim() === symbol) {
-              if (!latest || rec.created_at > latest.created_at) latest = rec;
-            }
-          }
-          if (latest) {
-            const elapsed = Date.now() - latest.created_at.getTime();
+          await recommendationDatabase.initialize();
+          const last = await recommendationDatabase.getLastRecommendationBySymbol(symbol);
+          if (last?.created_at) {
+            const elapsed = Date.now() - last.created_at.getTime();
             const remaining = cooldownMs - elapsed;
             if (remaining > 0) {
-              throw new CooldownError(symbol, remaining, latest);
+              throw new CooldownError(symbol, remaining, last);
             }
           }
-        } catch {}
-        if (err) {
-          console.warn('[RecommendationTracker] Cooldown check failed, fallback to memory cache or proceed:', (err as any)?.message || String(err));
+        } catch (err) {
+          if (err instanceof CooldownError) {
+            // 直接向上抛出，供 API 或调用方处理
+            throw err;
+          }
+          // 其它错误：增加内存兜底，尽量防止冷却被绕过
+          try {
+            let latest: RecommendationRecord | undefined;
+            for (const rec of this.activeRecommendations.values()) {
+              if (String(rec.symbol).toUpperCase().trim() === symbol) {
+                if (!latest || rec.created_at > latest.created_at) latest = rec;
+              }
+            }
+            if (latest) {
+              const elapsed = Date.now() - latest.created_at.getTime();
+              const remaining = cooldownMs - elapsed;
+              if (remaining > 0) {
+                throw new CooldownError(symbol, remaining, latest);
+              }
+            }
+          } catch {}
+          if (err) {
+            console.warn('[RecommendationTracker] Cooldown check failed, fallback to memory cache or proceed:', (err as any)?.message || String(err));
+          }
         }
       }
 
@@ -229,7 +234,6 @@ export class RecommendationTracker {
       const now = new Date();
 
       // 统一字段命名（兼容 stop_loss/take_profit/confidence -> *_price/confidence_score）
-      const anyRec: any = recommendation as any;
       const normalized = {
         stop_loss_price: anyRec.stop_loss_price ?? (typeof anyRec.stop_loss === 'number' ? anyRec.stop_loss : undefined),
         take_profit_price: anyRec.take_profit_price ?? (typeof anyRec.take_profit === 'number' ? anyRec.take_profit : undefined),

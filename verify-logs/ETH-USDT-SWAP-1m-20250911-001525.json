@@ -1,0 +1,62 @@
+{
+  "symbol": "ETH-USDT-SWAP",
+  "timeframe": "1m",
+  "limit": 120,
+  "firstBarTime": "2025-09-10T14:16:00.000Z",
+  "lastBarTime": "2025-09-10T16:14:00.000Z",
+  "lastClose": 4382.01,
+  "tickerPrice": 4386.38,
+  "priceDiffPct": 0.0997,
+  "indicators": {
+    "rsi": 24.93,
+    "macd": {
+      "macd": -5.6234,
+      "signal": -4.114485,
+      "histogram": -1.508915
+    },
+    "adx": 28.22,
+    "volumeRatio": 1.61,
+    "obvSlope": -30924.007142857132
+  },
+  "checks": [
+    {
+      "name": "K线数量>=50",
+      "ok": true,
+      "detail": "119"
+    },
+    {
+      "name": "时间升序",
+      "ok": true
+    },
+    {
+      "name": "ticker/close差异<0.6%",
+      "ok": true,
+      "detail": "0.100%"
+    },
+    {
+      "name": "RSI为有限数且在[0,100]",
+      "ok": true,
+      "detail": "24.93"
+    },
+    {
+      "name": "MACD.histogram为有限数",
+      "ok": true,
+      "detail": "-1.5089152057029995"
+    },
+    {
+      "name": "ADX为有限数",
+      "ok": true,
+      "detail": "28.219159386713685"
+    },
+    {
+      "name": "成交量比为有限数",
+      "ok": true,
+      "detail": "1.6109971832289527"
+    },
+    {
+      "name": "VWAP距离为有限数",
+      "ok": true,
+      "detail": "0.0021235168410275863"
+    }
+  ]
+}

@@ -385,8 +385,10 @@ export class RecommendationIntegrationService extends EventEmitter {
           source: 'AUTO_GENERATION',
           is_strategy_generated: true,
           exclude_from_ml: false,
-          status: 'PENDING' as const
-        };
+          status: 'PENDING' as const,
+          // 允许在“反向并存”开启的情况下绕过冷却，以免被 last same-symbol 限制
+          ...(allowOpposite ? { bypass_cooldown: true } : {})
+        } as any;
         const recommendationId = await this.tracker.addRecommendation(recommendation);
         this.postRecommendationToDBAPI(recommendationId, recommendation).catch(err => {
           console.warn('Sync to DB API failed (auto generation):', err?.message || err);
@@ -416,8 +418,9 @@ export class RecommendationIntegrationService extends EventEmitter {
             source: 'AUTO_GENERATION',
             is_strategy_generated: true,
             exclude_from_ml: false,
-            status: 'PENDING' as const
-          };
+            status: 'PENDING' as const,
+            bypass_cooldown: true
+          } as any;
           const recommendationId = await this.tracker.addRecommendation(recommendation);
           this.postRecommendationToDBAPI(recommendationId, recommendation).catch(err => {
             console.warn('Sync to DB API failed (auto generation opposite):', err?.message || err);
