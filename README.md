@@ -298,3 +298,149 @@ MIT License - 详见 LICENSE 文件
 ---
 
 **Happy Trading! 🚀📈**
+
+
+## Kronos 模型（1H · ETH 合约 · 双向）集成说明
+
+本节说明如何在本项目中接入 Kronos 量化模型，用于 1 小时周期（1H）ETH 合约的高胜率信号辅助，支持做多/做空双向决策。定位：作为“辅助因子/风控调节器”，与现有多因子与技术指标共同决策，避免模型成为单点依赖。
+
+### 1) 版本与定位
+- 默认使用：Kronos-small（在线推理延迟友好，工程负担小）。
+- 可升级：Kronos-base（建议离线批处理或对延迟不敏感的场景对比评估后再启用）。
+- 上下文窗口：建议K线窗口不超过约500根，用于覆盖近段市场结构与波动特征。
+- 角色定位：
+  - 在线：提供多空倾向分数与置信度，用于信号一致性过滤与风控调节；
+  - 离线：回测/评估期批量生成分数，校验增益与风控效果。
+
+### 2) 数据输入规范（1H · 已收盘K线）
+- 标的：ETH-USDT-SWAP（默认，可在配置中调整）。
+- 粒度：1H（严格使用已收盘的K线，避免未来函数）。
+- 窗口：建议 360–480 根（最大不超过 ~500 根）。
+- 字段定义：与现有数据服务保持一致，形如：
+  - timestamp（毫秒）
+  - open、high、low、close（数字）
+  - volume（数字）
+- 项目内获取方式：通过增强的 OKX 数据服务聚合调度，参考 <mcfile name="enhanced-okx-data-service.ts" path="src/services/enhanced-okx-data-service.ts"></mcfile> 与 <mcfile name="eth-strategy-engine.ts" path="src/strategy/eth-strategy-engine.ts"></mcfile>。
+
+### 3) 在线推理微服务（建议）
+为保持工程解耦与便于版本控制，建议以独立 Python 微服务承载 Kronos 推理能力：
+- 服务端（建议新增，示意接口）：
+  - POST /forecast
+    - 请求体：
+      - symbol: 字符串（如 "ETH-USDT-SWAP"）
+      - interval: "1H"
+      - candles: [{ timestamp, open, high, low, close, volume }]（仅已收盘K线，按时间升序）
+      - options: { horizonHours?: number, returnTopK?: number }
+    - 响应体（示例）：
+      - { score_long: 0~1, score_short: 0~1, confidence: 0~1, horizon_hours: 1, aux: { volatility, regime, notes } }
+  - GET /health → { status: "ok", model: "kronos-small", revision: "..." }
+- 工程注意：
+  - 超时熔断：建议 800–1200ms 超时；失败回退到纯技术指标与多因子。
+  - 版本固定：以镜像标签/模型 revision 固定，灰度发布可回滚。
+  - 观测指标：QPS、P95、错误率、命中率、对收益/回撤的边际贡献。
+
+### 4) Node 侧对接与融合
+- 客户端（建议新增）：src/ml/kronos-client.ts（HTTP 客户端+缓存+超时与重试）。
+- 调用路径：策略引擎在生成候选信号前先查询 Kronos 分数，再进行一致性过滤与风险调节。
+  - 参考改造点：
+    - 策略引擎：<mcfile name="eth-strategy-engine.ts" path="src/strategy/eth-strategy-engine.ts"></mcfile>
+    - 多因子分析：<mcfile name="multi-factor-analyzer.ts" path="src/analyzers/multi-factor-analyzer.ts"></mcfile>、<mcfile name="smart-signal-analyzer.ts" path="src/analyzers/smart-signal-analyzer.ts"></mcfile>
+    - ML 入口：<mcfile name="enhanced-ml-analyzer.ts" path="src/ml/enhanced-ml-analyzer.ts"></mcfile>、<mcfile name="ml-analyzer.ts" path="src/ml/ml-analyzer.ts"></mcfile>
+    - 推荐集成：<mcfile name="recommendation-integration-service.ts" path="src/services/recommendation-integration-service.ts"></mcfile>
+    - 跟踪闭环：<mcfile name="recommendation-tracker.ts" path="src/services/recommendation-tracker.ts"></mcfile>
+
+- 融合规则（1H 双向示例）：
+  - 多头开仓：
+    - Kronos score_long ≥ KRONOS_LONG_THRESHOLD，且 RSI 不超买（如 < 70），MACD 不背离；
+    - 若与传统因子冲突（如趋势走弱），则降级为观察或减仓。
+  - 空头开仓：
+    - Kronos score_short ≥ KRONOS_SHORT_THRESHOLD，且 RSI 不超卖（如 > 30），MACD 未金叉；
+  - 持仓管理：
+    - 置信度高时放宽止损或分级加仓；置信度低时收紧止损或仅部分建仓。
+    - 风险控制优先级高于信号强度（先保命后盈利）。
+
+### 5) 环境变量与配置
+在 .env 中新增（示例）：
+
+```env
+# Kronos 模型开关与服务
+KRONOS_ENABLED=true
+KRONOS_BASE_URL=http://localhost:8001
+KRONOS_TIMEOUT_MS=1000
+KRONOS_INTERVAL=1H
+KRONOS_LOOKBACK=480
+
+# 阈值（可按回测结果微调）
+KRONOS_LONG_THRESHOLD=0.62
+KRONOS_SHORT_THRESHOLD=0.62
+KRONOS_MIN_CONFIDENCE=0.55
+```
+
+配套在 <mcfile name="config.ts" path="src/config.ts"></mcfile> 暴露为配置项（建议：strategy.kronos.* 或 ml.kronos.* 命名空间）。
+
+### 6) 请求与响应示例
+- 请求（客户端 -> /forecast）
+```json
+{
+  "symbol": "ETH-USDT-SWAP",
+  "interval": "1H",
+  "candles": [
+    { "timestamp": 1717200000000, "open": 3720.5, "high": 3731.2, "low": 3715.7, "close": 3728.1, "volume": 1285.3 }
+    // ... 共 360–480 根，按时间升序
+  ],
+  "options": { "horizonHours": 1 }
+}
+```
+
+- 响应（/forecast -> 客户端）
+```json
+{
+  "score_long": 0.71,
+  "score_short": 0.18,
+  "confidence": 0.67,
+  "horizon_hours": 1,
+  "aux": { "volatility": 0.23, "regime": "trend_up" }
+}
+```
+
+- 融合判定（示意伪代码）
+```text
+if (!KRONOS_ENABLED) useTraditionalSignalsOnly();
+else {
+  s = kronos.score(1H_window);
+  if (s.confidence < KRONOS_MIN_CONFIDENCE) downgradeOrSkip();
+  if (s.score_long >= KRONOS_LONG_THRESHOLD && rsi<70 && !macdBearishDiv) long();
+  if (s.score_short >= KRONOS_SHORT_THRESHOLD && rsi>30 && !macdBullishCross) short();
+  applyRiskGuards(); // 日亏限、回撤限、仓位上限等
+}
+```
+
+### 7) 回测与评估（强烈建议）
+- 使用 <mcfile name="backtest-engine.ts" path="src/backtest/backtest-engine.ts"></mcfile> 与 <mcfile name="performance-analyzer.ts" path="src/backtest/performance-analyzer.ts"></mcfile> 构建 A/B 测试：
+  - A：仅传统因子；B：传统因子 + Kronos。
+  - 度量：胜率、盈亏比、最大回撤、Sharpe、卡玛比率、P95 滑点敏感性等。
+  - 足够样本：建议≥90天滚动窗口，并做跨市场行情段验证（震荡/趋势/极端）。
+- 离线生成 Kronos 分数并缓存，减少回测期间外部依赖与非确定性。
+
+### 8) 运行步骤（建议）
+1. 启动 Kronos 推理服务（容器或本地 Python，确保 /health 正常）。
+2. 配置 .env 中的 KRONOS_* 与 OKX 代理/网络参数；
+3. 启动本项目（npm start），观察日志中 Kronos 开关与超时统计；
+4. 在 Web 界面/日志与数据库中对比“仅传统因子 vs +Kronos”的信号差异与收益表现；
+5. 阶段性灰度（分流 10% → 50% → 100%），出现异常随时回退（关闭 KRONOS_ENABLED 或服务降级）。
+
+### 9) 风险与保护
+- 超时熔断与降级：Kronos 请求超时/失败即刻降级为传统因子；
+- 结果有效期：仅对最新窗口生成的分数生效，过期需重算；
+- 数据质量：严格使用已收盘K线，去除异常与缺失值；
+- 过拟合防护：回测必须做时序/滚动窗口与跨阶段验证，避免泄漏；
+- 观测与告警：记录 P95 延迟、错误率、贡献度（带Kronos相对不带的边际提升）。
+
+### 10) 升级到 Kronos-base 的时机
+- 在线延迟和资源可接受（有 GPU 或对实时性要求放宽）；
+- 回测显示在相同阈值下 base 带来稳定增益或更优风控；
+- 已具备版本固定、灰度发布与快速回滚机制。
+
+---
+
+小结：Kronos 以“辅助信号/风控因子”的方式融入 1H ETH 策略，保持工程解耦（独立推理服务）、上线可控（特性开关+灰度+超时降级），并通过严谨的回测与观测确保其带来稳定而可度量的增益。

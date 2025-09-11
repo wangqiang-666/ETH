@@ -488,18 +488,47 @@ export class ETHStrategyEngine extends EventEmitter {
       String(ef.minCombinedStrengthShort ?? 65)
     );
 
+    // 新增：EV 门槛与市场状态门控（默认不生效，配置后启用）
+    const perfForGate = this.predictPerformance(signalResult);
+    const evMin = (((config as any).strategy?.expectedValueThreshold) ?? ((config as any).strategy?.evThreshold) ?? 0);
+    const evOk = (perfForGate.expectedReturn ?? 0) >= evMin;
+
+    const mr = ((config as any).strategy?.marketRegime) || {};
+    const fgi = marketData.fgiScore;
+    const funding = marketData.fundingRate;
+    let regimeOk = true;
+    if (mr.avoidExtremeSentiment === true && typeof fgi === 'number') {
+      const low = mr.extremeSentimentLow ?? 10;
+      const high = mr.extremeSentimentHigh ?? 90;
+      if (fgi <= low || fgi >= high) regimeOk = false;
+    }
+    if (mr.avoidHighFunding === true && typeof funding === 'number') {
+      const highFundingAbs = mr.highFundingAbs ?? 0.03;
+      if (Math.abs(funding) > highFundingAbs) regimeOk = false;
+    }
+
+    logger.debug(
+      'Gates | EV=%.4f thr=%.4f evOk=%s | regimeOk=%s (fgi=%s funding=%s)',
+      perfForGate.expectedReturn ?? 0,
+      evMin,
+      String(evOk),
+      String(regimeOk),
+      typeof fgi === 'number' ? fgi.toFixed(1) : 'NA',
+      typeof funding === 'number' ? funding.toFixed(4) : 'NA'
+    );
+
     // 新开仓逻辑 - 考虑风险评估与过滤器
     if (!this.currentPosition && signalResult.strength.confidence >= config.strategy.signalThreshold && riskAssessment.riskLevel !== 'EXTREME') {
-      if ((signalResult.signal === 'STRONG_BUY' || signalResult.signal === 'BUY') && trendOkLong && strengthOkLong && volOk && bollOkLong && squeezeOk) {
+      if ((signalResult.signal === 'STRONG_BUY' || signalResult.signal === 'BUY') && trendOkLong && strengthOkLong && volOk && bollOkLong && squeezeOk && evOk && regimeOk) {
         logger.debug('Decision: OPEN_LONG | price=%s', String(marketData.price));
         action = 'OPEN_LONG';
         urgency = (signalResult.signal === 'STRONG_BUY' && riskAssessment.riskLevel === 'LOW' && combined >= 75) ? 'HIGH' : 'MEDIUM';
-      } else if ((signalResult.signal === 'STRONG_SELL' || signalResult.signal === 'SELL') && trendOkShort && strengthOkShort && volOk && bollOkShort && squeezeOk) {
+      } else if ((signalResult.signal === 'STRONG_SELL' || signalResult.signal === 'SELL') && trendOkShort && strengthOkShort && volOk && bollOkShort && squeezeOk && evOk && regimeOk) {
         logger.debug('Decision: OPEN_SHORT | price=%s', String(marketData.price));
         action = 'OPEN_SHORT';
         urgency = (signalResult.signal === 'STRONG_SELL' && riskAssessment.riskLevel === 'LOW' && combined >= 75) ? 'HIGH' : 'MEDIUM';
       } else {
-        logger.debug('Decision: HOLD (filters not satisfied)');
+        logger.debug('Decision: HOLD (filters/gates not satisfied)');
       }
     } else {
       logger.debug(

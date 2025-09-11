@@ -654,6 +654,10 @@
                     <div class="status-dot"></div>
                     <span>策略引擎</span>
                 </div>
+                 <div class="status-item">
+                    <div class="status-dot"></div>
+                    <span>Kronos模型</span>
+                </div>
                 <div class="status-item">
                     <div class="status-dot"></div>
                     <span>ML分析</span>
@@ -818,7 +822,7 @@
             <!-- 策略性能 -->
             <div class="card">
                 <h2 style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-                    <span><span class="card-icon">📈</span>策略性能</span>
+                    <span style="display:inline-flex;align-items:center;gap:8px"><span class="card-icon" style="background:none;width:auto;height:auto;line-height:1;font-size:20px">📈</span><span>策略性能</span></span>
                     <button class="bubble-btn" onclick="window.open('/backtest-report-latest.html','_blank')" title="查看回测性能报告">
                         <span class="ring" aria-hidden="true"></span>
                         <span class="label">查看报告</span>
@@ -1147,6 +1151,69 @@
                 window.__appConfig = fallback;
                 return fallback;
             }
+        }
+        
+        // 更新 Kronos 参与状态（读取配置与最新分析，计算方向、置信度与融合占比）
+        function updateKronosStatus(analysis) {
+            try {
+                const container = document.getElementById('kronosStatus');
+                // 异步读取配置（不阻塞主流程）
+                ensureAppConfig().then(cfg => {
+                    const kronosCfg = cfg?.strategy?.kronos || {};
+                    const enabled = !!kronosCfg.enabled;
+
+                    // 更新状态栏“Kronos模型”的小圆点颜色
+                    try {
+                        const items = document.querySelectorAll('.status-bar .status-item');
+                        items.forEach(el => {
+                            const span = el.querySelector('span');
+                            if (span && span.textContent && span.textContent.includes('Kronos')) {
+                                const dot = el.querySelector('.status-dot');
+                                if (dot) dot.style.background = enabled ? '#27ae60' : '#9ca3af';
+                            }
+                        });
+                    } catch (_) {}
+
+                    if (!container) return;
+                    if (!enabled) {
+                        container.innerHTML = '<span style="color:#6b7280">Kronos 已关闭</span>';
+                        return;
+                    }
+
+                    // 兼容多种响应结构：优先 signal.metadata.kronos，其次 analysis.metadata.kronos
+                    const sig = analysis?.signal || analysis || {};
+                    const metaK = sig?.metadata?.kronos || analysis?.metadata?.kronos || null;
+
+                    if (!metaK) {
+                        container.innerHTML = '<span style="color:#9ca3af">Kronos 无最近结果</span>';
+                        return;
+                    }
+
+                    const clamp01 = v => Math.max(0, Math.min(1, Number(v) || 0));
+                    const longS = clamp01(metaK.score_long);
+                    const shortS = clamp01(metaK.score_short);
+                    const conf = clamp01(metaK.confidence ?? 0.5);
+                    const directional = longS - shortS; // [-1, 1]
+                    const dirText = directional > 0.05 ? '多' : (directional < -0.05 ? '空' : '中性');
+                    const dirPct = Math.abs(directional) * 100;
+
+                    // 显示融合权重：优先取配置中的 alpha/alphaMin/alphaMax，其次用置信度作为动态α
+                    let alpha = typeof kronosCfg.alpha === 'number' ? clamp01(kronosCfg.alpha) : conf;
+                    const minA = typeof kronosCfg.alphaMin === 'number' ? clamp01(kronosCfg.alphaMin) : 0.3;
+                    const maxA = typeof kronosCfg.alphaMax === 'number' ? clamp01(kronosCfg.alphaMax) : 0.8;
+                    alpha = Math.max(minA, Math.min(maxA, alpha));
+
+                    container.innerHTML = `
+                        <div style="font-size:12px;color:#374151;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span>模型：已启用</span>
+                            <span>倾向：${dirText} ${dirPct.toFixed(1)}%</span>
+                            <span>置信度：${(conf * 100).toFixed(1)}%</span>
+                            <span>融合权重α：${(alpha * 100).toFixed(0)}%</span>
+                        </div>`;
+                }).catch(_ => {
+                    if (container) container.innerHTML = '<span style="color:#9ca3af">Kronos 状态不可用</span>';
+                });
+            } catch (_) {}
         }
         
         // 根据最新分析渲染“策略单进度”
@@ -1538,34 +1605,48 @@
                     }
                     
                     const signalDiv = document.getElementById('currentSignal');
-                    if (!signalDiv) return; // DOM尚未渲染，直接跳过
                     const strengthPct = isFinite(strengthVal) ? (strengthVal * 100) : 0;
                     const priceText = typeof price === 'number' ? price.toFixed(2) : '--';
                     const confText = typeof confidence === 'number' ? (confidence * 100).toFixed(1) + '%' : '--';
                     
-                    signalDiv.innerHTML = `
-                        <div class="signal-strength">
-                            <strong>${type}</strong>
-                            <div class="strength-bar">
-                                <div class="strength-fill" style="width: ${Math.max(0, Math.min(100, strengthPct))}%"></div>
+                    if (signalDiv) {
+                        signalDiv.innerHTML = `
+                            <div class="signal-strength">
+                                <strong>${type}</strong>
+                                <div class="strength-bar">
+                                    <div class="strength-fill" style="width: ${Math.max(0, Math.min(100, strengthPct))}%"></div>
+                                </div>
+                                <span>${isFinite(strengthPct) ? strengthPct.toFixed(1) : '--'}%</span>
                             </div>
-                            <span>${isFinite(strengthPct) ? strengthPct.toFixed(1) : '--'}%</span>
-                        </div>
-                        <p>价格: $${priceText} | 置信度: ${confText}</p>
-                    `;
+                            <p>价格: $${priceText} | 置信度: ${confText}</p>
+                            <div id="kronosStatus" class="kronos-status" style="margin-top: 8px;"></div>
+                        `;
+                    }
                     
-                    document.getElementById('signalStrength').textContent =
-                        isFinite(strengthPct) ? strengthPct.toFixed(1) + '%' : '--';
-                    document.getElementById('confidence').textContent = confText;
+                    const _strengthEl = document.getElementById('signalStrength');
+                    if (_strengthEl) _strengthEl.textContent = isFinite(strengthPct) ? strengthPct.toFixed(1) + '%' : '--';
+                    const _confEl = document.getElementById('confidence');
+                    if (_confEl) _confEl.textContent = confText;
+                    
+                    // 更新 Kronos 参与状态
+                    updateKronosStatus(data.data);
+
+                    // 更新“策略性能”中的 Kronos 分数模块（非阻塞）
+                    try { updateKronosPerfCard(data.data); } catch (_) {}
                         
                     // 更新风险管理数据（带健壮性检查）
                     if (data.data.riskManagement) {
                         const risk = data.data.riskManagement;
-                        if (typeof risk.riskScore === 'number') document.getElementById('riskScore').textContent = risk.riskScore.toFixed(1);
-                        document.getElementById('positionSize').textContent = confText;
-                        if (typeof risk.stopLoss === 'number') document.getElementById('stopLoss').textContent = '$' + risk.stopLoss.toFixed(2);
-                        if (typeof risk.takeProfit === 'number') document.getElementById('takeProfit').textContent = '$' + risk.takeProfit.toFixed(2);
+                        const _riskScoreEl = document.getElementById('riskScore');
+                        if (typeof risk.riskScore === 'number' && _riskScoreEl) _riskScoreEl.textContent = risk.riskScore.toFixed(1);
+                        const _posEl = document.getElementById('positionSize');
+                        if (_posEl) _posEl.textContent = confText;
+                        const _stopLossEl = document.getElementById('stopLoss');
+                        if (typeof risk.stopLoss === 'number' && _stopLossEl) _stopLossEl.textContent = '$' + risk.stopLoss.toFixed(2);
+                        const _takeProfitEl = document.getElementById('takeProfit');
+                        if (typeof risk.takeProfit === 'number' && _takeProfitEl) _takeProfitEl.textContent = '$' + risk.takeProfit.toFixed(2);
                     }
+                    
                     
                     // 渲染“策略单进度”（使用最新分析结果 + 配置阈值）
                     try {
@@ -1583,6 +1664,7 @@
                         const cfg = await ensureAppConfig();
                         const fallbackAnalysis = { signal: { type: 'HOLD', strength: 0, confidence: 0.5 } };
                         renderOrderProgressFromAnalysis(fallbackAnalysis, cfg);
+                        try { updateKronosPerfCard(fallbackAnalysis); } catch (_) {}
                     } catch (_) {}
                 }
             } catch (error) {
@@ -1595,10 +1677,89 @@
                     const cfg = await ensureAppConfig();
                     const fallbackAnalysis = { signal: { type: 'HOLD', strength: 0, confidence: 0.5 } };
                     renderOrderProgressFromAnalysis(fallbackAnalysis, cfg);
+                    try { updateKronosPerfCard(fallbackAnalysis); } catch (_) {}
                 } catch (_) {}
             }
         }
         
+        // 在“策略性能”卡片中动态展示 Kronos 模型分数（非阻塞，带兜底）
+        function updateKronosPerfCard(analysis) {
+            try {
+                ensureAppConfig().then(cfg => {
+                    const kronosCfg = cfg?.strategy?.kronos || {};
+                    const enabled = !!kronosCfg.enabled;
+
+                    const listEl = document.getElementById('perfOrderProgressList');
+                    if (!listEl || !listEl.parentElement) return;
+
+                    let perfK = document.getElementById('kronosPerfContainer');
+                    if (!perfK) {
+                        perfK = document.createElement('div');
+                        perfK.id = 'kronosPerfContainer';
+                        perfK.style.marginTop = '8px';
+                        perfK.style.border = '1px solid #e5e7eb';
+                        perfK.style.borderRadius = '8px';
+                        perfK.style.padding = '8px 10px';
+                        listEl.parentElement.insertBefore(perfK, listEl);
+                    }
+
+                    const renderNeutral = (statusText) => {
+                        perfK.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+                          + '<div style="font-weight:600;color:#111827">Kronos 模型分数</div>'
+                          + '<div style="font-size:12px;color:#6b7280">' + (statusText || '中性 · 置信度 --') + '</div>'
+                          + '</div>'
+                          + '<div style="height:8px;border-radius:999px;background:linear-gradient(90deg,#ef4444,#d1d5db,#10b981);position:relative;overflow:hidden">'
+                          + '<div style="position:absolute;left:50%;transform:translateX(-50%);top:-4px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid #111827;opacity:.5"></div>'
+                          + '</div>';
+                    };
+
+                    if (!enabled) { renderNeutral('已关闭'); return; }
+
+                    const sig = analysis?.signal || analysis || {};
+                    const metaK = sig?.metadata?.kronos || analysis?.metadata?.kronos || null;
+                    if (!metaK) { renderNeutral('无最近结果'); return; }
+
+                    const clamp01 = v => Math.max(0, Math.min(1, Number(v) || 0));
+                    const longS = clamp01(metaK.score_long);
+                    const shortS = clamp01(metaK.score_short);
+                    const conf = clamp01(metaK.confidence ?? 0.5);
+                    const directional = longS - shortS;
+                    const tiltPct = Math.round((directional + 1) * 50);
+                    const dirText = directional > 0.05 ? '偏多' : (directional < -0.05 ? '偏空' : '中性');
+
+                    // 分段条比例：空头(红)=shortS，中性=1-(longS+shortS)，多头(绿)=longS
+                    let sR = shortS, sG = longS, sN = 1 - shortS - longS;
+                    if (sN < 0) {
+                        const sum = sR + sG;
+                        if (sum > 0) { sR = sR / sum; sG = sG / sum; sN = 0; }
+                        else { sR = 0; sG = 0; sN = 1; }
+                    }
+                    const redPct = (sR * 100).toFixed(2);
+                    const neutralPct = (sN * 100).toFixed(2);
+                    const greenPct = (sG * 100).toFixed(2);
+
+                    perfK.innerHTML =
+                        '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;margin-bottom:6px">'
+                        + '<div style="font-weight:600;color:#111827">Kronos 模型分数</div>'
+                        + '<div style="display:flex;gap:10px;font-size:12px;color:#374151">'
+                        + '<span>多头 ' + Math.round(longS * 100) + '</span>'
+                        + '<span>空头 ' + Math.round(shortS * 100) + '</span>'
+                        + '<span>置信度 ' + Math.round(conf * 100) + '%</span>'
+                        + '<span>倾向 ' + dirText + '</span>'
+                        + '</div>'
+                        + '</div>'
+                        + '<div style="height:8px;border-radius:999px;background:#e5e7eb;position:relative;overflow:hidden">'
+                        +   '<div style="display:flex;height:100%;width:100%">'
+                        +     '<div style="width:' + redPct + '%;background:#ef4444"></div>'
+                        +     '<div style="width:' + neutralPct + '%;background:#d1d5db"></div>'
+                        +     '<div style="width:' + greenPct + '%;background:#10b981"></div>'
+                        +   '</div>'
+                        + '<div style="position:absolute;left:' + tiltPct + '%;transform:translateX(-50%);top:-4px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid #111827"></div>'
+                        + '</div>';
+                }).catch(_ => {});
+            } catch (_) {}
+        }
+
         // 加载性能数据
         async function loadPerformanceData() {
             try {
@@ -2449,6 +2610,20 @@
         const list = Array.isArray(d?.recommendations) ? d.recommendations : Array.isArray(d) ? d : Array.isArray(d?.list) ? d.list : [];
         return Array.isArray(list) ? list.filter(Boolean) : [];
       }
+      // 新增：解析历史推荐列表
+      function parseHistoryList(d){
+        const data = d?.data ?? d;
+        const arr = Array.isArray(data?.recommendations)
+          ? data.recommendations
+          : Array.isArray(data?.list)
+            ? data.list
+            : Array.isArray(data)
+              ? data
+              : [];
+        return Array.isArray(arr) ? arr.filter(Boolean) : [];
+      }
+      // 新增：避免点击历史时间抛错，暂不启用锁定逻辑，始终显示最新
+      function lockRecommendation(id){ try{ window.scrollTo({top:0, behavior:'smooth'});}catch(e){} window.__lockedRecommendationId = null; window.loadTradeRecommendation?.(); }
       function fmtPrice(v){ return (typeof v === 'number') ? ('$' + v.toFixed(2)) : (v ?? '--'); }
       function fmtLev(v){ return (typeof v === 'number') ? (v + 'x') : (v ?? '--'); }
       function fmtPct(v){ if (typeof v === 'number') return `${v<=1?(v*100).toFixed(1):v.toFixed(1)}%`; if (typeof v === 'string' && v.endsWith('%')) return v; return '--'; }
@@ -2482,7 +2657,26 @@
             const btn=document.getElementById('btnManualRefresh'); if(btn) btn.onclick=()=>{ window.loadTradeRecommendation(); };
             return;
           }
-          const sorted = list.slice().sort((a,b)=>{ const ca=new Date(a?.created_at||a?.createdAt||a?.create_time||0).getTime(); const cb=new Date(b?.created_at||b?.createdAt||b?.create_time||0).getTime(); if(cb!==ca) return cb-ca; const ua=new Date(a?.updated_at||a?.updatedAt||0).getTime(); const ub=new Date(b?.updated_at||b?.updatedAt||0).getTime(); return ub-ua; });
+          let sorted = list.slice().sort((a,b)=>{ const ca=new Date(a?.created_at||a?.createdAt||a?.create_time||0).getTime(); const cb=new Date(b?.created_at||b?.createdAt||b?.create_time||0).getTime(); if(cb!==ca) return cb-ca; const ua=new Date(a?.updated_at||a?.updatedAt||0).getTime(); const ub=new Date(b?.updated_at||b?.updatedAt||0).getTime(); return ub-ua; });
+          // 合并历史列表，确保最新一条显示
+          try{
+            const respH = await fetch('/api/recommendations',{cache:'no-store'});
+            if(respH && respH.ok){
+              const payloadH = await respH.json();
+              const hist = parseHistoryList(payloadH);
+              if(Array.isArray(hist) && hist.length){
+                const union = sorted.concat(hist);
+                const seen = new Set();
+                const dedup = [];
+                for(const r of union){
+                  const id = r?.id || r?._id || r?.uuid || r?.order_id || r?.orderId || r?.code || (r?.symbol? r.symbol+'_'+(r?.created_at||r?.createdAt||r?.create_time||''): '');
+                  const key = String(id||'') + '_' + String(r?.updated_at||r?.updatedAt||'');
+                  if(!seen.has(key)){ seen.add(key); dedup.push(r); }
+                }
+                sorted = dedup.sort((a,b)=>{ const ca=new Date(a?.created_at||a?.createdAt||a?.create_time||0).getTime(); const cb=new Date(b?.created_at||b?.createdAt||b?.create_time||0).getTime(); if(cb!==ca) return cb-ca; const ua=new Date(a?.updated_at||a?.updatedAt||0).getTime(); const ub=new Date(b?.updated_at||b?.updatedAt||0).getTime(); return ub-ua; });
+              }
+            }
+          }catch(e){}
           const itemsHtml = sorted.slice(0,1).map(rec=>{ const id=rec.id||rec._id||rec.uuid||''; const symbol=rec.symbol||'ETH-USDT-SWAP'; const direction=String(rec.direction||rec.action||'').toUpperCase(); const entry=(typeof rec.entry_price==='number')?rec.entry_price:(typeof rec.current_price==='number'?rec.current_price:null); const lev=(typeof rec.leverage==='number')?rec.leverage:null; const confRaw=(typeof rec.confidence_score==='number')?rec.confidence_score:(typeof rec.confidence==='number'?rec.confidence:null); const conf=(typeof confRaw==='number')?((confRaw<=1?confRaw*100:confRaw)):null; const tp=(typeof rec.take_profit_price==='number')?rec.take_profit_price:(typeof rec.take_profit==='number'?rec.take_profit:null); const sl=(typeof rec.stop_loss_price==='number')?rec.stop_loss_price:(typeof rec.stop_loss==='number'?rec.stop_loss:null); const cAt=rec.created_at||rec.createdAt||rec.create_time||null; const uAt=rec.updated_at||rec.updatedAt||null; const tag = direction==='LONG'?'做多':(direction==='SHORT'?'做空':(direction||'--')); const baseEr=(typeof entry==='number' && typeof tp==='number')?(direction==='LONG'?((tp-entry)/entry):((entry-tp)/entry)):null; const erL=(typeof baseEr==='number')?((baseEr * (typeof lev==='number' && lev>0 ? lev : 1)) * 100):null; return `<div class=\"rec-item\" id=\"rec-${id}\"><div class=\"col main\"><div class=\"title\"><span class=\"badge ${direction==='LONG'?'long':(direction==='SHORT'?'short':'')}\">${tag}</span><span class=\"symbol\">${symbol}</span><span class=\"muted\">创建 ${formatRelative(cAt)}</span>${uAt?`<span class=\"muted\">更新 ${formatRelative(uAt)}</span>`:''}</div><div class=\"grid\"><div><span class=\"k\">入场</span> <span class=\"v\" data-field=\"entry_price-${id}\">${fmtPrice(entry)}</span></div><div><span class=\"k\">杠杆</span> <span class=\"v\" data-field=\"leverage-${id}\">${fmtLev(lev)}</span></div><div><span class=\"k\">止盈</span> <span class=\"v\" data-field=\"take_profit_price-${id}\">${fmtPrice(tp)}</span></div><div><span class=\"k\">止损</span> <span class=\"v\" data-field=\"stop_loss_price-${id}\">${fmtPrice(sl)}</span></div><div><span class=\"k\">预期收益</span> <span class=\"v\">${fmtPct(erL)}</span></div><div><span class=\"k\">置信度</span> <span class=\"v\">${fmtPct(conf)}</span></div></div></div><div class=\"col side\"><div class=\"ttl\">到期倒计时</div><div class=\"ttl-val\" id=\"ttl-${id}\">--</div></div></div>`; }).join('');
           container.innerHTML = `${topBar}<div class="rec-list" id="activeSignalList">${itemsHtml}</div>`;
           const btn=document.getElementById('btnManualRefresh'); if(btn) btn.onclick=()=>{ window.loadTradeRecommendation(); window.loadRecommendationHistory?.(); window.updateRecommendationStats?.(); };

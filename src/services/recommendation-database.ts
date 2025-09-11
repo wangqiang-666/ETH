@@ -420,9 +420,18 @@ export class RecommendationDatabase {
     if (!this.db) {
       throw new Error('Database not initialized');
     }
-    const sql = `SELECT * FROM recommendations WHERE symbol = ? ORDER BY datetime(created_at) DESC LIMIT 1`;
+    // 兼容别名：在迁移期将 ETH-USDT 与 ETH-USDT-SWAP 视为同一组
+    const aliases = (s: string): string[] => {
+      const up = String(s || '').toUpperCase().trim();
+      if (up === 'ETH-USDT') return ['ETH-USDT', 'ETH-USDT-SWAP'];
+      if (up === 'ETH-USDT-SWAP') return ['ETH-USDT', 'ETH-USDT-SWAP'];
+      return [s];
+    };
+    const symList = aliases(symbol);
+    const placeholders = symList.map(() => '?').join(',');
+    const sql = `SELECT * FROM recommendations WHERE symbol IN (${placeholders}) ORDER BY datetime(created_at) DESC LIMIT 1`;
     return new Promise<RecommendationRecord | null>((resolve, reject) => {
-      this.db!.get(sql, [symbol], (err, row: any) => {
+      this.db!.get(sql, symList, (err, row: any) => {
         if (err) return reject(err);
         resolve(row ? this.rowToRecommendation(row) : null);
       });
