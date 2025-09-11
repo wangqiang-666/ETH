@@ -107,6 +107,24 @@ export class RecommendationTracker {
   // 内存中的活跃推荐缓存
   private activeRecommendations: Map<string, RecommendationRecord> = new Map();
   
+  // 新增：按 symbol 串行化创建队列，避免并发绕过冷却检查
+  private symbolQueues: Map<string, Promise<any>> = new Map();
+
+  // 新增：将同一 symbol 的任务串行化执行
+  private async withSymbolQueue<T>(symbol: string, task: () => Promise<T>): Promise<T> {
+    const prev = this.symbolQueues.get(symbol) || Promise.resolve();
+    const next = prev.then(() => task());
+    // 避免未处理的拒绝导致队列中断
+    this.symbolQueues.set(symbol, next.catch(() => {}));
+    return next;
+  }
+
+  // 新增：标准化交易对，兼容历史数据中的 ETH-USDT
+  private normalizeSymbol(s: string): string {
+    const up = String(s || '').toUpperCase().trim();
+    if (up === 'ETH-USDT') return 'ETH-USDT-SWAP';
+    return up;
+  }
   constructor() {
     console.log('RecommendationTracker initialized');
   }
@@ -165,16 +183,20 @@ export class RecommendationTracker {
    * 添加新的推荐记录进行跟踪
    */
   async addRecommendation(recommendation: Omit<RecommendationRecord, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
+      return this.withSymbolQueue(recommendation.symbol, async () => {
+      // 统一 symbol：将 ETH-USDT 标准化为 ETH-USDT-SWAP（仅用于内部一致性）
+      const symbol = this.normalizeSymbol(recommendation.symbol);
+
       // 新增：按 symbol 冷却期校验（默认30分钟，可通过 config.strategy.signalCooldownMs 配置）
       const cooldownMs = Number((config as any)?.strategy?.signalCooldownMs) || 30 * 60 * 1000;
       try {
         await recommendationDatabase.initialize();
-        const last = await recommendationDatabase.getLastRecommendationBySymbol(recommendation.symbol);
+        const last = await recommendationDatabase.getLastRecommendationBySymbol(symbol);
         if (last?.created_at) {
           const elapsed = Date.now() - last.created_at.getTime();
           const remaining = cooldownMs - elapsed;
           if (remaining > 0) {
-            throw new CooldownError(recommendation.symbol, remaining, last);
+            throw new CooldownError(symbol, remaining, last);
           }
         }
       } catch (err) {
@@ -182,15 +204,30 @@ export class RecommendationTracker {
           // 直接向上抛出，供 API 或调用方处理
           throw err;
         }
-        // 其它错误仅记录，不阻塞创建（例如首次运行或查询失败）
+        // 其它错误：增加内存兜底，尽量防止冷却被绕过
+        try {
+          let latest: RecommendationRecord | undefined;
+          for (const rec of this.activeRecommendations.values()) {
+            if (String(rec.symbol).toUpperCase().trim() === symbol) {
+              if (!latest || rec.created_at > latest.created_at) latest = rec;
+            }
+          }
+          if (latest) {
+            const elapsed = Date.now() - latest.created_at.getTime();
+            const remaining = cooldownMs - elapsed;
+            if (remaining > 0) {
+              throw new CooldownError(symbol, remaining, latest);
+            }
+          }
+        } catch {}
         if (err) {
-          console.warn('[RecommendationTracker] Cooldown check failed, proceeding without block:', (err as any)?.message || String(err));
+          console.warn('[RecommendationTracker] Cooldown check failed, fallback to memory cache or proceed:', (err as any)?.message || String(err));
         }
       }
-  
+
       const id = (recommendation as any)?.id ?? uuidv4();
       const now = new Date();
-    
+
       // 统一字段命名（兼容 stop_loss/take_profit/confidence -> *_price/confidence_score）
       const anyRec: any = recommendation as any;
       const normalized = {
@@ -198,7 +235,22 @@ export class RecommendationTracker {
         take_profit_price: anyRec.take_profit_price ?? (typeof anyRec.take_profit === 'number' ? anyRec.take_profit : undefined),
         confidence_score: anyRec.confidence_score ?? (typeof anyRec.confidence === 'number' ? anyRec.confidence : undefined)
       } as Partial<RecommendationRecord>;
-  
+
+      const record: RecommendationRecord = {
+        ...recommendation,
+        symbol, // 使用标准化后的 symbol
+        ...normalized,
+        id,
+        created_at: now,
+        updated_at: now,
+        status: 'ACTIVE',
+        current_price: recommendation.current_price,
+        volume_24h: 0,
+        price_change_24h: 0,
+        source: recommendation.source || 'STRATEGY_AUTO',
+        is_strategy_generated: recommendation.is_strategy_generated !== false
+      } as any;
+
       // 获取市场数据（可通过环境变量在创建阶段禁用外部行情，避免超时）
       let marketData;
       if (DISABLE_EXTERNAL_MARKET_ON_CREATE) {
@@ -210,14 +262,14 @@ export class RecommendationTracker {
         };
       } else {
         try {
-          const ticker = await enhancedOKXDataService.getTicker(recommendation.symbol);
+          const ticker = await enhancedOKXDataService.getTicker(symbol);
           marketData = {
             currentPrice: ticker?.price ? parseFloat(ticker.price.toString()) : recommendation.current_price,
             volume24h: ticker?.volume ? parseFloat(ticker.volume.toString()) : 0,
             priceChange24h: ticker?.change24h ? parseFloat(ticker.change24h.toString()) : 0
           };
         } catch (error) {
-          console.warn(`Failed to get market data for ${recommendation.symbol}:`, error);
+          console.warn(`Failed to get market data for ${symbol}:`, error);
           marketData = {
             currentPrice: recommendation.current_price,
             volume24h: 0,
@@ -225,29 +277,21 @@ export class RecommendationTracker {
           };
         }
       }
-  
-      const record: RecommendationRecord = {
-        ...recommendation,
-        ...normalized,
-        id,
-        created_at: now,
-        updated_at: now,
-        status: 'ACTIVE',
-        current_price: marketData.currentPrice,
-        volume_24h: marketData.volume24h,
-        price_change_24h: marketData.priceChange24h,
-        source: recommendation.source || 'STRATEGY_AUTO',
-        is_strategy_generated: recommendation.is_strategy_generated !== false
-      };
-  
+
+      // 用行情覆盖价格信息
+      (record as any).current_price = marketData.currentPrice;
+      (record as any).volume_24h = marketData.volume24h;
+      (record as any).price_change_24h = marketData.priceChange24h;
+
       // 添加到内存缓存
       this.activeRecommendations.set(id, record);
-  
+
       // 保存到数据库
       await this.saveToDatabase(record);
   
       console.log(`Added recommendation ${id} for tracking: ${record.symbol} ${record.direction} @ ${record.entry_price}`);
       return id;
+      });
     }
     
     /**
@@ -428,7 +472,7 @@ export class RecommendationTracker {
      */
     private async getCurrentPrice(symbol: string): Promise<{ currentPrice: number } | null> {
       try {
-        const ticker = await enhancedOKXDataService.getTicker(symbol);
+        const ticker = await enhancedOKXDataService.getTicker(this.normalizeSymbol(symbol));
         if (ticker && ticker.price) {
           return { currentPrice: parseFloat(ticker.price.toString()) };
         }
@@ -571,7 +615,14 @@ export class RecommendationTracker {
       try {
         await recommendationDatabase.initialize();
         const actives = await recommendationDatabase.getActiveRecommendations();
-        actives.forEach(rec => this.activeRecommendations.set(rec.id, rec));
+        for (const rec of actives) {
+          const normalized = this.normalizeSymbol(rec.symbol);
+          if (normalized !== rec.symbol) {
+            rec.symbol = normalized;
+            try { await this.updateDatabase(rec); } catch (e) { /* best-effort */ }
+          }
+          this.activeRecommendations.set(rec.id, rec);
+        }
         console.log(`Loaded ${actives.length} active recommendations from DB`);
       } catch (error) {
         console.error('Failed to load active recommendations from database:', error);

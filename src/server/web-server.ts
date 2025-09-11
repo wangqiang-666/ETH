@@ -57,6 +57,10 @@ export class WebServer {
   private isRunning = false;
   private updateInterval: NodeJS.Timeout | null = null;
   private recommendationService: RecommendationIntegrationService;
+  // 并发与速率保护状态
+  private manualTriggerInProgress: boolean = false;
+  private lastManualTriggerAt: number = 0;
+  private manualTriggerTimestamps: number[] = [];
 
   constructor(port: number = config.webServer.port) {
     this.port = port;
@@ -105,6 +109,7 @@ export class WebServer {
     this.app.get('/api/strategy/status', this.handleStrategyStatus.bind(this));
     this.app.get('/api/strategy/analysis', this.handleLatestAnalysis.bind(this));
     this.app.get('/api/strategy/progress', this.handleAnalysisProgress.bind(this));
+    this.app.post('/api/strategy/analysis/trigger', this.handleTriggerAnalysis.bind(this));
     this.app.post('/api/strategy/start', this.handleStartStrategy.bind(this));
     this.app.post('/api/strategy/stop', this.handleStopStrategy.bind(this));
     this.app.get('/api/strategy/performance', this.handlePerformance.bind(this));
@@ -329,14 +334,97 @@ export class WebServer {
   private async handleLatestAnalysis(req: Request, res: Response): Promise<void> {
     try {
       const analysis = ethStrategyEngine.getLatestAnalysis();
+      const kronosEnabled = !!((config as any)?.strategy?.kronos?.enabled);
+      let sanitized = analysis;
+      if (!kronosEnabled && analysis) {
+        try {
+          const cloned = JSON.parse(JSON.stringify(analysis));
+          if (cloned?.signal?.metadata?.kronos !== undefined) {
+            delete cloned.signal.metadata.kronos;
+          }
+          sanitized = cloned;
+        } catch (e) {
+          // noop: 克隆失败则直接返回原数据，前端应有空值保护
+        }
+      }
       const response: ApiResponse = {
         success: true,
-        data: analysis,
+        data: sanitized,
         timestamp: Date.now()
       };
       res.json(response);
     } catch (error) {
       this.handleError(res, error, 'Failed to get latest analysis');
+    }
+  }
+
+  private async handleTriggerAnalysis(req: Request, res: Response): Promise<void> {
+    // 并发与限流 + 冷却保护
+    const now = Date.now();
+    const cooldownMs = Number(((config as any)?.strategy?.signalCooldownMs ?? 30 * 60 * 1000));
+    const maxPerMin = Number(((config as any)?.strategy?.maxManualTriggersPerMin ?? 6));
+
+    try {
+      // 1) 并发锁（立即占锁以避免竞态）
+      if (this.manualTriggerInProgress) {
+        const retrySec = 1;
+        res.setHeader('Retry-After', String(retrySec));
+        res.status(429).json({ success: false, error: 'Manual trigger already in progress', timestamp: Date.now() });
+        return;
+      }
+      this.manualTriggerInProgress = true;
+
+      // 2) 滑动窗口：每分钟触发上限
+      const windowStart = now - 60_000;
+      this.manualTriggerTimestamps = (this.manualTriggerTimestamps || []).filter(ts => ts >= windowStart);
+      if (Number.isFinite(maxPerMin) && maxPerMin > 0 && this.manualTriggerTimestamps.length >= maxPerMin) {
+        const oldest = this.manualTriggerTimestamps[0];
+        const secsLeft = Math.max(1, Math.ceil((60_000 - (now - oldest)) / 1000));
+        res.setHeader('Retry-After', String(secsLeft));
+        res.status(429).json({ success: false, error: 'Too many trigger requests in 1 minute', timestamp: Date.now() });
+        return;
+      }
+
+      // 3) 冷却时间校验
+      if (Number.isFinite(cooldownMs) && cooldownMs > 0 && this.lastManualTriggerAt > 0) {
+        const elapsed = now - this.lastManualTriggerAt;
+        if (elapsed < cooldownMs) {
+          const secsLeft = Math.max(1, Math.ceil((cooldownMs - elapsed) / 1000));
+          res.setHeader('Retry-After', String(secsLeft));
+          res.status(429).json({ success: false, error: 'Manual trigger is in cooldown', timestamp: Date.now() });
+          return;
+        }
+      }
+
+      // 记录本次触发
+      this.manualTriggerTimestamps.push(now);
+      this.lastManualTriggerAt = now;
+
+      // 调用核心分析
+      const result = await ethStrategyEngine.analyzeMarket();
+      const kronosEnabled = !!((config as any)?.strategy?.kronos?.enabled);
+      let sanitized = result;
+      if (!kronosEnabled && result) {
+        try {
+          const cloned = JSON.parse(JSON.stringify(result));
+          if (cloned?.signal?.metadata?.kronos !== undefined) {
+            delete cloned.signal.metadata.kronos;
+          }
+          sanitized = cloned;
+        } catch (e) {
+          // noop
+        }
+      }
+      const response: ApiResponse = {
+        success: true,
+        data: sanitized,
+        timestamp: Date.now()
+      };
+      res.json(response);
+    } catch (error) {
+      this.handleError(res, error, 'Failed to trigger analysis');
+    } finally {
+      this.manualTriggerInProgress = false;
     }
   }
 
@@ -2348,7 +2436,26 @@ export class WebServer {
           minWinRate: config.strategy.minWinRate,
           useMLAnalysis: config.strategy.useMLAnalysis,
           analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : 30000,
-          signalCooldownMs: (config as any)?.strategy?.signalCooldownMs
+          signalCooldownMs: (config as any)?.strategy?.signalCooldownMs,
+          maxManualTriggersPerMin: Number((config as any)?.strategy?.maxManualTriggersPerMin),
+          evThreshold: Number(((config as any)?.strategy?.expectedValueThreshold ?? (config as any)?.strategy?.evThreshold) ?? 0),
+          marketRegime: {
+            avoidExtremeSentiment: !!((config as any)?.strategy?.marketRegime?.avoidExtremeSentiment),
+            extremeSentimentLow: Number((config as any)?.strategy?.marketRegime?.extremeSentimentLow ?? 10),
+            extremeSentimentHigh: Number((config as any)?.strategy?.marketRegime?.extremeSentimentHigh ?? 90),
+            avoidHighFunding: !!((config as any)?.strategy?.marketRegime?.avoidHighFunding),
+            highFundingAbs: Number((config as any)?.strategy?.marketRegime?.highFundingAbs ?? 0.03)
+          },
+          kronos: {
+            enabled: !!((config as any)?.strategy?.kronos?.enabled),
+            baseUrl: (config as any)?.strategy?.kronos?.baseUrl,
+            timeoutMs: Number((config as any)?.strategy?.kronos?.timeoutMs),
+            interval: (config as any)?.strategy?.kronos?.interval,
+            lookback: Number((config as any)?.strategy?.kronos?.lookback),
+            longThreshold: Number((config as any)?.strategy?.kronos?.longThreshold),
+            shortThreshold: Number((config as any)?.strategy?.kronos?.shortThreshold),
+            minConfidence: Number((config as any)?.strategy?.kronos?.minConfidence)
+          }
         }
       };
       
@@ -2357,6 +2464,7 @@ export class WebServer {
         data: safeConfig,
         timestamp: Date.now()
       };
+      try { console.log('Debug /api/config strategy:', JSON.stringify((response as any)?.data?.strategy)); } catch {}
       res.json(response);
     } catch (error) {
       this.handleError(res, error, 'Failed to get config');
@@ -2366,8 +2474,11 @@ export class WebServer {
   private async handleUpdateConfig(req: Request, res: Response): Promise<void> {
     try {
       // 为了安全，只允许更新特定的配置项
-      const allowedUpdates = ['signalThreshold', 'maxPositionSize', 'stopLossPercent', 'useMLAnalysis', 'analysisInterval', 'signalCooldownMs'];
+      const allowedUpdates = ['signalThreshold', 'maxPositionSize', 'stopLossPercent', 'useMLAnalysis', 'analysisInterval', 'signalCooldownMs', 'maxManualTriggersPerMin', 'evThreshold', 'marketRegime', 'kronos'];
       const updates = req.body || {};
+      
+      // 新增：收集校验告警
+      const warnings: string[] = [];
       
       // 验证更新请求
       const validUpdates = Object.keys(updates).filter(key => allowedUpdates.includes(key));
@@ -2388,16 +2499,43 @@ export class WebServer {
           case 'signalThreshold':
             if (typeof val === 'number' && val >= 0 && val <= 1) {
               config.strategy.signalThreshold = val;
+            } else if (typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 0 && n <= 1) {
+                config.strategy.signalThreshold = n;
+              } else {
+                warnings.push(`signalThreshold must be a number in [0,1], got: ${val}`);
+              }
+            } else {
+              warnings.push('signalThreshold must be a number in [0,1]');
             }
             break;
           case 'maxPositionSize':
             if (typeof val === 'number' && val > 0) {
               config.risk.maxPositionSize = val;
+            } else if (typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n > 0) {
+                config.risk.maxPositionSize = n;
+              } else {
+                warnings.push(`maxPositionSize must be a positive number, got: ${val}`);
+              }
+            } else {
+              warnings.push('maxPositionSize must be a positive number');
             }
             break;
           case 'stopLossPercent':
             if (typeof val === 'number' && val > 0 && val < 100) {
               config.risk.stopLossPercent = val;
+            } else if (typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n > 0 && n < 100) {
+                config.risk.stopLossPercent = n;
+              } else {
+                warnings.push(`stopLossPercent must be in (0,100), got: ${val}`);
+              }
+            } else {
+              warnings.push('stopLossPercent must be in (0,100)');
             }
             break;
           case 'useMLAnalysis':
@@ -2405,6 +2543,8 @@ export class WebServer {
               config.strategy.useMLAnalysis = val;
             } else if (val === 'true' || val === 'false') {
               config.strategy.useMLAnalysis = (val === 'true');
+            } else {
+              warnings.push(`useMLAnalysis must be boolean, got: ${val}`);
             }
             break;
           case 'analysisInterval':
@@ -2414,7 +2554,11 @@ export class WebServer {
               const n = parseInt(val, 10);
               if (!Number.isNaN(n)) {
                 ethStrategyEngine.setAnalysisInterval && ethStrategyEngine.setAnalysisInterval(n);
+              } else {
+                warnings.push(`analysisInterval must be a valid number, got: ${val}`);
               }
+            } else {
+              warnings.push('analysisInterval must be a number');
             }
             break;
           case 'signalCooldownMs':
@@ -2424,7 +2568,98 @@ export class WebServer {
               const n = parseInt(val, 10);
               if (!Number.isNaN(n) && n >= 0) {
                 (config as any).strategy.signalCooldownMs = n;
+              } else {
+                warnings.push(`signalCooldownMs must be a non-negative integer, got: ${val}`);
               }
+            } else {
+              warnings.push('signalCooldownMs must be a non-negative integer');
+            }
+            break;
+          case 'maxManualTriggersPerMin':
+            if (typeof val === 'number' && Number.isFinite(val) && val >= 1 && Number.isInteger(val)) {
+              (config as any).strategy.maxManualTriggersPerMin = val;
+            } else if (typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 1 && Number.isInteger(n)) {
+                (config as any).strategy.maxManualTriggersPerMin = n;
+              } else {
+                warnings.push(`maxManualTriggersPerMin must be an integer >= 1, got: ${val}`);
+              }
+            } else {
+              warnings.push('maxManualTriggersPerMin must be an integer >= 1');
+            }
+            break;
+          case 'kronos':
+            if (val && typeof val === 'object') {
+              const k = (config as any).strategy.kronos || ((config as any).strategy.kronos = {});
+              if ('enabled' in val) {
+                if (typeof val.enabled === 'boolean') k.enabled = val.enabled; else warnings.push(`kronos.enabled must be boolean, got: ${val.enabled}`);
+              }
+              if ('baseUrl' in val) {
+                if (typeof val.baseUrl === 'string' && /^https?:\/\//.test(val.baseUrl)) k.baseUrl = val.baseUrl; else warnings.push(`kronos.baseUrl must be http(s) URL, got: ${val.baseUrl}`);
+              }
+              if ('timeoutMs' in val) {
+                const n = Number(val.timeoutMs);
+                if (Number.isFinite(n) && n > 0) k.timeoutMs = n; else warnings.push(`kronos.timeoutMs must be a positive number, got: ${val.timeoutMs}`);
+              }
+              if ('interval' in val) {
+                if (typeof val.interval === 'string') k.interval = val.interval; else warnings.push(`kronos.interval must be string, got: ${val.interval}`);
+              }
+              if ('lookback' in val) {
+                const n = Number(val.lookback);
+                if (Number.isFinite(n) && n > 0) k.lookback = n; else warnings.push(`kronos.lookback must be a positive number, got: ${val.lookback}`);
+              }
+              if ('longThreshold' in val) {
+                const n = Number(val.longThreshold);
+                if (Number.isFinite(n) && n >= 0 && n <= 1) k.longThreshold = n; else warnings.push(`kronos.longThreshold must be in [0,1], got: ${val.longThreshold}`);
+              }
+              if ('shortThreshold' in val) {
+                const n = Number(val.shortThreshold);
+                if (Number.isFinite(n) && n >= 0 && n <= 1) k.shortThreshold = n; else warnings.push(`kronos.shortThreshold must be in [0,1], got: ${val.shortThreshold}`);
+              }
+              if ('minConfidence' in val) {
+                const n = Number(val.minConfidence);
+                if (Number.isFinite(n) && n >= 0 && n <= 1) k.minConfidence = n; else warnings.push(`kronos.minConfidence must be in [0,1], got: ${val.minConfidence}`);
+              }
+            } else {
+              warnings.push('kronos must be an object');
+            }
+            break;
+          case 'evThreshold':
+            if (typeof val === 'number' || typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n)) {
+                ((config as any).strategy.expectedValueThreshold) = n;
+              } else {
+                warnings.push(`evThreshold must be a finite number, got: ${val}`);
+              }
+            } else {
+              warnings.push('evThreshold must be a number');
+            }
+            break;
+          case 'marketRegime':
+            if (val && typeof val === 'object') {
+              const mr = ((config as any).strategy.marketRegime) || (((config as any).strategy.marketRegime) = {});
+              if ('avoidExtremeSentiment' in val) {
+                if (typeof val.avoidExtremeSentiment === 'boolean') mr.avoidExtremeSentiment = val.avoidExtremeSentiment; else warnings.push(`marketRegime.avoidExtremeSentiment must be boolean, got: ${val.avoidExtremeSentiment}`);
+              }
+              if ('extremeSentimentLow' in val) {
+                const n = Number(val.extremeSentimentLow);
+                if (Number.isFinite(n)) mr.extremeSentimentLow = n; else warnings.push(`marketRegime.extremeSentimentLow must be number, got: ${val.extremeSentimentLow}`);
+              }
+              if ('extremeSentimentHigh' in val) {
+                const n = Number(val.extremeSentimentHigh);
+                if (Number.isFinite(n)) mr.extremeSentimentHigh = n; else warnings.push(`marketRegime.extremeSentimentHigh must be number, got: ${val.extremeSentimentHigh}`);
+              }
+              if ('avoidHighFunding' in val) {
+                if (typeof val.avoidHighFunding === 'boolean') mr.avoidHighFunding = val.avoidHighFunding; else warnings.push(`marketRegime.avoidHighFunding must be boolean, got: ${val.avoidHighFunding}`);
+              }
+              if ('highFundingAbs' in val) {
+                const n = Number(val.highFundingAbs);
+                if (Number.isFinite(n)) mr.highFundingAbs = n; else warnings.push(`marketRegime.highFundingAbs must be number, got: ${val.highFundingAbs}`);
+              }
+            } else {
+              warnings.push('marketRegime must be an object');
             }
             break;
         }
@@ -2439,12 +2674,32 @@ export class WebServer {
             minWinRate: config.strategy.minWinRate,
             useMLAnalysis: config.strategy.useMLAnalysis,
             analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : undefined,
-            signalCooldownMs: (config as any)?.strategy?.signalCooldownMs
+            signalCooldownMs: (config as any)?.strategy?.signalCooldownMs,
+            maxManualTriggersPerMin: Number((config as any)?.strategy?.maxManualTriggersPerMin),
+            evThreshold: Number(((config as any)?.strategy?.expectedValueThreshold ?? (config as any)?.strategy?.evThreshold) ?? 0),
+            marketRegime: {
+              avoidExtremeSentiment: !!((config as any)?.strategy?.marketRegime?.avoidExtremeSentiment),
+              extremeSentimentLow: Number((config as any)?.strategy?.marketRegime?.extremeSentimentLow ?? 10),
+              extremeSentimentHigh: Number((config as any)?.strategy?.marketRegime?.extremeSentimentHigh ?? 90),
+              avoidHighFunding: !!((config as any)?.strategy?.marketRegime?.avoidHighFunding),
+              highFundingAbs: Number((config as any)?.strategy?.marketRegime?.highFundingAbs ?? 0.03)
+            },
+            kronos: {
+              enabled: !!((config as any)?.strategy?.kronos?.enabled),
+              baseUrl: (config as any)?.strategy?.kronos?.baseUrl,
+              timeoutMs: Number((config as any)?.strategy?.kronos?.timeoutMs),
+              interval: (config as any)?.strategy?.kronos?.interval,
+              lookback: Number((config as any)?.strategy?.kronos?.lookback),
+              longThreshold: Number((config as any)?.strategy?.kronos?.longThreshold),
+              shortThreshold: Number((config as any)?.strategy?.kronos?.shortThreshold),
+              minConfidence: Number((config as any)?.strategy?.kronos?.minConfidence)
+            }
           },
           risk: {
             maxPositionSize: config.risk.maxPositionSize,
             stopLossPercent: config.risk.stopLossPercent
-          }
+          },
+          warnings
         },
         timestamp: Date.now()
       };

@@ -1,9 +1,10 @@
-﻿import { TechnicalIndicatorAnalyzer, TechnicalIndicatorResult } from '../indicators/technical-indicators';
+import { TechnicalIndicatorAnalyzer, TechnicalIndicatorResult } from '../indicators/technical-indicators';
 import { MLAnalyzer, MLAnalysisResult, MarketData } from '../ml/ml-analyzer';
 import { config } from '../config';
 import { recommendationDatabase } from '../services/recommendation-database';
 import type { MLSampleRecord } from '../services/recommendation-database';
 import { logger } from '../utils/logger';
+import { KronosClient, KronosForecast } from '../ml/kronos-client';
 
 // 智能交易信号类型
 export type SmartSignalType = 'STRONG_BUY' | 'BUY' | 'HOLD' | 'SELL' | 'STRONG_SELL';
@@ -44,6 +45,8 @@ export interface SmartSignalResult {
     // 新增：布林位置与带宽，用于策略过滤与风控
     bollingerPosition?: number; // 0-1，0=靠近下轨，1=靠近上轨
     bollingerBandwidth?: number; // (上轨-下轨)/中轨
+    // 新增：Kronos 最近一次原始输出（诊断用途）
+    kronos?: KronosForecast;
   };
 }
 
@@ -64,10 +67,63 @@ export class SmartSignalAnalyzer {
   private lastAnalysis: SmartSignalResult | null = null;
   // 新增：记录最近一次市场价格，用于基于“价格”的指标计算（如布林带位置等）
   private lastMarketPrice: number | null = null;
+  // 新增：Kronos 客户端
+  private kronos: KronosClient | null = null;
+  private lastKronos: KronosForecast | null = null;
 
   constructor() {
     this.technicalAnalyzer = new TechnicalIndicatorAnalyzer();
     this.mlAnalyzer = new MLAnalyzer();
+    
+    // Kronos 客户端：惰性实例化，仅当配置开启时实例化
+    const kronosEnabled = !!((config as any)?.strategy?.kronos?.enabled);
+    if (kronosEnabled) {
+      try {
+        this.kronos = new KronosClient();
+      } catch (e) {
+        console.warn('Kronos client initialization failed:', e);
+        this.kronos = null;
+      }
+    }
+  }
+
+  // 新增：维护历史市场数据，用于ML分析与统计特征
+  private updateHistoricalData(marketData: MarketData): void {
+    try {
+      if (!marketData || typeof marketData.timestamp !== 'number') {
+        return;
+      }
+      const maxLen: number = ((config as any)?.strategy?.historyWindow as number) || 600;
+      const n = this.historicalData.length;
+      if (n > 0 && this.historicalData[n - 1].timestamp === marketData.timestamp) {
+        // 同一时间戳的数据进行合并更新，避免重复
+        this.historicalData[n - 1] = { ...this.historicalData[n - 1], ...marketData };
+      } else {
+        this.historicalData.push({
+          symbol: marketData.symbol,
+          price: Number(marketData.price),
+          volume: Number(marketData.volume),
+          timestamp: marketData.timestamp,
+          high24h: Number(marketData.high24h),
+          low24h: Number(marketData.low24h),
+          change24h: Number(marketData.change24h),
+          changeFromSodUtc8: marketData.changeFromSodUtc8 != null ? Number(marketData.changeFromSodUtc8) : undefined,
+          open24hPrice: marketData.open24hPrice != null ? Number(marketData.open24hPrice) : undefined,
+          sodUtc8Price: marketData.sodUtc8Price != null ? Number(marketData.sodUtc8Price) : undefined,
+          fundingRate: marketData.fundingRate != null ? Number(marketData.fundingRate) : undefined,
+          openInterest: marketData.openInterest != null ? Number(marketData.openInterest) : undefined,
+          fgiScore: marketData.fgiScore != null ? Number(marketData.fgiScore) : undefined
+        });
+        // 确保按时间升序，便于窗口截断
+        this.historicalData.sort((a, b) => a.timestamp - b.timestamp);
+        // 控制内存占用与训练窗口长度
+        if (this.historicalData.length > maxLen) {
+          this.historicalData.splice(0, this.historicalData.length - maxLen);
+        }
+      }
+    } catch (e) {
+      console.warn('updateHistoricalData failed:', e);
+    }
   }
 
   // 主要分析方法（单次撮合：输入最新 marketData 与 K线，输出综合信号）
@@ -93,272 +149,287 @@ export class SmartSignalAnalyzer {
         });
       });
 
-      // 3) 计算技术指标
-      const technicalResult = this.technicalAnalyzer.calculateAllIndicators();
-      if (!technicalResult) {
-        logger.debug('TechnicalResult unavailable, using fallback');
-        return this.getFallbackSignal(marketData);
+      // 2.5) Kronos 在线评分（安全超时与降级）
+      const useKronos = !!((config as any)?.strategy?.kronos?.enabled);
+      let kronosScore: KronosForecast | null = null;
+      // 当禁用 Kronos 时，清空历史缓存，避免前端看到陈旧的 kronos 元数据
+      if (!useKronos) {
+        this.lastKronos = null;
       }
-      logger.debug(
-        'Indicators | rsi=%.2f macd.hist=%.4f bollPos~=%.2f bw~=%.4f ema12=%.2f emaTrend=%.2f k=%s d=%s williams=%s',
-        technicalResult.rsi,
-        technicalResult.macd?.histogram ?? 0,
-        (() => {
-          const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
-          const price = Number.isFinite(marketData.price) ? marketData.price : technicalResult.bollinger.middle;
-          return range > 0 ? ((price - technicalResult.bollinger.lower) / range) : 0.5;
-        })(),
-        (() => {
-          const mid = technicalResult.bollinger.middle;
-          const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
-          const denom = Number.isFinite(mid) && mid > 0 ? mid : (Number.isFinite(marketData.price) && marketData.price > 0 ? marketData.price : NaN);
-          return Number.isFinite(range) && Number.isFinite(denom) && denom > 0 ? (range / denom) : 0;
-        })(),
-        technicalResult.ema12 ?? 0,
-        technicalResult.emaTrend ?? 0,
-        String(technicalResult.kdj?.k ?? 'NA'),
-        String(technicalResult.kdj?.d ?? 'NA'),
-        String(technicalResult.williams ?? 'NA')
-      );
-
-      // 4) ML 分析
-      let mlResult: MLAnalysisResult | null = null;
-      if (config.strategy.useMLAnalysis && this.historicalData.length >= 20) {
+      // 惰性初始化 Kronos 客户端：允许运行时启用
+      if (useKronos && !this.kronos) {
         try {
-          mlResult = await this.mlAnalyzer.analyze(
-            marketData,
-            technicalResult,
-            this.historicalData
-          );
-          logger.debug('ML | prediction=%s conf=%.2f', mlResult?.prediction ?? 'NA', mlResult?.confidence ?? 0);
-        } catch (error) {
-          console.warn('ML analysis failed, using technical analysis only:', error);
+          this.kronos = new KronosClient();
+        } catch (e) {
+          console.warn('Kronos client lazy initialization failed:', e);
+          this.kronos = null;
+        }
+      }
+      if (useKronos && this.kronos) {
+        try {
+          const interval = String((config as any)?.strategy?.kronos?.interval || (config as any)?.strategy?.primaryInterval || '1H');
+          // 将本地K线转换为OHLCV数组，确保已收盘顺序且裁剪长度
+          const ohlcv = (this.technicalAnalyzer as any)?.klineData
+            ? (this.technicalAnalyzer as any).klineData.map((k: any) => [k.timestamp, k.open, k.high, k.low, k.close, k.volume])
+            : klineData.map((k: any) => [k.timestamp, Number(k.open), Number(k.high), Number(k.low), Number(k.close), Number(k.volume)]);
+          kronosScore = await this.kronos.forecast({
+            symbol: marketData.symbol || 'ETH-USDT-SWAP',
+            interval,
+            ohlcv
+          });
+          this.lastKronos = kronosScore;
+        } catch (e) {
+          console.warn('Kronos forecast failed:', e);
+          kronosScore = null;
         }
       }
 
-      // 5) 市场状态分析
-      const marketCondition = this.analyzeMarketCondition(marketData, technicalResult);
-      logger.debug('Market | trend=%s strength=%.1f vol=%s phase=%s', marketCondition.trend, marketCondition.strength, marketCondition.volatility, marketCondition.phase);
+       // 3) 计算技术指标
+       const technicalResult = this.technicalAnalyzer.calculateAllIndicators();
+       if (!technicalResult) {
+         logger.debug('TechnicalResult unavailable, using fallback');
+         return this.getFallbackSignal(marketData);
+       }
+       logger.debug(
+         'Indicators | rsi=%.2f macd.hist=%.4f bollPos~=%.2f bw~=%.4f ema12=%.2f emaTrend=%.2f k=%s d=%s williams=%s',
+         technicalResult.rsi,
+         technicalResult.macd?.histogram ?? 0,
+         (() => {
+           const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
+           const price = Number.isFinite(marketData.price) ? marketData.price : technicalResult.bollinger.middle;
+           return range > 0 ? ((price - technicalResult.bollinger.lower) / range) : 0.5;
+         })(),
+         (() => {
+           const mid = technicalResult.bollinger.middle;
+           const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
+           const denom = Number.isFinite(mid) && mid > 0 ? mid : (Number.isFinite(marketData.price) && marketData.price > 0 ? marketData.price : NaN);
+           return Number.isFinite(range) && Number.isFinite(denom) && denom > 0 ? (range / denom) : 0;
+         })(),
+         technicalResult.ema12 ?? 0,
+         technicalResult.emaTrend ?? 0,
+         String(technicalResult.kdj?.k ?? 'NA'),
+         String(technicalResult.kdj?.d ?? 'NA'),
+         String(technicalResult.williams ?? 'NA')
+       );
 
-      // 6) 多因子合成
-      const smartSignal = this.combineSignals(
-        technicalResult,
-        mlResult,
-        marketData,
-        marketCondition
-      );
-      logger.debug('Combine | tech=%.1f ml=%.1f combined=%.1f signal=%s', smartSignal.strength.technical, smartSignal.strength.ml, smartSignal.strength.combined, smartSignal.signal);
+       // 4) ML 分析
+       let mlResult: MLAnalysisResult | null = null;
+       if (config.strategy.useMLAnalysis && this.historicalData.length >= 20) {
+         try {
+           mlResult = await this.mlAnalyzer.analyze(
+             marketData,
+             technicalResult,
+             this.historicalData
+           );
+           logger.debug('ML | prediction=%s conf=%.2f', mlResult?.prediction ?? 'NA', mlResult?.confidence ?? 0);
+         } catch (error) {
+           console.warn('ML analysis failed, using technical analysis only:', error);
+         }
+       }
 
-      // 7) 风险管理调整
-      const finalSignal = this.applyRiskManagement(smartSignal, marketData, marketCondition);
-      logger.debug('Final | signal=%s conf=%.2f posSize=%.2f tf=%s meta={trend:%s(%.1f), vol=%.2f, bollPos=%.2f, bw=%.4f}',
-        finalSignal.signal,
-        finalSignal.strength.confidence,
-        finalSignal.positionSize,
-        finalSignal.timeframe,
-        finalSignal.metadata.trendDirection ?? 'NA',
-        finalSignal.metadata.trendStrength ?? 0,
-        finalSignal.metadata.volatility ?? 0,
-        finalSignal.metadata.bollingerPosition ?? 0.5,
-        finalSignal.metadata.bollingerBandwidth ?? 0
-      );
+       // 5) 市场状态分析
+       const marketCondition = this.analyzeMarketCondition(marketData, technicalResult);
+       logger.debug('Market | trend=%s strength=%.1f vol=%s phase=%s', marketCondition.trend, marketCondition.strength, marketCondition.volatility, marketCondition.phase);
 
-      // 7.1) 记录训练样本
-      try {
-        await this.logMLSample(marketData, technicalResult, mlResult, finalSignal);
-      } catch (e) {
-        console.warn('Log ML sample failed:', e);
-      }
+       // 6) 多因子合成
+       const smartSignal = this.combineSignals(
+         technicalResult,
+         mlResult,
+         marketData,
+         marketCondition,
+         kronosScore // 将Kronos结果作为参数传递
+       );
+       logger.debug('Combine | tech=%.1f ml=%.1f combined=%.1f signal=%s', smartSignal.strength.technical, smartSignal.strength.ml, smartSignal.strength.combined, smartSignal.signal);
 
-      this.lastAnalysis = finalSignal;
-      return finalSignal;
+       // 7) 风险管理调整
+       const finalSignal = this.applyRiskManagement(smartSignal, marketData, marketCondition);
+       logger.debug('Final | signal=%s conf=%.2f posSize=%.2f tf=%s meta={trend:%s(%.1f), vol=%.2f, bollPos=%.2f, bw=%.4f}',
+         finalSignal.signal,
+         finalSignal.strength.confidence,
+         finalSignal.positionSize,
+         finalSignal.timeframe,
+         finalSignal.metadata.trendDirection ?? 'NA',
+         finalSignal.metadata.trendStrength ?? 0,
+         finalSignal.metadata.volatility ?? 0,
+         finalSignal.metadata.bollingerPosition ?? 0.5,
+         finalSignal.metadata.bollingerBandwidth ?? 0
+       );
 
-    } catch (error) {
-      console.error('Smart signal analysis failed:', error);
-      return this.getFallbackSignal(marketData);
-    }
-  }
+       // 7.1) 记录训练样本
+       try {
+         await this.logMLSample(marketData, technicalResult, mlResult, finalSignal);
+       } catch (e) {
+         console.warn('Log ML sample failed:', e);
+       }
 
-  // 更新历史数据
-  private updateHistoricalData(marketData: MarketData): void {
-    this.historicalData.push(marketData);
-    
-    // 仅保留最近 1000 条数据点，控制内存占用
-    if (this.historicalData.length > 1000) {
-      this.historicalData = this.historicalData.slice(-1000);
-    }
-  }
+       this.lastAnalysis = finalSignal;
+       return finalSignal;
 
-  // 分析市场状态（趋势/波动/成交量/阶段）
-  private analyzeMarketCondition(
-    marketData: MarketData,
-    technicalResult: TechnicalIndicatorResult
-  ): MarketCondition {
-    // 趋势分析
-    let trend: MarketCondition['trend'] = 'SIDEWAYS';
-    let trendStrength = 0;
+     } catch (error) {
+       console.error('Smart signal analysis failed:', error);
+       return this.getFallbackSignal(marketData);
+     }
+   }
 
-    // 基于 EMA 趋势线与价格、短期 EMA 判断趋势方向
-    if (technicalResult.emaTrend && technicalResult.ema12) {
-      if (marketData.price > technicalResult.emaTrend && technicalResult.ema12 > technicalResult.emaTrend) {
-        trend = 'UPTREND';
-        trendStrength = Math.min(((marketData.price - technicalResult.emaTrend) / technicalResult.emaTrend) * 100, 100);
-      } else if (marketData.price < technicalResult.emaTrend && technicalResult.ema12 < technicalResult.emaTrend) {
-        trend = 'DOWNTREND';
-        trendStrength = Math.min(((technicalResult.emaTrend - marketData.price) / technicalResult.emaTrend) * 100, 100);
-      }
-    }
-
-    // 波动性分析（24h 高低差占比）
-    const priceRange = marketData.high24h - marketData.low24h;
-    const volatilityRatio = priceRange / marketData.price;
-    let volatility: MarketCondition['volatility'] = 'MEDIUM';
-    
-    if (volatilityRatio > 0.05) volatility = 'HIGH';
-    else if (volatilityRatio < 0.02) volatility = 'LOW';
-
-    // 成交量分析（简单阈值；实际建议与历史均值比较）
-    let volume: MarketCondition['volume'] = 'MEDIUM';
-    if (marketData.volume > 1000000000) volume = 'HIGH';
-    else if (marketData.volume < 100000000) volume = 'LOW';
-
-    // 市场阶段分析
-    let phase: MarketCondition['phase'] = 'MARKUP';
-    if (technicalResult.rsi < 30 && trend === 'DOWNTREND') {
-      phase = 'ACCUMULATION';
-    } else if (technicalResult.rsi > 70 && trend === 'UPTREND') {
-      phase = 'DISTRIBUTION';
-    } else if (trend === 'DOWNTREND' && technicalResult.rsi > 50) {
-      phase = 'MARKDOWN';
-    }
-
-    return {
-      trend,
-      strength: trendStrength,
-      volatility,
-      volume,
-      phase
-    };
-  }
-
-  // 多因子合成信号
+   // 多因子合成信号
   private combineSignals(
     technicalResult: TechnicalIndicatorResult,
     mlResult: MLAnalysisResult | null,
     marketData: MarketData,
-    marketCondition: MarketCondition
+    marketCondition: MarketCondition,
+    kronos?: KronosForecast | null
   ): SmartSignalResult {
-    // 技术面强度
-    const technicalStrength = this.calculateTechnicalStrength(technicalResult);
-    
-    // ML 强度（无结果则视为中性 50）
-    const mlStrength = mlResult ? this.calculateMLStrength(mlResult) : 50;
-    
-    // 综合强度 = 技术面*权重 + ML*权重 + 市场状态*权重
-    const weights = config.strategy.multiFactorWeights;
-    let combinedStrength = (
-      technicalStrength * weights.technical +
-      mlStrength * weights.ml +
-      this.getMarketConditionScore(marketCondition) * weights.market
-    ) / (weights.technical + weights.ml + weights.market);
+     // 技术面强度
+     const technicalStrength = this.calculateTechnicalStrength(technicalResult);
+     
+     // ML 强度（无结果则视为中性 50）
+     const mlStrength = mlResult ? this.calculateMLStrength(mlResult) : 50;
+     
+     // Kronos 因子：将做多/做空分数映射为 [-100, 100] 的方向分值，并折算为 [0,100] 强度贡献
+     let kronosStrength = 50; // 中性
+     let kronosConfidence = 0.5;
+     if (kronos) {
+       const kcfg = (config as any)?.strategy?.kronos || {};
+       const longThr = Number(kcfg.longThreshold ?? 0.62);
+       const shortThr = Number(kcfg.shortThreshold ?? 0.62);
+       const minConf = Number(kcfg.minConfidence ?? 0.55);
+       const longS = Math.max(0, Math.min(1, Number(kronos.score_long)));
+       const shortS = Math.max(0, Math.min(1, Number(kronos.score_short)));
+       kronosConfidence = Math.max(0, Math.min(1, Number(kronos.confidence ?? 0.5)));
+       const directional = (longS - shortS); // [-1,1]
+       const strongDirectional = (longS >= longThr && directional > 0) || (shortS >= shortThr && directional < 0);
+       // 仅当方向显著且置信度不低于阈值时才赋予方向性强度，否则视为中性
+       kronosStrength = (strongDirectional && kronosConfidence >= minConf) ? (50 + directional * 50) : 50; // [0,100]
+     }
+     
+     // 综合强度 = 技术面*权重 + ML*权重 + 市场状态*权重
+     const weights = config.strategy.multiFactorWeights;
+     // 扩展：将 Kronos 作为 ML 权重的一部分进行融合（不改变外层权重结构），按阈值与置信度门控
+     const mlWithKronos = (() => {
+       const kcfg = (config as any)?.strategy?.kronos || {};
+       const alphaCap = Number.isFinite(kcfg.alphaMax) ? Math.max(0, Math.min(1, Number(kcfg.alphaMax))) : 0.6;
+       const kronosEnabled = !!kcfg.enabled;
+       if (!kronosEnabled || !kronos) return mlStrength;
+       const minConf = Number(kcfg.minConfidence ?? 0.55);
+       const longThr = Number(kcfg.longThreshold ?? 0.62);
+       const shortThr = Number(kcfg.shortThreshold ?? 0.62);
+       const l = Math.max(0, Math.min(1, Number(kronos.score_long)));
+       const s = Math.max(0, Math.min(1, Number(kronos.score_short)));
+       const dir = l - s; // [-1,1]
+       const strongDirectional = (l >= longThr && dir > 0) || (s >= shortThr && dir < 0);
+       const pass = (kronosConfidence >= minConf) && strongDirectional;
+       const alphaRaw = pass ? Math.max(0.2, Math.min(0.8, kronosConfidence)) : 0; // 置信度驱动的融合占比
+       const alpha = Math.min(alphaCap, alphaRaw); // 受 alphaMax 限制
+       const kStrength = pass ? (50 + dir * 50) : 50;
+       return mlStrength * (1 - alpha) + kStrength * alpha;
+     })();
+     
+     let combinedStrength = (
+       technicalStrength * weights.technical +
+       mlWithKronos * weights.ml +
+       this.getMarketConditionScore(marketCondition) * weights.market
+     ) / (weights.technical + weights.ml + weights.market);
 
-    // 如果存在离线模型：基于方向偏好微调综合强度
-    const offline = MLAnalyzer.getOfflineModel?.() || null;
-    if (offline && offline.thresholds) {
-      const thrLong = Number(offline.thresholds.long?.threshold);
-      const thrShort = Number(offline.thresholds.short?.threshold);
-      if (Number.isFinite(thrLong) && Number.isFinite(thrShort)) {
-        // 简化方向判定：结合 RSI 与 MACD
-        const directionalBias = (() => {
-          const rsi = technicalResult.rsi;
-          const macdHist = technicalResult.macd.histogram;
-          let bias = 0;
-          if (rsi <= config.indicators.rsi.oversold && macdHist > 0) bias += 1; // 偏多
-          if (rsi >= config.indicators.rsi.overbought && macdHist < 0) bias -= 1; // 偏空
-          return bias; // -1, 0, 1
-        })();
-        if (directionalBias > 0 && combinedStrength >= thrLong) {
-          // 偏多且已越过做多阈值，小幅上调综合强度以推动 BUY 侧
-          combinedStrength = Math.min(100, combinedStrength + 5);
-        } else if (directionalBias < 0 && combinedStrength >= thrShort) {
-          // 偏空且已越过做空阈值，小幅上调综合强度以推动 SELL 侧
-          combinedStrength = Math.min(100, combinedStrength + 5);
-        }
-      }
-    }
+     // Kronos 一致性过滤：当与技术面强方向背离、且置信度较高时，适度降权（动态幅度）
+     if (kronos) {
+       try {
+         const techDir = technicalStrength >= 55 ? 1 : technicalStrength <= 45 ? -1 : 0;
+         const kcfg = (config as any)?.strategy?.kronos || {};
+         const minConf = Number(kcfg.minConfidence ?? 0.55);
+         const longThr = Number(kcfg.longThreshold ?? 0.62);
+         const shortThr = Number(kcfg.shortThreshold ?? 0.62);
+         const l = Math.max(0, Math.min(1, Number(kronos.score_long)));
+         const s = Math.max(0, Math.min(1, Number(kronos.score_short)));
+         const dir = l - s; // [-1,1]
+         const kronosDir = dir >= 0 ? 1 : -1 as 1 | -1;
+         const strongDir = (l >= longThr && dir > 0) || (s >= shortThr && dir < 0);
+         const disagree = techDir !== 0 && strongDir && techDir !== kronosDir && (kronos.confidence ?? 0.5) >= minConf;
+         if (disagree) {
+           const conf = Math.max(0, Math.min(1, Number(kronos.confidence ?? 0.5)));
+           const mag = Math.abs(dir); // 0-1
+           const confNorm = minConf < 1 ? Math.max(0, (conf - minConf) / (1 - minConf)) : 0;
+           const penalty = Math.min(12, 6 + 8 * confNorm * mag);
+           combinedStrength = Math.max(0, combinedStrength - penalty);
+         }
+       } catch {}
+     }
 
-    // 确定最终信号
+     // 确定最终信号
     const signal = this.determineSignal(technicalResult, mlResult, combinedStrength);
-    
-    // 计算价格目标（目标/止损/止盈/风报比）
-    const priceTargets = this.calculatePriceTargets(
-      marketData,
-      signal,
-      technicalResult,
-      marketCondition
-    );
+     
+     // 计算价格目标（目标/止损/止盈/风报比）
+     const priceTargets = this.calculatePriceTargets(
+       marketData,
+       signal,
+       technicalResult,
+       marketCondition
+     );
 
-    // 计算建议仓位
-    const positionSize = this.calculatePositionSize(
-      signal,
+     // 计算建议仓位
+     const positionSize = this.calculatePositionSize(
+       signal,
       combinedStrength,
-      marketCondition,
-      mlResult?.confidence || 0.5
-    );
+       marketCondition,
+      Math.max(mlResult?.confidence || 0.5, kronosConfidence || 0.5)
+     );
 
-    return {
-      signal,
-      strength: {
-        technical: technicalStrength,
-        ml: mlStrength,
-        combined: combinedStrength,
-        confidence: mlResult?.confidence || this.calculateTechnicalConfidence(technicalResult)
-      },
-      targetPrice: priceTargets.target,
-      stopLoss: priceTargets.stopLoss,
-      takeProfit: priceTargets.takeProfit,
-      riskReward: priceTargets.riskReward,
-      positionSize,
-      timeframe: this.determineTimeframe(marketCondition),
-      reasoning: {
-        technical: this.generateTechnicalReasoning(technicalResult),
+     return {
+       signal,
+       strength: {
+         technical: technicalStrength,
+        ml: mlWithKronos,
+         combined: combinedStrength,
+        confidence: Math.max(
+          mlResult?.confidence || 0,
+          kronosConfidence || 0,
+          this.calculateTechnicalConfidence(technicalResult)
+        )
+       },
+       targetPrice: priceTargets.target,
+       stopLoss: priceTargets.stopLoss,
+       takeProfit: priceTargets.takeProfit,
+       riskReward: priceTargets.riskReward,
+       positionSize,
+       timeframe: this.determineTimeframe(marketCondition),
+       reasoning: {
+         technical: this.generateTechnicalReasoning(technicalResult),
         ml: mlResult?.reasoning || 'ML analysis unavailable',
-        risk: this.generateRiskReasoning(marketCondition, mlResult),
+         risk: this.generateRiskReasoning(marketCondition, mlResult),
         final: this.generateFinalReasoning(signal, combinedStrength, marketCondition)
-      },
-      metadata: {
-        timestamp: Date.now(),
-        marketCondition: this.getMarketConditionType(marketCondition),
-        volatility: marketCondition.volatility === 'HIGH' ? 0.8 : marketCondition.volatility === 'LOW' ? 0.2 : 0.5,
-        volume: marketCondition.volume,
-        momentum: this.getMomentumType(technicalResult),
-        // 新增：趋势方向与强度
-        trendDirection: marketCondition.trend === 'UPTREND' ? 'UP' : marketCondition.trend === 'DOWNTREND' ? 'DOWN' : 'SIDEWAYS',
-        trendStrength: marketCondition.strength,
-        // 新增：布林带位置/带宽（优先使用实时价格，带边界控制与有限值检查）
-        bollingerPosition: (() => {
-          const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
-          const price = Number.isFinite(marketData.price) ? marketData.price : technicalResult.bollinger.middle;
-          if (!(Number.isFinite(range) && range > 0 && Number.isFinite(price))) return 0.5;
-          const raw = (price - technicalResult.bollinger.lower) / range;
-          const clamped = Math.max(0, Math.min(1, raw));
-          return Number.isFinite(clamped) ? clamped : 0.5;
-        })(),
-        bollingerBandwidth: (() => {
-          const mid = technicalResult.bollinger.middle;
-          const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
-          const denom = Number.isFinite(mid) && mid > 0 ? mid : (Number.isFinite(marketData.price) && marketData.price > 0 ? marketData.price : NaN);
-          if (!(Number.isFinite(range) && range >= 0 && Number.isFinite(denom) && denom > 0)) return 0;
-          const bw = range / denom;
-          return Number.isFinite(bw) ? bw : 0;
-        })()
-      }
-    };
-  }
+       },
+       metadata: {
+         timestamp: Date.now(),
+         marketCondition: this.getMarketConditionType(marketCondition),
+         volatility: marketCondition.volatility === 'HIGH' ? 0.8 : marketCondition.volatility === 'LOW' ? 0.2 : 0.5,
+         volume: marketCondition.volume,
+         momentum: this.getMomentumType(technicalResult),
+         // 新增：趋势方向与强度
+         trendDirection: marketCondition.trend === 'UPTREND' ? 'UP' : marketCondition.trend === 'DOWNTREND' ? 'DOWN' : 'SIDEWAYS',
+         trendStrength: marketCondition.strength,
+         // 新增：布林带位置/带宽（优先使用实时价格，带边界控制与有限值检查）
+         bollingerPosition: (() => {
+           const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
+           const price = Number.isFinite(marketData.price) ? marketData.price : technicalResult.bollinger.middle;
+           return range > 0 ? ((price - technicalResult.bollinger.lower) / range) : 0.5;
+         })(),
+         bollingerBandwidth: (() => {
+           const mid = technicalResult.bollinger.middle;
+           const range = technicalResult.bollinger.upper - technicalResult.bollinger.lower;
+           const denom = Number.isFinite(mid) && mid > 0 ? mid : (Number.isFinite(marketData.price) && marketData.price > 0 ? marketData.price : NaN);
+           return Number.isFinite(range) && Number.isFinite(denom) && denom > 0 ? (range / denom) : 0;
+         })(),
+        // 在兜底结果中也附带最近一次 Kronos 诊断输出（如有）
+        kronos: ((config as any)?.strategy?.kronos?.enabled) ? (this.lastKronos || undefined) : undefined
+       }
+     };
+   }
 
-  // 计算技术指标强度
+  // 计算技术指标强度（带门控与开关）
   private calculateTechnicalStrength(indicators: TechnicalIndicatorResult): number {
     let score = 50; // 基础分数
+
+    // 振荡器开关
+    const osc = (config as any)?.strategy?.oscillators || {};
 
     // RSI 评分（使用配置阈值）
     const overbought = config.indicators.rsi.overbought;
@@ -387,19 +458,59 @@ export class SmartSignalAnalyzer {
       else if (position > 0.8) score -= 15; // 靠近上轨
     }
 
-    // KDJ 评分
-    if (indicators.kdj.k > indicators.kdj.d && indicators.kdj.k < 80) score += 10;
-    else if (indicators.kdj.k < indicators.kdj.d && indicators.kdj.k > 20) score -= 10;
+    // KDJ 评分（受开关控制，默认不加分）
+    if (osc.useKDJ) {
+      if (indicators.kdj.k > indicators.kdj.d && indicators.kdj.k < 80) score += 8;
+      else if (indicators.kdj.k < indicators.kdj.d && indicators.kdj.k > 20) score -= 8;
+    }
 
-    // 威廉指标评分
-    if (indicators.williams < -80) score += 10; // 超卖
-    else if (indicators.williams > -20) score -= 10; // 超买
+    // 威廉指标评分（受开关控制，默认不加分）
+    if (osc.useWilliams) {
+      if (indicators.williams < -80) score += 6; // 超卖
+      else if (indicators.williams > -20) score -= 6; // 超买
+    }
 
     // 新增：EMA 趋势评分（短期 EMA 相对趋势 EMA）
     if (typeof indicators.ema12 === 'number' && typeof indicators.emaTrend === 'number') {
       if (indicators.ema12 > indicators.emaTrend) score += 10; // 趋势向上
       else if (indicators.ema12 < indicators.emaTrend) score -= 10; // 趋势向下
     }
+
+    // 门控：ADX/量能/波动
+    try {
+      const gate = (config as any)?.strategy?.gating || {};
+      // ADX 门控：趋势类加分仅在 ADX 达标时生效；否则降低趋势加分的权重
+      if (gate.adx?.enabled) {
+        const adx = Number(indicators.adx ?? 0);
+        const adxMin = Number(gate.adx.min ?? (config as any)?.indicators?.adx?.strong ?? 25);
+        if (!Number.isFinite(adx) || adx < adxMin) {
+          // 撤销部分趋势类加分（EMA、布林位置）
+          score = 50 + (score - 50) * 0.6; // 降低偏移幅度
+        }
+      }
+      // 量能确认：OBV 斜率和量比不足，整体降权
+      if (gate.volume?.enabled) {
+        const obvSlope = Number(indicators.obv?.slope ?? 0);
+        const vr = Number(indicators.volume?.ratio ?? 1);
+        const slopeMin = Number(gate.volume.obvSlopeMin ?? 0);
+        const vrMin = Number(gate.volume.volumeRatioMin ?? 0.7);
+        if (obvSlope < slopeMin || vr < vrMin) {
+          score = 50 + (score - 50) * 0.7;
+        }
+      }
+      // 波动门控：ATR%过低或挤压时抑制入场倾向
+      if (gate.volatility?.enabled) {
+        const price = (typeof this.lastMarketPrice === 'number') ? this.lastMarketPrice : Number(indicators.bollinger?.middle ?? 0);
+        const atr = Number(indicators.atr ?? 0);
+        const atrPct = (Number.isFinite(price) && price > 0) ? (atr / price) : 0;
+        const atrMin = Number(gate.volatility.atrPctMin ?? 0.005);
+        const squeezeBlock = !!gate.volatility.squeezeBlock;
+        const inSqueeze = !!indicators.squeeze;
+        if ((atrPct > 0 && atrPct < atrMin) || (squeezeBlock && inSqueeze)) {
+          score = 50 + (score - 50) * 0.6;
+        }
+      }
+    } catch {}
 
     return Math.max(0, Math.min(100, score));
   }
@@ -418,6 +529,83 @@ export class SmartSignalAnalyzer {
     const confidenceAdjustment = (mlResult.confidence - 0.5) * 20;
     
     return Math.max(0, Math.min(100, baseScore + confidenceAdjustment));
+  }
+
+  // 新增：市场状态分析（趋势/强度/波动/成交量/阶段）
+  private analyzeMarketCondition(
+    marketData: MarketData,
+    technicalResult: TechnicalIndicatorResult
+  ): MarketCondition {
+    // 波动性：优先使用布林带带宽 (upper-lower)/middle，回退用 24h 高低波幅
+    const mid = Number(technicalResult.bollinger?.middle);
+    const upper = Number(technicalResult.bollinger?.upper);
+    const lower = Number(technicalResult.bollinger?.lower);
+    const bbRange = (Number.isFinite(upper) && Number.isFinite(lower)) ? (upper - lower) : 0;
+    let bandwidth = (Number.isFinite(bbRange) && bbRange > 0 && Number.isFinite(mid) && mid > 0)
+      ? (bbRange / mid)
+      : 0;
+
+    if (!Number.isFinite(bandwidth) || bandwidth <= 0) {
+      const price = Number(marketData.price);
+      const hi = Number(marketData.high24h);
+      const lo = Number(marketData.low24h);
+      const denom = Number.isFinite(price) && price > 0 ? price : (Number.isFinite(mid) && mid > 0 ? mid : 1);
+      if (Number.isFinite(hi) && Number.isFinite(lo) && denom > 0) {
+        bandwidth = (hi - lo) / denom;
+      } else {
+        bandwidth = 0;
+      }
+    }
+
+    let volatility: 'HIGH' | 'MEDIUM' | 'LOW';
+    if (bandwidth >= 0.08) volatility = 'HIGH';
+    else if (bandwidth >= 0.03) volatility = 'MEDIUM';
+    else volatility = 'LOW';
+
+    // 趋势方向：结合 EMA 与 MACD 直方图
+    const ema12 = Number(technicalResult.ema12);
+    const emaTrend = Number(technicalResult.emaTrend);
+    const macdHist = Number(technicalResult.macd?.histogram);
+
+    let trend: 'UPTREND' | 'DOWNTREND' | 'SIDEWAYS' = 'SIDEWAYS';
+    if (Number.isFinite(ema12) && Number.isFinite(emaTrend) && Number.isFinite(macdHist)) {
+      if (ema12 > emaTrend && macdHist > 0) trend = 'UPTREND';
+      else if (ema12 < emaTrend && macdHist < 0) trend = 'DOWNTREND';
+      else trend = 'SIDEWAYS';
+    }
+
+    // 趋势强度：EMA 偏离 + MACD 动量综合（0-100）
+    let strength = 50;
+    let emaStrength = 0;
+    if (Number.isFinite(ema12) && Number.isFinite(emaTrend) && Math.abs(emaTrend) > 1e-8) {
+      const ratio = Math.min(0.1, Math.abs((ema12 - emaTrend) / emaTrend)); // 截断 10%
+      emaStrength = (ratio / 0.1) * 60; // 占比 60 分
+    }
+    const macdAbs = Number.isFinite(macdHist) ? Math.min(Math.abs(macdHist), 0.005) : 0; // 截断
+    const macdStrength = (macdAbs / 0.005) * 40; // 占比 40 分
+    strength = Math.max(0, Math.min(100, emaStrength + macdStrength));
+
+    // 成交量强弱：与近期均量对比
+    let volume: 'HIGH' | 'MEDIUM' | 'LOW' = 'MEDIUM';
+    const recent = this.historicalData.slice(-60);
+    const vols = recent.map(d => Number(d.volume)).filter(v => Number.isFinite(v) && v > 0);
+    const curVol = Number(marketData.volume);
+    if (vols.length >= 10 && Number.isFinite(curVol)) {
+      const avg = vols.reduce((a, b) => a + b, 0) / vols.length;
+      if (avg > 0) {
+        if (curVol >= avg * 1.5) volume = 'HIGH';
+        else if (curVol <= avg * 0.6) volume = 'LOW';
+        else volume = 'MEDIUM';
+      }
+    }
+
+    // 市场阶段：结合趋势与波动性
+    let phase: MarketCondition['phase'] = 'ACCUMULATION';
+    if (trend === 'UPTREND') phase = 'MARKUP';
+    else if (trend === 'DOWNTREND') phase = 'MARKDOWN';
+    else phase = (volatility === 'HIGH') ? 'DISTRIBUTION' : 'ACCUMULATION';
+
+    return { trend, strength, volatility, volume, phase };
   }
 
   // 获取市场状态评分
@@ -572,20 +760,21 @@ export class SmartSignalAnalyzer {
     const bollingerPosition = bollingerRange > 0 ? (currentPrice - indicators.bollinger.lower) / bollingerRange : 0.5;
 
     // 多个指标同向时提高置信度
+    const osc = (config as any)?.strategy?.oscillators || {};
     const bullishSignals = [
       indicators.rsi < 30,
       indicators.macd.histogram > 0,
       bollingerPosition < 0.3,
-      indicators.kdj.k > indicators.kdj.d,
-      indicators.williams < -80
+      osc.useKDJ ? (indicators.kdj.k > indicators.kdj.d) : false,
+      osc.useWilliams ? (indicators.williams < -80) : false
     ].filter(Boolean).length;
 
     const bearishSignals = [
       indicators.rsi > 70,
       indicators.macd.histogram < 0,
       bollingerPosition > 0.7,
-      indicators.kdj.k < indicators.kdj.d,
-      indicators.williams > -20
+      osc.useKDJ ? (indicators.kdj.k < indicators.kdj.d) : false,
+      osc.useWilliams ? (indicators.williams > -20) : false
     ].filter(Boolean).length;
 
     const maxSignals = Math.max(bullishSignals, bearishSignals);
@@ -685,6 +874,7 @@ export class SmartSignalAnalyzer {
 
   // 兜底信号
   private getFallbackSignal(marketData: MarketData): SmartSignalResult {
+    const useKronos = !!((config as any)?.strategy?.kronos?.enabled);
     return {
       signal: 'HOLD',
       strength: {
@@ -710,10 +900,12 @@ export class SmartSignalAnalyzer {
         marketCondition: 'RANGING',
         volatility: 0.5,
         volume: 'MEDIUM',
-        momentum: 'NEUTRAL'
-      }
-    };
-  }
+        momentum: 'NEUTRAL',
+        // 在兜底结果中也附带最近一次 Kronos 诊断输出（如有）
+        kronos: ((config as any)?.strategy?.kronos?.enabled) ? (this.lastKronos || undefined) : undefined
+       }
+     };
+   }
 
   // 获取最近的分析结果
   getLastAnalysis(): SmartSignalResult | null {

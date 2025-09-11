@@ -184,7 +184,7 @@ export const config = {
             allowHighVolatilityEntries: (process.env.ALLOW_HIGH_VOL || 'false') === 'true'
         },
         // 新增：允许在已有持仓/推荐时生成反向推荐
-        allowOppositeWhileOpen: (process.env.ALLOW_OPPOSITE_WHILE_OPEN || 'true') === 'true',
+        allowOppositeWhileOpen: (process.env.ALLOW_OPPOSITE_WHILE_OPEN || 'false') === 'true',
         // 新增：生成反向推荐的最低置信度阈值（默认0.70）
         oppositeMinConfidence: parseFloat(process.env.OPPOSITE_MIN_CONFIDENCE || '0.70'),
         // 新增：允许在风险评估为 HIGH 时仍自动出单（仅用于观测/调试）
@@ -192,7 +192,42 @@ export const config = {
         // 新增：自动推荐轮询间隔（毫秒），降低可更快出单
         autoRecommendationIntervalMs: parseInt(process.env.AUTO_RECO_INTERVAL_MS || '15000'),
         // 新增：策略信号冷却时间（毫秒），默认30分钟
-        signalCooldownMs: parseInt(process.env.SIGNAL_COOLDOWN_MS || '1800000')
+        signalCooldownMs: parseInt(process.env.SIGNAL_COOLDOWN_MS || '1800000'),
+        // 新增：振荡器开关（默认停用KDJ与Williams）
+        oscillators: {
+            useKDJ: (process.env.USE_KDJ || 'false') === 'true',
+            useWilliams: (process.env.USE_WILLIAMS || 'false') === 'true'
+        },
+        // 新增：门控参数（ADX/量能/波动）
+        gating: {
+            adx: {
+                enabled: (process.env.GATE_ADX_ENABLED || 'false') === 'true',
+                min: parseFloat(process.env.GATE_ADX_MIN || process.env.ADX_STRONG || '25')
+            },
+            volume: {
+                enabled: (process.env.GATE_VOLUME_ENABLED || 'false') === 'true',
+                obvSlopeMin: parseFloat(process.env.GATE_OBV_SLOPE_MIN || '0'),
+                volumeRatioMin: parseFloat(process.env.GATE_VOLUME_RATIO_MIN || '0.7')
+            },
+            volatility: {
+                enabled: (process.env.GATE_VOLATILITY_ENABLED || 'false') === 'true',
+                atrPctMin: parseFloat(process.env.GATE_ATR_PCT_MIN || '0.005'),
+                squeezeBlock: (process.env.GATE_SQUEEZE_BLOCK || 'true') === 'true'
+            }
+        },
+        // 新增：Kronos 模型集成配置
+        kronos: {
+            enabled: process.env.KRONOS_ENABLED === 'true',
+            baseUrl: process.env.KRONOS_BASE_URL || 'http://localhost:8001',
+            timeoutMs: Number(process.env.KRONOS_TIMEOUT_MS || 1200),
+            interval: process.env.KRONOS_INTERVAL || '1H',
+            lookback: Number(process.env.KRONOS_LOOKBACK || 480),
+            longThreshold: Number(process.env.KRONOS_LONG_THRESHOLD || 0.62),
+            shortThreshold: Number(process.env.KRONOS_SHORT_THRESHOLD || 0.62),
+            minConfidence: Number(process.env.KRONOS_MIN_CONFIDENCE || 0.55),
+            // 新增：融合占比上限（0-1），限制 Kronos 对ML通道的最大影响力
+            alphaMax: Number(process.env.KRONOS_ALPHA_MAX || 0.6)
+        }
     },
     
     // 机器学习配置（仅本地模型）

@@ -70,7 +70,7 @@ export class RecommendationIntegrationService extends EventEmitter {
           const position = payload?.position;
           if (!position?.positionId) return;
           const recInput = {
-            symbol: position.symbol || 'ETH-USDT',
+            symbol: position.symbol || config.trading.defaultSymbol,
             direction: position.side,
             entry_price: position.entryPrice,
             current_price: position.currentPrice || position.entryPrice,
@@ -111,7 +111,7 @@ export class RecommendationIntegrationService extends EventEmitter {
           console.warn('[Integration] updateTargetPrices on TP1 failed:', (e as any)?.message || String(e));
         }
       });
-+
+
       // TP2 命中 -> 止损抬到 TP1，止盈切到 TP3
       this.strategyEngine.on('position-tp2', async (payload: any) => {
         try {
@@ -308,8 +308,8 @@ export class RecommendationIntegrationService extends EventEmitter {
    */
   private async generateAutoRecommendation(): Promise<void> {
     try {
-      // 获取当前市场数据
-      const marketData = await this.priceMonitor.getMarketData('ETH-USDT');
+      // 获取当前市场数据（使用默认交易对）
+      const marketData = await this.priceMonitor.getMarketData(config.trading.defaultSymbol);
       if (!marketData) {
         console.log('No market data available for auto recommendation');
         return;
@@ -319,10 +319,9 @@ export class RecommendationIntegrationService extends EventEmitter {
       const strategyResult = await this.strategyEngine.analyzeMarket();
 
       // 读取配置：是否允许反向并存与最低置信度
-      const { config } = await import('../config');
-      const allowOpposite = (config as any)?.strategy?.allowOppositeWhileOpen === true;
-      const oppositeMinConf = Number((config as any)?.strategy?.oppositeMinConfidence ?? 0.7);
-      const allowAutoOnHighRisk = (config as any)?.strategy?.allowAutoOnHighRisk === true;
+      const allowOpposite = config.strategy?.allowOppositeWhileOpen === true;
+      const oppositeMinConf = Number(config.strategy?.oppositeMinConfidence ?? 0.7);
+      const allowAutoOnHighRisk = config.strategy?.allowAutoOnHighRisk === true;
 
       // 获取当前活跃推荐
       const active = this.tracker.getActiveRecommendations();
@@ -335,14 +334,14 @@ export class RecommendationIntegrationService extends EventEmitter {
 
       // 辅助：从 strategyResult 派生方向与置信度
       const deriveDirection = (): 'LONG' | 'SHORT' | null => {
-      const a = String(action || '').toUpperCase();
-      if (a === 'OPEN_LONG') return 'LONG';
-      if (a === 'OPEN_SHORT') return 'SHORT';
-      // fallback 从信号推导
-      const sig = String(strategyResult?.signal?.signal || '').toUpperCase();
-      if (sig === 'STRONG_BUY' || sig === 'BUY') return 'LONG';
-      if (sig === 'STRONG_SELL' || sig === 'SELL') return 'SHORT';
-      return null;
+        const a = String(action || '').toUpperCase();
+        if (a === 'OPEN_LONG') return 'LONG';
+        if (a === 'OPEN_SHORT') return 'SHORT';
+        // fallback 从信号推导
+        const sig = String(strategyResult?.signal?.signal || '').toUpperCase();
+        if (sig === 'STRONG_BUY' || sig === 'BUY') return 'LONG';
+        if (sig === 'STRONG_SELL' || sig === 'SELL') return 'SHORT';
+        return null;
       };
       const direction = deriveDirection();
       const confidence = Number(
@@ -372,8 +371,8 @@ export class RecommendationIntegrationService extends EventEmitter {
         }
         // 构造并创建推荐
         const recommendation = {
-          symbol: 'ETH-USDT',
-          direction: action === 'OPEN_LONG' ? 'LONG' : 'SHORT' as 'LONG' | 'SHORT',
+          symbol: config.trading.defaultSymbol,
+          direction: (action === 'OPEN_LONG' ? 'LONG' : 'SHORT') as 'LONG' | 'SHORT',
           entry_price: marketData.currentPrice,
           current_price: marketData.currentPrice,
           leverage: signal.leverage || 1,
@@ -403,7 +402,7 @@ export class RecommendationIntegrationService extends EventEmitter {
         const isOppositeToActive = (direction === 'LONG' && hasShort) || (direction === 'SHORT' && hasLong);
         if (isOppositeToActive && (signal.confidence ?? confidence) >= oppositeMinConf) {
           const recommendation = {
-            symbol: 'ETH-USDT',
+            symbol: config.trading.defaultSymbol,
             direction,
             entry_price: marketData.currentPrice,
             current_price: marketData.currentPrice,
@@ -479,46 +478,46 @@ export class RecommendationIntegrationService extends EventEmitter {
       // 适配新版结构：recommendation 为对象，使用 action 字段
       const action = strategyResult?.recommendation?.action as string | undefined;
       const deriveDirection = (): 'LONG' | 'SHORT' | null => {
-      const a = String(action || '').toUpperCase();
-      if (a === 'OPEN_LONG') return 'LONG';
-      if (a === 'OPEN_SHORT') return 'SHORT';
-      const sig = String(strategyResult?.signal?.signal || '').toUpperCase();
-      if (sig === 'STRONG_BUY' || sig === 'BUY') return 'LONG';
-      if (sig === 'STRONG_SELL' || sig === 'SELL') return 'SHORT';
-      return null;
+        const a = String(action || '').toUpperCase();
+        if (a === 'OPEN_LONG') return 'LONG';
+        if (a === 'OPEN_SHORT') return 'SHORT';
+        const sig = String(strategyResult?.signal?.signal || '').toUpperCase();
+        if (sig === 'STRONG_BUY' || sig === 'BUY') return 'LONG';
+        if (sig === 'STRONG_SELL' || sig === 'SELL') return 'SHORT';
+        return null;
       };
       const direction = deriveDirection();
       if (!direction) return;
-       
-       // 获取当前市场数据
-       const marketData = await this.priceMonitor.getMarketData('ETH-USDT');
-       if (!marketData) {
-         return;
-       }
-       
-       // 创建推荐记录
-       const recommendation = {
-         symbol: 'ETH-USDT',
-         direction,
-         entry_price: marketData.currentPrice,
-         current_price: marketData.currentPrice,
-         leverage: strategyResult.leverage || 1,
-         stop_loss: strategyResult.stopLoss,
-         take_profit: strategyResult.takeProfit,
-         strategy_type: strategyResult.strategyType || 'STRATEGY_ENGINE',
-         confidence: (strategyResult?.recommendation?.confidence ?? strategyResult?.signal?.strength?.confidence ?? 0.5) as number,
-         signal_strength: strategyResult.strength || 0.5,
-         source: 'STRATEGY_ENGINE',
-         is_strategy_generated: true,
-         exclude_from_ml: false
-       };
-       
-       await this.createRecommendation(recommendation);
-       
-     } catch (error) {
-       console.error('Error handling strategy recommendation:', error);
-     }
-   }
+      
+      // 获取当前市场数据（使用默认交易对）
+      const marketData = await this.priceMonitor.getMarketData(config.trading.defaultSymbol);
+      if (!marketData) {
+        return;
+      }
+      
+      // 创建推荐记录
+      const recommendation = {
+        symbol: config.trading.defaultSymbol,
+        direction,
+        entry_price: marketData.currentPrice,
+        current_price: marketData.currentPrice,
+        leverage: strategyResult.leverage || 1,
+        stop_loss: strategyResult.stopLoss,
+        take_profit: strategyResult.takeProfit,
+        strategy_type: strategyResult.strategyType || 'STRATEGY_ENGINE',
+        confidence: (strategyResult?.recommendation?.confidence ?? strategyResult?.signal?.strength?.confidence ?? 0.5) as number,
+        signal_strength: strategyResult.strength || 0.5,
+        source: 'STRATEGY_ENGINE',
+        is_strategy_generated: true,
+        exclude_from_ml: false
+      };
+      
+      await this.createRecommendation(recommendation);
+      
+    } catch (error) {
+      console.error('Error handling strategy recommendation:', error);
+    }
+  }
   
   /**
    * 处理交易信号
@@ -529,15 +528,15 @@ export class RecommendationIntegrationService extends EventEmitter {
         return;
       }
       
-      // 获取当前市场数据
-      const marketData = await this.priceMonitor.getMarketData('ETH-USDT');
+      // 获取当前市场数据（使用默认交易对）
+      const marketData = await this.priceMonitor.getMarketData(config.trading.defaultSymbol);
       if (!marketData) {
         return;
       }
       
       // 创建推荐记录
       const recommendation = {
-        symbol: 'ETH-USDT',
+        symbol: config.trading.defaultSymbol,
         direction: signal.action as 'LONG' | 'SHORT',
         entry_price: marketData.currentPrice,
         current_price: marketData.currentPrice,
@@ -553,7 +552,6 @@ export class RecommendationIntegrationService extends EventEmitter {
       };
       
       await this.createRecommendation(recommendation);
-      
     } catch (error) {
       console.error('Error handling trading signal:', error);
     }
