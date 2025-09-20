@@ -110,3 +110,9 @@ test-*.cjs
 /data/recommendations.db-wal
 /data/backups/
 
+
+# Ignore secrets and temp keys
+/_ssh_keys/
+/_ssh_tmp/
+/OKX_API.txt
+
