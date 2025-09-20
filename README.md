@@ -55,19 +55,19 @@
 
 ```mermaid
 flowchart TD
-    A[策略/分析层\n(多因子+ML)] --> B[集成服务\nrecommendation-integration-service]
-    B --> C[(SQLite: data/recommendations.db)]
-    B --> D[跟踪器\nrecommendation-tracker]
-    D --> E[ACTIVE\n进行中]
-    E -->|成交/止盈/止损| F[CLOSED\n已平仓]
-    F --> G[统计/报表\n胜率/平均收益/年化/Sharpe]
-    F --> H[样本回灌\n标签回填]
-    H --> I[模型训练/评估]
-    I --> A
-    P[PENDING\n瞬时态] -.合并到-> E
-    X[EXPIRED\n仅徽标] -.不参与过滤/统计.-> G
-    D --> J[API/前端\n筛选: 全部/进行中/已平仓]
-    J -.进行中=ACTIVE+PENDING.-> K[用户视图]
+  A[策略/分析层 (多因子+ML)] --> B[集成服务]
+  B --> C[(SQLite recommendations.db)]
+  B --> D[跟踪器]
+  D --> E[ACTIVE 进行中]
+  E -->|成交/止盈/止损| F[CLOSED 已平仓]
+  F --> G[统计报表 胜率/平均收益/年化/Sharpe]
+  F --> H[样本回灌 标签回填]
+  H --> I[模型训练与评估]
+  I --> A
+  P[PENDING 瞬时态] -.合并到.-> E
+  X[EXPIRED 仅徽标] -.不参与过滤统计.-> G
+  D --> J[API/前端 筛选 全部/进行中/已平仓]
+  J -.进行中=ACTIVE+PENDING.-> K[用户视图]
 ```
 
 
@@ -575,17 +575,17 @@ flowchart LR
   end
 
   subgraph NodeApp[ETH Strategy App]
-    WS[Web Server\n(Express + Socket.IO)]
-    API[Recommendation API\n(REST)]
-    STRAT[Strategy Engine\n(1H · ETH)]
+    WS[Web Server Express + SocketIO]
+    API[Recommendation API REST]
+    STRAT[Strategy Engine 1H ETH]
     DS[Enhanced OKX Data Service]
-    ML[ML Analyzer\n(+ Kronos 可选)]
+    ML[ML Analyzer Kronos 可选]
     RISK[Risk Management]
     TRACK[Recommendation Tracker]
-    DB[(SQLite\nrecommendations.db)]
+    DB[(SQLite recommendations.db)]
   end
 
-  UI <-->|HTTP :3001| WS
+  UI <-->|HTTP 3001| WS
   WS --- API
   WS --- STRAT
   API --- TRACK
