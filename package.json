@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "tsx src/index.ts",
+    "start": "npm run start:playback",
     "start:best": "cross-env CONFIG_PLAYBACK_PATH=./config-best.json tsx src/index.ts",
     "analyze": "tsx src/strategy-analyzer.ts",
     "backtest": "tsx src/backtest.ts",
