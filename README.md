@@ -575,14 +575,14 @@ flowchart LR
   end
 
   subgraph NodeApp[ETH Strategy App]
-    WS[Web Server Express + SocketIO]
+    WS[Web Server Express and SocketIO]
     API[Recommendation API REST]
     STRAT[Strategy Engine 1H ETH]
     DS[Enhanced OKX Data Service]
     ML[ML Analyzer Kronos 可选]
     RISK[Risk Management]
     TRACK[Recommendation Tracker]
-    DB[(SQLite recommendations.db)]
+    DB[(SQLite recommendations db)]
   end
 
   UI <-->|HTTP 3001| WS
@@ -596,7 +596,7 @@ flowchart LR
 
   subgraph External
     OKX[OKX API]
-    KRONOS[Kronos Inference Service (optional)]
+    KRONOS[Kronos Inference Service optional]
   end
 
   DS -->|HTTPS| OKX
