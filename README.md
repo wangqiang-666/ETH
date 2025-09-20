@@ -4,6 +4,19 @@
 
 系统主要提供：围绕 ETH 合约在 1 小时周期（1H）上的高胜率策略与交易信号输出，支持双向（做多/做空）操作。
 
+## 目录
+- [功能特性](#功能特性)
+- [系统核心逻辑（从信号到闭环）](#系统核心逻辑从信号到闭环)
+- [快速开始](#快速开始)
+- [使用指南](#使用指南)
+- [API接口](#api接口)
+- [配置说明](#配置说明)
+- [开发指南](#开发指南)
+- [注意事项](#注意事项)
+- [免责声明](#免责声明)
+- [系统结构与运行步骤总览](#系统结构与运行步骤总览)
+- [组件与部署拓扑（对外简图）](#组件与部署拓扑对外简图)
+
 ## 功能特性
 
 ### 🧠 机器学习分析
@@ -444,3 +457,151 @@ else {
 ---
 
 小结：Kronos 以“辅助信号/风控因子”的方式融入 1H ETH 策略，保持工程解耦（独立推理服务）、上线可控（特性开关+灰度+超时降级），并通过严谨的回测与观测确保其带来稳定而可度量的增益。
+
+---
+
+## 系统结构与运行步骤总览
+
+本节对系统的整体架构与运行步骤做一体化梳理，帮助快速理解各模块职责与数据流向。
+
+### 1) 核心模块与职责
+- Web Server 与路由
+  - 提供 REST API、WebSocket 推送、静态页面与回测页面。
+  - 代码：<mcfile name="web-server.ts" path="src/server/web-server.ts"></mcfile>
+- 数据服务（增强版 OKX）
+  - 负责行情抓取、缓存、降级与熔断、网络性能监控与错误恢复。
+  - 代码：<mcfile name="enhanced-okx-data-service.ts" path="src/services/enhanced-okx-data-service.ts"></mcfile>
+- 策略引擎（ETH 1H）
+  - 聚合多因子与 ML 分析，生成候选信号与风控建议。
+  - 代码：<mcfile name="eth-strategy-engine.ts" path="src/strategy/eth-strategy-engine.ts"></mcfile>
+- 交易信号服务
+  - 整理对外可读的“建议/价格/止损止盈/倍率”等输出结构。
+  - 代码：<mcfile name="trading-signal-service.ts" path="src/services/trading-signal-service.ts"></mcfile>
+- 推荐系统（集成 + 跟踪 + 数据库 + 统计）
+  - 集成服务统一调度推荐生命周期，对外提供 API；跟踪器维护状态流转；统计器产出胜率/回撤等口径。
+  - 代码：
+    - 集成：<mcfile name="recommendation-integration-service.ts" path="src/services/recommendation-integration-service.ts"></mcfile>
+    - 跟踪：<mcfile name="recommendation-tracker.ts" path="src/services/recommendation-tracker.ts"></mcfile>
+    - API：<mcfile name="recommendation-api.ts" path="src/api/recommendation-api.ts"></mcfile>
+    - 数据库：<mcfile name="recommendation-database.ts" path="src/services/recommendation-database.ts"></mcfile>
+- 机器学习分析
+  - 结合技术指标与扩展模型（如 Kronos）进行一致性过滤与置信度评估。
+  - 代码：<mcfile name="ml-analyzer.ts" path="src/ml/ml-analyzer.ts"></mcfile>
+- 应用入口
+  - 负责加载配置、初始化核心模块、启动 Web 与后台任务。
+  - 代码：<mcfile name="app.ts" path="src/app.ts"></mcfile>
+
+### 2) 运行流程（详细步骤）
+1. 启动阶段
+   - 读取配置（环境变量/.env → <mcfile name="config.ts" path="src/config.ts"></mcfile>）。
+   - 初始化增强数据服务（HTTP 客户端、缓存、性能与错误恢复、备用端点）。
+   - 预热关键缓存/连通性检查（如 `getTicker`/K线拉取与校验）。
+   - 启动 Web Server：挂载 REST 路由、WebSocket、静态资源，监听 `WEB_PORT`（默认 3000；示例运行在 3001）。
+2. 策略工作循环
+   - 定时（或事件驱动）从数据服务获取最新已收盘 K 线与行情聚合。
+   - 多因子与技术指标分析（RSI/MACD/布林/KDJ 等）。
+   - ML/增强模型融合（可选 Kronos），得到多空倾向与置信度。
+   - 风险管理约束收敛（回撤/日损/仓位/杠杆/一致性校验）。
+   - 生成候选推荐（LONG/SHORT/观望 + 价格/止损止盈/倍率建议）。
+3. 推荐写入与生命周期
+   - 通过集成服务写入推荐记录并触发跟踪器接管。
+   - 跟踪器订阅价格与事件，推进状态：`ACTIVE → CLOSED`；历史兼容态 `PENDING/EXPIRED` 已统一入口口径。
+   - 闭环事件（成交/止盈/止损/超时）写回数据库，更新统计。
+   - 通过 WebSocket 推送更新到前端视图。
+4. API 与前端
+   - REST：/api/recommendations, /api/strategy/*, /api/indicators, /api/stats 等。
+   - 页面：/（首页仪表板），/backtest（回测页）。
+5. 观测与韧性
+   - 数据服务提供性能、错误与缓存统计；发生网络异常时进行重试、降级与熔断。
+   - 指标计算与跨源交叉校验，确保数据真实可靠。
+
+### 3) 运行时序图（Mermaid）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Browser as Browser/UI
+    participant Web as Web Server
+    participant API as Recommendation API
+    participant Strat as Strategy Engine
+    participant DS as Enhanced OKX Data Service
+    participant DB as Recommendation DB
+
+    Browser->>Web: 访问 / 与 /api/status
+    Web-->>Browser: 返回静态页 + 就绪状态
+
+    loop 周期性/事件触发
+      Strat->>DS: 拉取行情/K线（带缓存/降级/熔断）
+      DS-->>Strat: 已收盘K线 + 聚合行情
+      Strat->>Strat: 多因子/ML 融合 + 风控约束
+      Strat->>API: 生成推荐（LONG/SHORT/观望）
+      API->>DB: 写入推荐记录
+      API-->>Web: 通过WS广播 recommendation-created
+    end
+
+    par 跟踪与闭环
+      API->>API: 跟踪器订阅价格/事件推进状态
+      API->>DB: ACTIVE → CLOSED（写入盈亏/标签）
+      API-->>Web: 通过WS广播 recommendation-result
+    and 统计
+      API->>DB: 读取闭环样本
+      API-->>Web: 输出胜率/回撤/年化等指标
+    end
+```
+
+### 4) 端口与健康检查（运维）
+- 端口
+  - 运行端口由 `WEB_PORT` 控制（示例当前为 3001）。
+- 健康检查
+  - `GET /api/status`：进程/内存/缓存/网络与数据校验快照。
+  - `GET /api/config`：当前有效配置快照（含 webServer.port 等）。
+
+### 5) 蓝绿发布与安全切换（建议流程）
+1. 在“新端口”启动无回放、未禁用外部行情的实例（如 3001）。
+2. 健康检查新实例 `/api/status` 与 `/api/config`，确认数据/风控/路由正常。
+3. 如需迁回“原端口”（如 3031），优雅停止旧实例后在原端口复用同一配置启动。
+4. 故障回退：保留旧实例一段时间作为回退点，必要时切换 DNS/端口回滚。
+
+注：以上步骤已在本地演示过一次蓝绿切换，新实例监听 3001，原 3031 未在运行，避免端口冲突；可按需迁回。
+
+---
+
+## 组件与部署拓扑（对外简图）
+
+```mermaid
+flowchart LR
+  subgraph Client
+    UI[Browser / Dashboard]
+  end
+
+  subgraph NodeApp[ETH Strategy App]
+    WS[Web Server\n(Express + Socket.IO)]
+    API[Recommendation API\n(REST)]
+    STRAT[Strategy Engine\n(1H · ETH)]
+    DS[Enhanced OKX Data Service]
+    ML[ML Analyzer\n(+ Kronos 可选)]
+    RISK[Risk Management]
+    TRACK[Recommendation Tracker]
+    DB[(SQLite\nrecommendations.db)]
+  end
+
+  UI <-->|HTTP :3001| WS
+  WS --- API
+  WS --- STRAT
+  API --- TRACK
+  TRACK --- DB
+  STRAT --- DS
+  STRAT --- ML
+  STRAT --- RISK
+
+  subgraph External
+    OKX[OKX API]
+    KRONOS[Kronos Inference Service\n(optional)]
+  end
+
+  DS -->|HTTPS| OKX
+  ML -->|HTTP| KRONOS
+```
+
+- 运行端口：由 `WEB_PORT` 控制（示例为 3001）。
+- 数据流：UI 通过 Web/REST 访问；策略引擎向数据服务与 ML 推理请求；推荐 API 写入 SQLite 并由跟踪器闭环；WebSocket 推送状态到前端。

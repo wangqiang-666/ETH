@@ -220,6 +220,15 @@ export class RiskManagementService {
     // 计算止损止盈价格
     const { stopLossPrice, takeProfitPrice } = this.calculateStopLevels(signal, marketData);
 
+    // 基于最终 SL/TP 计算风险收益比（价格差），若异常则退回信号提供的值
+    const px = Number(marketData?.price ?? 0);
+    let rr = Number(signal.riskReward ?? 0);
+    if (Number.isFinite(px) && px > 0 && Number.isFinite(stopLossPrice) && Number.isFinite(takeProfitPrice)) {
+      const risk = Math.abs(px - stopLossPrice);
+      const reward = Math.abs(takeProfitPrice - px);
+      if (risk > 0) rr = reward / risk;
+    }
+
     return {
       riskScore: Math.max(1, Math.min(10, riskScore)),
       riskLevel,
@@ -229,7 +238,7 @@ export class RiskManagementService {
       recommendedLeverage,
       stopLossPrice,
       takeProfitPrice,
-      riskRewardRatio: signal.riskReward
+      riskRewardRatio: Math.max(0, rr)
     };
   }
 
@@ -424,8 +433,54 @@ export class RiskManagementService {
     
     let stopLossPrice = signal.stopLoss;
     let takeProfitPrice = signal.takeProfit;
+
+    // 可选：ATR 驱动的 SL/TP（优先在信号基础上放宽/延展，不会收紧）
+    const atrCfg = ((config as any).strategy?.atrStops) || {};
+    try {
+      if (atrCfg.enabled === true && Number.isFinite(currentPrice) && currentPrice > 0) {
+        // 1) 获取 ATR 绝对值或近似（优先指标，其次 24h 高低价差）
+        let atrAbs = 0;
+        if (atrCfg.source === 'indicators') {
+          const fromMd = Number((marketData as any)?.atr);
+          const fromSig = Number((signal?.metadata as any)?.indicators?.atr ?? (signal?.metadata as any)?.atr);
+          atrAbs = Number.isFinite(fromMd) && fromMd > 0 ? fromMd : (Number.isFinite(fromSig) && fromSig > 0 ? fromSig : 0);
+        }
+        if (!Number.isFinite(atrAbs) || atrAbs <= 0) {
+          const hi = Number((marketData as any)?.high24h);
+          const lo = Number((marketData as any)?.low24h);
+          if (Number.isFinite(hi) && Number.isFinite(lo)) atrAbs = Math.max(0, hi - lo);
+        }
+
+        // 2) 计算 ATR 百分比并钳制
+        let atrPct = 0;
+        if (Number.isFinite(atrAbs) && atrAbs > 0) {
+          atrPct = atrAbs / currentPrice;
+        }
+        const minPct = Number(atrCfg.minAtrPct ?? 0.005);
+        const capPct = Number(atrCfg.capAtrPct ?? 0.2);
+        atrPct = Math.max(minPct, Math.min(capPct, atrPct));
+
+        const baseDist = currentPrice * atrPct; // 价格绝对距离
+        const slMult = Number(atrCfg.slMultiplier ?? 1.5);
+        const tpMult = Number(atrCfg.tpMultiplier ?? 2.2);
+
+        if (isLong) {
+          const slAtr = currentPrice - slMult * baseDist;
+          const tpAtr = currentPrice + tpMult * baseDist;
+          if (Number.isFinite(slAtr)) stopLossPrice = Math.min(stopLossPrice, slAtr);
+          if (Number.isFinite(tpAtr)) takeProfitPrice = Math.max(takeProfitPrice, tpAtr);
+        } else {
+          const slAtr = currentPrice + slMult * baseDist;
+          const tpAtr = currentPrice - tpMult * baseDist;
+          if (Number.isFinite(slAtr)) stopLossPrice = Math.max(stopLossPrice, slAtr);
+          if (Number.isFinite(tpAtr)) takeProfitPrice = Math.min(takeProfitPrice, tpAtr);
+        }
+      }
+    } catch {
+      // 忽略 ATR 计算异常，继续使用默认百分比校验
+    }
     
-    // 确保止损止盈符合风险管理要求
+    // 确保止损止盈符合风险管理要求（最小距离保障）
     const minStopLoss = isLong 
       ? currentPrice * (1 - this.riskConfig.stopLossPercent)
       : currentPrice * (1 + this.riskConfig.stopLossPercent);

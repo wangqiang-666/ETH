@@ -187,7 +187,7 @@ export class PriceMonitor {
     const priceChangePercent = (priceChange / rec.entry_price) * 100;
     
     // 考虑方向和杠杆
-    let pnlPercent = priceChangePercent * rec.leverage;
+    let pnlPercent = priceChangePercent * (rec.leverage ?? 1);
     
     if (rec.direction === 'SHORT') {
       pnlPercent = -pnlPercent;
@@ -283,7 +283,7 @@ export class PriceMonitor {
         for (const rec of recs) {
           results.set(rec.id, {
             triggered: false,
-            currentPrice: rec.current_price, // 使用上次价格
+            currentPrice: rec.current_price ?? rec.entry_price ?? 0, // 使用上次价格，若无则回退到入场价/0，保证为 number
             pnlPercent: 0
           });
         }

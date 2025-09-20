@@ -5,6 +5,7 @@ import { recommendationDatabase } from '../services/recommendation-database';
 import type { MLSampleRecord } from '../services/recommendation-database';
 import { logger } from '../utils/logger';
 import { KronosClient, KronosForecast } from '../ml/kronos-client';
+import { enhancedOKXDataService } from '../services/enhanced-okx-data-service';
 
 // 智能交易信号类型
 export type SmartSignalType = 'STRONG_BUY' | 'BUY' | 'HOLD' | 'SELL' | 'STRONG_SELL';
@@ -47,6 +48,15 @@ export interface SmartSignalResult {
     bollingerBandwidth?: number; // (上轨-下轨)/中轨
     // 新增：Kronos 最近一次原始输出（诊断用途）
     kronos?: KronosForecast;
+    // 新增：标准化的市场状态对象（用于统一前后端）
+    marketState?: MarketCondition;
+    // 新增：多时间框一致性度量
+    multiTFConsistency?: {
+      agreement: number; // 0-1 方向一致性
+      score: number;     // 0-100 综合一致性评分
+      dominantDirection: 'UP' | 'DOWN' | 'SIDEWAYS';
+      byTimeframe: Record<string, { direction: 'UP' | 'DOWN' | 'SIDEWAYS'; strength: number; confidence: number }>;
+    };
   };
 }
 
@@ -231,6 +241,14 @@ export class SmartSignalAnalyzer {
        const marketCondition = this.analyzeMarketCondition(marketData, technicalResult);
        logger.debug('Market | trend=%s strength=%.1f vol=%s phase=%s', marketCondition.trend, marketCondition.strength, marketCondition.volatility, marketCondition.phase);
 
+       // 5.5) 计算多时间框一致性（异步、容错、轻量）
+       let mtfConsistency: SmartSignalResult['metadata']['multiTFConsistency'] | undefined;
+       try {
+         mtfConsistency = await this.computeMultiTFConsistency(marketData.symbol || config.trading.defaultSymbol);
+       } catch (e) {
+         logger.debug('MTF consistency compute failed: %s', (e as Error)?.message || String(e));
+       }
+
        // 6) 多因子合成
        const smartSignal = this.combineSignals(
          technicalResult,
@@ -243,6 +261,22 @@ export class SmartSignalAnalyzer {
 
        // 7) 风险管理调整
        const finalSignal = this.applyRiskManagement(smartSignal, marketData, marketCondition);
+       // 将标准化市场状态与多TF一致性附加到 metadata
+       finalSignal.metadata.marketState = marketCondition;
+       if (mtfConsistency) {
+         finalSignal.metadata.multiTFConsistency = mtfConsistency;
+         // 基于一致性进行轻微风险调节（不改变信号，仅微调仓位与强度）
+         try {
+           const agree = Math.max(0, Math.min(1, mtfConsistency.agreement));
+           if (agree < 0.35) {
+             finalSignal.positionSize = Math.max(0.01, finalSignal.positionSize * 0.8);
+             finalSignal.strength.combined = Math.max(0, finalSignal.strength.combined * 0.95);
+           } else if (agree > 0.8) {
+             finalSignal.positionSize = Math.min(0.3, finalSignal.positionSize * 1.1);
+             finalSignal.strength.combined = Math.min(100, finalSignal.strength.combined * 1.03);
+           }
+         } catch {}
+       }
        logger.debug('Final | signal=%s conf=%.2f posSize=%.2f tf=%s meta={trend:%s(%.1f), vol=%.2f, bollPos=%.2f, bw=%.4f}',
          finalSignal.signal,
          finalSignal.strength.confidence,
@@ -750,6 +784,100 @@ export class SmartSignalAnalyzer {
     return Math.max(0.01, Math.min(0.3, baseSize)); // 限制在 1%-30% 之间
   }
 
+  // 在信号级别应用轻量风控（仓位上限/极端情绪/高资金费等）
+  private applyRiskManagement(
+    signal: SmartSignalResult,
+    marketData: MarketData,
+    condition: MarketCondition
+  ): SmartSignalResult {
+    try {
+      const cfg: any = (config as any) || {};
+      const riskCfg: any = cfg.risk || {};
+
+      // 1) 仓位上限与环境缩放
+      const maxPos = Number.isFinite(riskCfg.maxPositionSize) ? Number(riskCfg.maxPositionSize) : 0.2;
+      let positionSize = signal.positionSize;
+
+      // 市场环境微调
+      if (condition.volatility === 'HIGH') positionSize *= 0.8;
+      if (condition.volume === 'LOW') positionSize *= 0.9;
+
+      // 置信度门槛（与策略阈值协同）
+      const threshold = Number(cfg.strategy?.signalThreshold ?? 0.6);
+      if ((signal.strength?.confidence ?? 0.5) < threshold) positionSize *= 0.85;
+
+      // 极端情绪/高资金费限制
+      try {
+        const mr = (cfg.strategy?.marketRegime) || {};
+        const fgi = Number(marketData?.fgiScore);
+        const funding = Number(marketData?.fundingRate);
+        const isBuy = signal.signal.includes('BUY');
+        if (mr.avoidExtremeSentiment && Number.isFinite(fgi)) {
+          const low = Number(mr.extremeSentimentLow ?? 10);
+          const high = Number(mr.extremeSentimentHigh ?? 90);
+          // 逆向极端时更谨慎
+          if ((fgi <= low && !isBuy) || (fgi >= high && isBuy)) {
+            positionSize *= 0.7;
+          }
+        }
+        if (mr.avoidHighFunding && Number.isFinite(funding)) {
+          const cap = Math.abs(Number(mr.highFundingAbs ?? 0.03));
+          if (Math.abs(funding) >= cap) positionSize *= 0.8;
+        }
+      } catch {}
+
+      // 最终夹逼到上限
+      positionSize = Math.max(0.01, Math.min(maxPos, positionSize));
+
+      // 2) 保护性止损/止盈兜底，兼容百分比/小数配置
+      const price = Number(marketData?.price);
+      const isBuy = signal.signal.includes('BUY');
+      let stopLoss = Number(signal.stopLoss);
+      let takeProfit = Number(signal.takeProfit);
+
+      const toFrac = (v: any, def: number) => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return def;
+        return n > 1 ? n / 100 : n; // 兼容百分比/小数
+      };
+      const slPct = toFrac(riskCfg.stopLossPercent, 0.01);
+      const tpPct = toFrac(riskCfg.takeProfitPercent, slPct * 1.4);
+
+      if (!(Number.isFinite(stopLoss) && stopLoss > 0 && Number.isFinite(price) && price > 0)) {
+        stopLoss = isBuy ? price * (1 - slPct) : price * (1 + slPct);
+      }
+      if (!(Number.isFinite(takeProfit) && takeProfit > 0 && Number.isFinite(price) && price > 0)) {
+        takeProfit = isBuy ? price * (1 + tpPct) : price * (1 - tpPct);
+      }
+
+      // 3) 重新计算风报比；若异常则沿用原值
+      const risk = Number.isFinite(price) ? Math.abs(price - stopLoss) : NaN;
+      const reward = Number.isFinite(price) ? Math.abs(takeProfit - price) : NaN;
+      const riskReward = (Number.isFinite(risk) && risk > 0 && Number.isFinite(reward))
+        ? (reward / risk)
+        : signal.riskReward;
+
+      // 4) 根据仓位缩放，微调综合强度（不改变方向，仅保持相对一致性）
+      let combined = signal.strength.combined;
+      try {
+        const denom = signal.positionSize || 1;
+        const scale = Math.max(0.5, Math.min(1.2, positionSize / denom));
+        combined = Math.max(0, Math.min(100, combined * scale));
+      } catch {}
+
+      return {
+        ...signal,
+        strength: { ...signal.strength, combined },
+        stopLoss,
+        takeProfit,
+        riskReward,
+        positionSize
+      };
+    } catch {
+      return signal;
+    }
+  }
+
   // 辅助方法
   private calculateTechnicalConfidence(indicators: TechnicalIndicatorResult): number {
     let confidence = 0.5;
@@ -787,6 +915,115 @@ export class SmartSignalAnalyzer {
     if (condition.volatility === 'HIGH') return 'Short-term (1-4h)';
     if (condition.trend !== 'SIDEWAYS' && condition.strength > 50) return 'Medium-term (1-3d)';
     return 'Intraday (15m-1h)';
+  }
+
+  private getFallbackSignal(marketData: MarketData): SmartSignalResult {
+    try {
+      const price = Number(marketData?.price);
+      const hi24 = Number(marketData?.high24h);
+      const lo24 = Number(marketData?.low24h);
+      const vol = Number(marketData?.volume);
+
+      const denom = Number.isFinite(price) && price > 0
+        ? price
+        : (Number.isFinite((marketData as any)?.open24hPrice) && (marketData as any).open24hPrice > 0
+            ? Number((marketData as any).open24hPrice)
+            : 1);
+      const bandPct = (Number.isFinite(hi24) && Number.isFinite(lo24) && denom > 0)
+        ? Math.max(0, (hi24 - lo24) / denom)
+        : 0;
+
+      let volatilityLabel: 'HIGH' | 'MEDIUM' | 'LOW' = 'MEDIUM';
+      if (bandPct >= 0.08) volatilityLabel = 'HIGH';
+      else if (bandPct <= 0.03) volatilityLabel = 'LOW';
+
+      const condition: MarketCondition = {
+        trend: 'SIDEWAYS',
+        strength: 50,
+        volatility: volatilityLabel,
+        volume: (Number.isFinite(vol) && vol > 0) ? 'MEDIUM' : 'LOW',
+        phase: 'ACCUMULATION'
+      };
+
+      const timeframe = this.determineTimeframe(condition);
+
+      const rawStopLoss = Number((config as any)?.risk?.stopLossPercent ?? 0.01);
+      const stopLossPct = Math.max(0.001, (Number.isFinite(rawStopLoss) ? (rawStopLoss > 1 ? rawStopLoss / 100 : rawStopLoss) : 0.01));
+      const targetFactor = 1.4;
+      const p = Number.isFinite(price) && price > 0 ? price : 0;
+      const stopLoss = p > 0 ? p * (1 - stopLossPct) : 0;
+      const takeProfit = p > 0 ? p * (1 + stopLossPct * targetFactor) : 0;
+      const riskReward = (p > 0 && stopLoss > 0) ? ((takeProfit - p) / (p - stopLoss)) : 1;
+
+      const metaVolNumeric = ((): number => {
+        if (volatilityLabel === 'HIGH') return 0.8;
+        if (volatilityLabel === 'LOW') return 0.2;
+        return 0.5;
+      })();
+
+      return {
+        signal: 'HOLD',
+        strength: {
+          technical: 50,
+          ml: 50,
+          combined: 50,
+          confidence: 0.5
+        },
+        targetPrice: p,
+        stopLoss,
+        takeProfit,
+        riskReward: Number.isFinite(riskReward) ? riskReward : 1,
+        positionSize: 0.02,
+        timeframe,
+        reasoning: {
+          technical: 'Fallback: insufficient indicators, defaulting to neutral technical stance',
+          ml: 'Fallback: ML analysis unavailable or insufficient history',
+          risk: 'Fallback: apply conservative defaults under uncertain conditions',
+          final: 'Neutral HOLD due to unavailable/invalid inputs; risk minimized'
+        },
+        metadata: {
+          timestamp: Date.now(),
+          marketCondition: this.getMarketConditionType(condition),
+          volatility: metaVolNumeric,
+          volume: (Number.isFinite(vol) && vol > 0) ? 'MEDIUM' : 'LOW',
+          momentum: 'NEUTRAL',
+          trendDirection: 'SIDEWAYS',
+          trendStrength: 50,
+          bollingerPosition: 0.5,
+          bollingerBandwidth: Math.max(0, Math.min(1, bandPct)),
+          kronos: ((config as any)?.strategy?.kronos?.enabled) ? (this.lastKronos || undefined) : undefined,
+          marketState: condition
+        }
+      };
+    } catch (e) {
+      return {
+        signal: 'HOLD',
+        strength: { technical: 50, ml: 50, combined: 50, confidence: 0.5 },
+        targetPrice: 0,
+        stopLoss: 0,
+        takeProfit: 0,
+        riskReward: 1,
+        positionSize: 0.01,
+        timeframe: 'Intraday (15m-1h)',
+        reasoning: {
+          technical: 'Fallback error: default neutral',
+          ml: 'Fallback error: default neutral',
+          risk: 'Fallback error: conservative',
+          final: 'Neutral HOLD'
+        },
+        metadata: {
+          timestamp: Date.now(),
+          marketCondition: 'RANGING',
+          volatility: 0.5,
+          volume: 'LOW',
+          momentum: 'NEUTRAL',
+          trendDirection: 'SIDEWAYS',
+          trendStrength: 50,
+          bollingerPosition: 0.5,
+          bollingerBandwidth: 0
+        }
+      };
+    }
   }
 
   private getMarketConditionType(condition: MarketCondition): 'TRENDING' | 'RANGING' | 'VOLATILE' {
@@ -847,65 +1084,76 @@ export class SmartSignalAnalyzer {
     return `Combined analysis suggests ${signal} (strength ${strength.toFixed(1)}). Current market is in ${trendDesc}. Consider prudent execution.`;
   }
 
-  // 风险管理调整
-  private applyRiskManagement(
-    signal: SmartSignalResult,
-    marketData: MarketData,
-    condition: MarketCondition
-  ): SmartSignalResult {
-    // 高波动时降低仓位
-    if (condition.volatility === 'HIGH') {
-      signal.positionSize *= 0.7;
-    }
+  // 新增：多时间框一致性计算
+  private async computeMultiTFConsistency(symbol: string): Promise<SmartSignalResult['metadata']['multiTFConsistency']> {
+    try {
+      const cfg = (config as any) || {};
+      const mtf = (cfg.strategy?.mtf?.intervals as string[]) || (cfg.strategy?.intervals as string[]) || ['5m', '15m', '1H', '4H'];
+      const tfs = Array.isArray(mtf) && mtf.length > 0 ? mtf.slice(0, 5) : ['5m', '15m', '1H', '4H'];
 
-    // 低成交量时降低信号强度/置信度
-    if (condition.volume === 'LOW') {
-      signal.strength.combined *= 0.8;
-      signal.strength.confidence *= 0.9;
-    }
+      const byTF: Record<string, { direction: 'UP' | 'DOWN' | 'SIDEWAYS'; strength: number; confidence: number }> = {};
+      const votes: number[] = [];
 
-    // 确保风报比合理
-    if (signal.riskReward < 1.5 && signal.signal !== 'HOLD') {
-      signal.positionSize *= 0.5;
-    }
+      for (const tf of tfs) {
+        try {
+          const limit = tf.includes('m') ? 120 : tf.includes('H') ? 80 : 60;
+          const klines = await enhancedOKXDataService.getKlineData(symbol, tf as any, limit);
+          if (!klines || klines.length < 20) continue;
+          const analyzer = new TechnicalIndicatorAnalyzer();
+          for (const k of klines) {
+            analyzer.addKlineData({
+              timestamp: k.timestamp,
+              open: Number(k.open),
+              high: Number(k.high),
+              low: Number(k.low),
+              close: Number(k.close),
+              volume: Number(k.volume)
+            });
+          }
+          const ind = analyzer.calculateAllIndicators();
+          if (!ind) continue;
 
-    return signal;
+          // 方向：EMA 与 MACD 共识
+          const ema12 = Number(ind.ema12);
+          const emaTrend = Number(ind.emaTrend);
+          const macd = Number(ind.macd?.histogram);
+          let dir: 'UP' | 'DOWN' | 'SIDEWAYS' = 'SIDEWAYS';
+          if (Number.isFinite(ema12) && Number.isFinite(emaTrend) && Number.isFinite(macd)) {
+            if (ema12 > emaTrend && macd > 0) dir = 'UP';
+            else if (ema12 < emaTrend && macd < 0) dir = 'DOWN';
+          }
+
+          // 强度：复用现有技术强度计算
+          const strength = Math.max(0, Math.min(100, this.calculateTechnicalStrength(ind)));
+          const confidence = this.calculateTechnicalConfidence(ind);
+
+          byTF[tf] = { direction: dir, strength, confidence };
+          votes.push(dir === 'UP' ? 1 : dir === 'DOWN' ? -1 : 0);
+        } catch (e) {
+          // 单个TF失败不影响整体
+        }
+      }
+
+      if (Object.keys(byTF).length === 0) {
+        return {
+          agreement: 0.5,
+          score: 50,
+          dominantDirection: 'SIDEWAYS',
+          byTimeframe: {}
+        };
+      }
+
+      const sum = votes.reduce((a, b) => a + b, 0);
+      const agreement = Math.min(1, Math.max(0, Math.abs(sum) / Math.max(1, votes.length)));
+      const dominantDirection: 'UP' | 'DOWN' | 'SIDEWAYS' = sum > 0 ? 'UP' : sum < 0 ? 'DOWN' : 'SIDEWAYS';
+      const avgStrength = Object.values(byTF).reduce((a, b) => a + b.strength, 0) / Object.values(byTF).length;
+      const score = Math.max(0, Math.min(100, agreement * 60 + (avgStrength / 100) * 40));
+
+      return { agreement, score, dominantDirection, byTimeframe: byTF };
+    } catch (e) {
+      return { agreement: 0.5, score: 50, dominantDirection: 'SIDEWAYS', byTimeframe: {} };
+    }
   }
-
-  // 兜底信号
-  private getFallbackSignal(marketData: MarketData): SmartSignalResult {
-    const useKronos = !!((config as any)?.strategy?.kronos?.enabled);
-    return {
-      signal: 'HOLD',
-      strength: {
-        technical: 50,
-        ml: 50,
-        combined: 50,
-        confidence: 0.3
-      },
-      targetPrice: marketData.price,
-      stopLoss: marketData.price * 0.98,
-      takeProfit: marketData.price * 1.02,
-      riskReward: 1,
-      positionSize: 0,
-      timeframe: 'Watch',
-      reasoning: {
-        technical: 'Technical analysis failed',
-        ml: 'ML analysis unavailable',
-        risk: 'System error encountered',
-        final: 'Analysis system experienced an issue; suggest staying on the sidelines'
-      },
-      metadata: {
-        timestamp: Date.now(),
-        marketCondition: 'RANGING',
-        volatility: 0.5,
-        volume: 'MEDIUM',
-        momentum: 'NEUTRAL',
-        // 在兜底结果中也附带最近一次 Kronos 诊断输出（如有）
-        kronos: ((config as any)?.strategy?.kronos?.enabled) ? (this.lastKronos || undefined) : undefined
-       }
-     };
-   }
 
   // 获取最近的分析结果
   getLastAnalysis(): SmartSignalResult | null {
@@ -975,6 +1223,68 @@ export class SmartSignalAnalyzer {
         featuresPayload.ml = mlResult.features;
       }
   
+      // 计算校准置信度（利用离线模型阈值与胜率）
+      let calibrated: number | undefined = undefined;
+      try {
+        const offline = (MLAnalyzer as any)?.getOfflineModel ? MLAnalyzer.getOfflineModel() : null;
+        const base = typeof mlResult?.confidence === 'number' ? Math.max(0, Math.min(1, mlResult!.confidence)) : undefined;
+        const finalSig = result?.signal;
+        const isLong = finalSig === 'BUY' || finalSig === 'STRONG_BUY';
+        const isShort = finalSig === 'SELL' || finalSig === 'STRONG_SELL';
+        const sideKey = isLong ? 'long' : (isShort ? 'short' : 'global');
+
+        // 分箱线性插值
+        const interp = (p: number, bins: Array<{ x:number; y:number; count:number }>): number => {
+          const clamp01 = (x:number)=> Math.max(0.0001, Math.min(0.9999, x));
+          if (!Array.isArray(bins) || bins.length === 0) return p;
+          const arr = bins.slice().sort((a,b)=>a.x-b.x);
+          const x = clamp01(p);
+          if (x <= arr[0].x) return clamp01(arr[0].y);
+          if (x >= arr[arr.length-1].x) return clamp01(arr[arr.length-1].y);
+          for (let i=0;i<arr.length-1;i++) {
+            const a = arr[i], b = arr[i+1];
+            if (x >= a.x && x <= b.x) {
+              const t = (x - a.x) / Math.max(1e-6, (b.x - a.x));
+              const y = a.y + t * (b.y - a.y);
+              return clamp01(y);
+            }
+          }
+          return x;
+        };
+
+        if (base !== undefined && offline?.calibrations) {
+          const binsSide = (offline.calibrations as any)?.[sideKey]?.bins as Array<{x:number;y:number;count:number}> | undefined;
+          const binsGlobal = (offline.calibrations as any)?.global?.bins as Array<{x:number;y:number;count:number}> | undefined;
+          if (binsSide && binsSide.length >= 3) {
+            calibrated = interp(base, binsSide);
+          } else if (binsGlobal && binsGlobal.length >= 3) {
+            calibrated = interp(base, binsGlobal);
+          }
+        }
+
+        // 回退：使用阈值/全局胜率混合的原逻辑
+        if (calibrated === undefined && base !== undefined) {
+          const combined = result?.strength?.combined;
+          const isLong2 = isLong; const isShort2 = isShort;
+          const key = isLong2 ? 'long' : (isShort2 ? 'short' : null);
+          if (offline && key && typeof combined === 'number') {
+            const thr = offline?.thresholds?.[key]?.threshold;
+            const sideWin = offline?.thresholds?.[key]?.winRate;
+            const globalWin = offline?.winRate;
+            const refWin = typeof sideWin === 'number' ? sideWin : (typeof globalWin === 'number' ? globalWin : 0.5);
+            if (typeof thr === 'number') {
+              const above = combined - thr;
+              const w = above >= 0 ? 0.65 : 0.35;
+              calibrated = Math.max(0.05, Math.min(0.99, w * base + (1 - w) * refWin));
+            } else {
+              calibrated = Math.max(0.05, Math.min(0.99, 0.5 * base + 0.5 * refWin));
+            }
+          } else {
+            calibrated = Math.max(0.05, Math.min(0.99, base));
+          }
+        }
+      } catch {}
+
       const sample: MLSampleRecord = {
         timestamp: typeof marketData.timestamp === 'number' ? marketData.timestamp : Date.now(),
         symbol: marketData.symbol || config.trading.defaultSymbol,
@@ -984,6 +1294,7 @@ export class SmartSignalAnalyzer {
         indicators_json: (() => { try { return JSON.stringify(technicalResult); } catch { return undefined as any; } })(),
         ml_prediction: mlResult?.prediction,
         ml_confidence: mlResult?.confidence,
+        ml_calibrated_confidence: calibrated,
         technical_strength: result?.strength?.technical ?? null,
         combined_strength: result?.strength?.combined ?? null,
         final_signal: result?.signal ?? null,

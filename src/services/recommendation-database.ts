@@ -16,6 +16,7 @@ export interface MLSampleRecord {
   indicators_json?: string; // 技术指标快照
   ml_prediction?: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'SELL' | 'STRONG_SELL';
   ml_confidence?: number;
+  ml_calibrated_confidence?: number;
   ml_scores_json?: string; // 各子分数（technical/sentiment/volume/momentum）
   technical_strength?: number;
   combined_strength?: number;
@@ -31,6 +32,45 @@ export interface MLSampleRecord {
   label_return?: number | null; // T+Horizon 的收益（%）
   label_drawdown?: number | null; // T+Horizon 的最大回撤（%）
   label_ready?: boolean; // 标签是否已回填
+}
+
+// 新增：执行记录类型（开仓/平仓/减仓的实际成交明细）
+export interface ExecutionRecord {
+  id?: number;
+  created_at?: Date;
+  updated_at?: Date;
+  recommendation_id?: string | null;
+  position_id?: string | null;
+  event_type: 'OPEN' | 'CLOSE' | 'REDUCE' | string;
+  symbol?: string | null;
+  direction?: 'LONG' | 'SHORT' | null;
+  size?: number | null;
+  intended_price?: number | null;
+  intended_timestamp?: number | null; // ms
+  fill_price?: number | null;
+  fill_timestamp?: number | null; // ms
+  latency_ms?: number | null;
+  slippage_bps?: number | null; // 1bp = 0.01%
+  slippage_amount?: number | null; // fill - intended（正：买入吃亏，负：卖出吃亏）
+  fee_bps?: number | null;
+  fee_amount?: number | null; // 名义价值 * 手续费率（单边）
+  pnl_amount?: number | null; // 平仓/减仓时才有
+  pnl_percent?: number | null; // 平仓/减仓时才有
+  extra_json?: string | null; // 额外上下文（如 reason/reductionRatio 等）
+}
+
+// 新增：监控快照记录类型
+export interface MonitoringSnapshot {
+  id?: number;
+  created_at?: Date;
+  recommendation_id: string;
+  check_time?: string | Date;
+  current_price: number;
+  unrealized_pnl?: number | null;
+  unrealized_pnl_percent?: number | null;
+  is_stop_loss_triggered?: boolean;
+  is_take_profit_triggered?: boolean;
+  extra_json?: string | null;
 }
 
 /**
@@ -71,8 +111,24 @@ export class RecommendationDatabase {
         }
       });
       
+      // 增加 busyTimeout 与 WAL，以提升并发读能力，避免读训练时被写阻塞
+      try {
+        // 某些类型定义无该方法，使用 any 断言
+        (this.db as any)?.configure?.('busyTimeout', 10000);
+      } catch (e) {
+        console.warn('Warn: set busyTimeout failed (ignored):', e);
+      }
+      await new Promise<void>((resolve, reject) => {
+        this.db!.run('PRAGMA journal_mode=WAL;', [], (err) => err ? reject(err) : resolve());
+      });
+      await new Promise<void>((resolve, reject) => {
+        this.db!.run('PRAGMA synchronous=NORMAL;', [], (err) => err ? reject(err) : resolve());
+      });
+      
       // 创建表结构
       await this.createTables();
+      // 迁移：确保新增列存在
+      await this.migrateSchema();
       
       this.isInitialized = true;
       console.log('Recommendation database initialized successfully');
@@ -126,6 +182,8 @@ export class RecommendationDatabase {
         exit_price REAL,
         exit_time DATETIME,
         exit_reason TEXT CHECK (exit_reason IN ('TAKE_PROFIT', 'STOP_LOSS', 'TIMEOUT', 'LIQUIDATION', 'MANUAL', 'BREAKEVEN')),
+        -- 新增：标准化出场标签（英文枚举）
+        exit_label TEXT CHECK (exit_label IN ('DYNAMIC_TAKE_PROFIT','DYNAMIC_STOP_LOSS','TIMEOUT','BREAKEVEN')),
         
         -- 理论收益统计
         pnl_amount REAL,
@@ -142,7 +200,17 @@ export class RecommendationDatabase {
         is_strategy_generated BOOLEAN DEFAULT TRUE,
         strategy_confidence_level TEXT,
         exclude_from_ml BOOLEAN DEFAULT FALSE,
-        notes TEXT
+        notes TEXT,
+
+        -- EV相关字段
+        expected_return REAL,
+        ev REAL,
+        ev_threshold REAL,
+        ev_ok INTEGER,
+        ab_group TEXT,
+
+        -- 新增：并发幂等去重键（唯一索引）
+        dedupe_key TEXT
       )
     `;
     
@@ -200,6 +268,7 @@ export class RecommendationDatabase {
         -- 模型输出与综合信号
         ml_prediction TEXT CHECK (ml_prediction IN ('STRONG_BUY','BUY','HOLD','SELL','STRONG_SELL')),
         ml_confidence REAL,
+        ml_calibrated_confidence REAL,
         ml_scores_json TEXT,
         technical_strength REAL,
         combined_strength REAL,
@@ -219,17 +288,75 @@ export class RecommendationDatabase {
         label_ready BOOLEAN DEFAULT FALSE
       )
     `;
+
+    // 新增：executions 表（记录实际执行/成交）
+    const createExecutionsTable = `
+      CREATE TABLE IF NOT EXISTS executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        
+        recommendation_id TEXT,
+        position_id TEXT,
+        event_type TEXT NOT NULL CHECK (event_type IN ('OPEN','CLOSE','REDUCE')),
+        symbol TEXT,
+        direction TEXT CHECK (direction IN ('LONG','SHORT')),
+        size REAL,
+        
+        intended_price REAL,
+        intended_timestamp INTEGER,
+        fill_price REAL,
+        fill_timestamp INTEGER,
+        latency_ms INTEGER,
+        
+        slippage_bps REAL,
+        slippage_amount REAL,
+        fee_bps REAL,
+        fee_amount REAL,
+        
+        pnl_amount REAL,
+        pnl_percent REAL,
+        extra_json TEXT
+      )
+    `;
+
+    // 新增：recommendation_monitoring 表（实时监控快照）
+    const createMonitoringTable = `
+      CREATE TABLE IF NOT EXISTS recommendation_monitoring (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        recommendation_id TEXT NOT NULL,
+        check_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+        current_price REAL NOT NULL,
+        unrealized_pnl REAL,
+        unrealized_pnl_percent REAL,
+        is_stop_loss_triggered INTEGER DEFAULT 0,
+        is_take_profit_triggered INTEGER DEFAULT 0,
+        extra_json TEXT
+      )
+    `;
+    
     
     const createIndexes = [
       'CREATE INDEX IF NOT EXISTS idx_recommendations_status ON recommendations(status)',
       'CREATE INDEX IF NOT EXISTS idx_recommendations_strategy ON recommendations(strategy_type)',
       'CREATE INDEX IF NOT EXISTS idx_recommendations_created ON recommendations(created_at)',
       'CREATE INDEX IF NOT EXISTS idx_recommendations_symbol ON recommendations(symbol)',
+      'CREATE INDEX IF NOT EXISTS idx_recommendations_sds_created ON recommendations(symbol, direction, strategy_type, created_at)',
+      // 移除：dedupe_key 唯一索引（在 migrateSchema 中幂等创建，避免旧库无该列时报错）
       'CREATE INDEX IF NOT EXISTS idx_statistics_strategy_date ON strategy_statistics(strategy_type, date)',
       // 新增：ml_samples 索引
       'CREATE INDEX IF NOT EXISTS idx_ml_samples_symbol_time ON ml_samples(symbol, timestamp)',
       'CREATE INDEX IF NOT EXISTS idx_ml_samples_label_ready ON ml_samples(label_ready)',
-      'CREATE INDEX IF NOT EXISTS idx_ml_samples_prediction ON ml_samples(ml_prediction)'
+      'CREATE INDEX IF NOT EXISTS idx_ml_samples_prediction ON ml_samples(ml_prediction)',
+      // 新增：executions 索引
+      'CREATE INDEX IF NOT EXISTS idx_executions_created ON executions(created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_executions_recid ON executions(recommendation_id)',
+      'CREATE INDEX IF NOT EXISTS idx_executions_posid ON executions(position_id)',
+      'CREATE INDEX IF NOT EXISTS idx_executions_event_time ON executions(event_type, fill_timestamp)',
+      'CREATE INDEX IF NOT EXISTS idx_executions_symbol_time ON executions(symbol, fill_timestamp)',
+      // 新增：monitoring 索引
+      'CREATE INDEX IF NOT EXISTS idx_monitoring_rec_time ON recommendation_monitoring(recommendation_id, check_time)'
     ];
     
     return new Promise((resolve, reject) => {
@@ -256,6 +383,24 @@ export class RecommendationDatabase {
         this.db!.run(createMLSamplesTable, (err) => {
           if (err) {
             console.error('Error creating ml_samples table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        // 创建 executions 表
+        this.db!.run(createExecutionsTable, (err) => {
+          if (err) {
+            console.error('Error creating executions table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        // 创建 monitoring 表
+        this.db!.run(createMonitoringTable, (err) => {
+          if (err) {
+            console.error('Error creating recommendation_monitoring table:', err);
             reject(err);
             return;
           }
@@ -295,9 +440,11 @@ export class RecommendationDatabase {
         liquidation_price, margin_ratio, maintenance_margin, leverage, position_size,
         risk_level, strategy_type, algorithm_name, signal_strength, confidence_score,
         quality_score, status, market_volatility, volume_24h, price_change_24h,
-        source, is_strategy_generated, strategy_confidence_level, exclude_from_ml, notes
+        source, is_strategy_generated, strategy_confidence_level, exclude_from_ml, notes,
+        expected_return, ev, ev_threshold, ev_ok, ab_group,
+        exit_label, dedupe_key
       ) VALUES (
-        ${new Array(31).fill('?').join(', ')}
+        ${new Array(38).fill('?').join(', ')}
       )
     `;
     
@@ -309,12 +456,23 @@ export class RecommendationDatabase {
       rec.leverage, rec.position_size, rec.risk_level,
       rec.strategy_type, rec.algorithm_name, rec.signal_strength, rec.confidence_score,
       rec.quality_score, rec.status, rec.market_volatility, rec.volume_24h, rec.price_change_24h,
-      rec.source, rec.is_strategy_generated, rec.strategy_confidence_level, rec.exclude_from_ml, rec.notes
+      rec.source, rec.is_strategy_generated, rec.strategy_confidence_level, rec.exclude_from_ml, rec.notes,
+      (rec as any).expected_return ?? (rec as any).ev ?? null,
+      (rec as any).ev ?? (rec as any).expected_return ?? null,
+      (rec as any).ev_threshold ?? null,
+      typeof (rec as any).ev_ok === 'boolean' ? ((rec as any).ev_ok ? 1 : 0) : (typeof (rec as any).ev_ok === 'number' ? ((rec as any).ev_ok ? 1 : 0) : null),
+      (rec as any).ab_group ?? null,
+      rec.exit_label || null,
+      rec.dedupe_key || null
     ];
     
     return new Promise((resolve, reject) => {
       this.db!.run(sql, params, function(err) {
         if (err) {
+          // 统一将唯一约束映射成可识别的错误码
+          if (/UNIQUE constraint failed: recommendations\.dedupe_key/i.test(err.message || '')) {
+            (err as any).code = 'DUPLICATE_DEDUPE_KEY';
+          }
           console.error('Error saving recommendation:', err);
           reject(err);
         } else {
@@ -341,6 +499,7 @@ export class RecommendationDatabase {
         exit_price = ?,
         exit_time = ?,
         exit_reason = ?,
+        exit_label = ?,
         pnl_amount = ?,
         pnl_percent = ?,
         holding_duration = ?
@@ -355,6 +514,7 @@ export class RecommendationDatabase {
       rec.exit_price,
       rec.exit_time?.toISOString(),
       rec.exit_reason,
+      rec.exit_label || null,
       rec.pnl_amount,
       rec.pnl_percent,
       rec.holding_duration,
@@ -437,7 +597,53 @@ export class RecommendationDatabase {
       });
     });
   }
-  
+
+  // 新增：按 symbol+direction 获取最新一条推荐（用于方向级冷却与反向节流）
+  async getLastRecommendationBySymbolAndDirection(symbol: string, direction: 'LONG' | 'SHORT'): Promise<RecommendationRecord | null> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    const aliases = (s: string): string[] => {
+      const up = String(s || '').toUpperCase().trim();
+      if (up === 'ETH-USDT') return ['ETH-USDT', 'ETH-USDT-SWAP'];
+      if (up === 'ETH-USDT-SWAP') return ['ETH-USDT', 'ETH-USDT-SWAP'];
+      return [s];
+    };
+    const symList = aliases(symbol);
+    const placeholders = symList.map(() => '?').join(',');
+    const sql = `SELECT * FROM recommendations WHERE symbol IN (${placeholders}) AND direction = ? ORDER BY datetime(created_at) DESC LIMIT 1`;
+    const params = [...symList, direction];
+    return new Promise<RecommendationRecord | null>((resolve, reject) => {
+      this.db!.get(sql, params, (err, row: any) => {
+        if (err) return reject(err);
+        resolve(row ? this.rowToRecommendation(row) : null);
+      });
+    });
+  }
+
+  // 新增：按 symbol+direction 获取最新一条“ACTIVE”推荐（仅限状态为 ACTIVE）
+  async getLastActiveRecommendationBySymbolAndDirection(symbol: string, direction: 'LONG' | 'SHORT'): Promise<RecommendationRecord | null> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    const aliases = (s: string): string[] => {
+      const up = String(s || '').toUpperCase().trim();
+      if (up === 'ETH-USDT') return ['ETH-USDT', 'ETH-USDT-SWAP'];
+      if (up === 'ETH-USDT-SWAP') return ['ETH-USDT', 'ETH-USDT-SWAP'];
+      return [s];
+    };
+    const symList = aliases(symbol);
+    const placeholders = symList.map(() => '?').join(',');
+    const sql = `SELECT * FROM recommendations WHERE symbol IN (${placeholders}) AND direction = ? AND status = 'ACTIVE' ORDER BY datetime(created_at) DESC LIMIT 1`;
+    const params = [...symList, direction];
+    return new Promise<RecommendationRecord | null>((resolve, reject) => {
+      this.db!.get(sql, params, (err, row: any) => {
+        if (err) return reject(err);
+        resolve(row ? this.rowToRecommendation(row) : null);
+      });
+    });
+  }
+
   /**
    * 删除推荐记录（按ID）
    */
@@ -507,7 +713,8 @@ export class RecommendationDatabase {
       result?: string;
       start_date?: Date;
       end_date?: Date;
-    }
+    },
+    include_active: boolean = true
   ): Promise<{ recommendations: RecommendationRecord[]; total: number }> {
     if (!this.db) {
       throw new Error('Database not initialized');
@@ -537,6 +744,11 @@ export class RecommendationDatabase {
         whereClause += ' AND created_at <= ?';
         params.push(filters.end_date.toISOString());
       }
+    }
+
+    // 默认从“历史”列表排除进行中的记录，除非显式要求包含或已指定 status 过滤
+    if (include_active === false && !(filters && filters.status)) {
+      whereClause += " AND status <> 'ACTIVE'";
     }
     
     // 查询总数
@@ -571,6 +783,31 @@ export class RecommendationDatabase {
     });
     
     return { recommendations, total };
+  }
+  
+  // 新增：统计时间窗口内的下单数量（可按方向过滤），并返回窗口内最早一单时间
+  async countRecommendationsWithin(
+    startDate: Date,
+    filters?: { direction?: 'LONG' | 'SHORT' }
+  ): Promise<{ count: number; oldestCreatedAt?: Date | null }> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    const params: any[] = [startDate.toISOString()];
+    let where = 'WHERE created_at >= ?';
+    if (filters?.direction) {
+      where += ' AND direction = ?';
+      params.push(filters.direction);
+    }
+    const sql = `SELECT COUNT(*) as total, MIN(datetime(created_at)) as oldest FROM recommendations ${where}`;
+    return new Promise((resolve, reject) => {
+      this.db!.get(sql, params, (err: any, row: any) => {
+        if (err) return reject(err);
+        const cnt = Number(row?.total ?? 0);
+        const oldest = row?.oldest ? new Date(row.oldest) : null;
+        resolve({ count: cnt, oldestCreatedAt: oldest });
+      });
+    });
   }
   
   /**
@@ -648,7 +885,7 @@ export class RecommendationDatabase {
       INSERT INTO ml_samples (
         created_at, updated_at, timestamp, symbol, interval, price,
         features_json, indicators_json,
-        ml_prediction, ml_confidence, ml_scores_json,
+        ml_prediction, ml_confidence, ml_calibrated_confidence, ml_scores_json,
         technical_strength, combined_strength, final_signal, position_size,
         target_price, stop_loss, take_profit, risk_reward,
         reasoning_ml, reasoning_final,
@@ -656,7 +893,7 @@ export class RecommendationDatabase {
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?,
-        ?, ?, ?,
+        ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?,
@@ -676,6 +913,7 @@ export class RecommendationDatabase {
       sample.indicators_json ?? null,
       sample.ml_prediction ?? null,
       sample.ml_confidence ?? null,
+      sample.ml_calibrated_confidence ?? null,
       sample.ml_scores_json ?? null,
       sample.technical_strength ?? null,
       sample.combined_strength ?? null,
@@ -843,6 +1081,8 @@ export class RecommendationDatabase {
       exit_price: row.exit_price,
       exit_time: row.exit_time ? new Date(row.exit_time) : undefined,
       exit_reason: row.exit_reason,
+      // 新增：映射 exit_label
+      exit_label: row.exit_label || undefined,
       pnl_amount: row.pnl_amount,
       pnl_percent: row.pnl_percent,
       holding_duration: row.holding_duration,
@@ -853,7 +1093,19 @@ export class RecommendationDatabase {
       is_strategy_generated: Boolean(row.is_strategy_generated),
       strategy_confidence_level: row.strategy_confidence_level,
       exclude_from_ml: Boolean(row.exclude_from_ml),
-      notes: row.notes
+      notes: row.notes,
+      // 新增：EV 相关字段
+      expected_return: typeof row.expected_return === 'number' ? row.expected_return : undefined,
+      ev: typeof row.ev === 'number' ? row.ev : undefined,
+      ev_threshold: typeof row.ev_threshold === 'number' ? row.ev_threshold : undefined,
+      ev_ok: ((): boolean | undefined => {
+        if (typeof row.ev_ok === 'number') return row.ev_ok === 1;
+        if (typeof row.ev_ok === 'boolean') return row.ev_ok;
+        return undefined;
+      })(),
+      ab_group: row.ab_group || undefined,
+      // 新增：dedupe_key 回传
+      dedupe_key: row.dedupe_key || undefined
     };
   }
 
@@ -871,6 +1123,7 @@ export class RecommendationDatabase {
       indicators_json: row.indicators_json ?? undefined,
       ml_prediction: row.ml_prediction ?? undefined,
       ml_confidence: row.ml_confidence ?? undefined,
+      ml_calibrated_confidence: row.ml_calibrated_confidence ?? undefined,
       ml_scores_json: row.ml_scores_json ?? undefined,
       technical_strength: row.technical_strength ?? undefined,
       combined_strength: row.combined_strength ?? undefined,
@@ -886,6 +1139,88 @@ export class RecommendationDatabase {
       label_return: typeof row.label_return === 'number' ? row.label_return : null,
       label_drawdown: typeof row.label_drawdown === 'number' ? row.label_drawdown : null,
       label_ready: Boolean(row.label_ready)
+    };
+  }
+
+  // 新增：保存执行记录
+  async saveExecution(exe: ExecutionRecord): Promise<number> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT INTO executions (
+        created_at, updated_at, recommendation_id, position_id, event_type, symbol, direction, size,
+        intended_price, intended_timestamp, fill_price, fill_timestamp, latency_ms,
+        slippage_bps, slippage_amount, fee_bps, fee_amount, pnl_amount, pnl_percent, extra_json
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?
+      )
+    `;
+
+    const nowIso = new Date().toISOString();
+    const params = [
+      exe.created_at ? exe.created_at.toISOString() : nowIso,
+      exe.updated_at ? exe.updated_at.toISOString() : nowIso,
+      exe.recommendation_id ?? null,
+      exe.position_id ?? null,
+      exe.event_type,
+      exe.symbol ?? null,
+      exe.direction ?? null,
+      exe.size ?? null,
+      exe.intended_price ?? null,
+      exe.intended_timestamp ?? null,
+      exe.fill_price ?? null,
+      exe.fill_timestamp ?? null,
+      exe.latency_ms ?? null,
+      exe.slippage_bps ?? null,
+      exe.slippage_amount ?? null,
+      exe.fee_bps ?? null,
+      exe.fee_amount ?? null,
+      exe.pnl_amount ?? null,
+      exe.pnl_percent ?? null,
+      exe.extra_json ?? null
+    ];
+
+    return new Promise<number>((resolve, reject) => {
+      this.db!.run(sql, params, function (this: any, err: Error | null) {
+        if (err) {
+          console.error('Error saving execution:', err);
+          reject(err);
+        } else {
+          const insertedId = this && typeof this.lastID === 'number' ? this.lastID : 0;
+          resolve(insertedId);
+        }
+      });
+    });
+  }
+
+  // 新增：行到执行记录转换（预留）
+  private rowToExecution(row: any): ExecutionRecord {
+    return {
+      id: row.id,
+      created_at: row.created_at ? new Date(row.created_at) : undefined,
+      updated_at: row.updated_at ? new Date(row.updated_at) : undefined,
+      recommendation_id: row.recommendation_id ?? null,
+      position_id: row.position_id ?? null,
+      event_type: row.event_type,
+      symbol: row.symbol ?? null,
+      direction: row.direction ?? null,
+      size: row.size ?? null,
+      intended_price: row.intended_price ?? null,
+      intended_timestamp: row.intended_timestamp ?? null,
+      fill_price: row.fill_price ?? null,
+      fill_timestamp: row.fill_timestamp ?? null,
+      latency_ms: row.latency_ms ?? null,
+      slippage_bps: row.slippage_bps ?? null,
+      slippage_amount: row.slippage_amount ?? null,
+      fee_bps: row.fee_bps ?? null,
+      fee_amount: row.fee_amount ?? null,
+      pnl_amount: row.pnl_amount ?? null,
+      pnl_percent: row.pnl_percent ?? null,
+      extra_json: row.extra_json ?? null
     };
   }
   
@@ -986,6 +1321,372 @@ export class RecommendationDatabase {
         });
       });
     }
+  }
+
+  // 新增：分页与过滤查询执行记录
+  async listExecutions(
+    filters: {
+      symbol?: string;
+      event_type?: 'OPEN' | 'CLOSE' | 'REDUCE' | string;
+      direction?: 'LONG' | 'SHORT' | string;
+      recommendation_id?: string;
+      position_id?: string;
+      from?: string; // ISO 日期字符串，按 created_at 过滤起始
+      to?: string;   // ISO 日期字符串，按 created_at 过滤结束
+      min_size?: number;
+      max_size?: number;
+    } = {},
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<{ items: ExecutionRecord[]; count: number }> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const where: string[] = [];
+    const args: any[] = [];
+
+    if (filters.symbol) {
+      where.push('symbol = ?');
+      args.push(filters.symbol);
+    }
+    if (filters.event_type) {
+      where.push('event_type = ?');
+      args.push(filters.event_type);
+    }
+    if (filters.direction) {
+      where.push('direction = ?');
+      args.push(filters.direction);
+    }
+    if (filters.recommendation_id) {
+      where.push('recommendation_id = ?');
+      args.push(filters.recommendation_id);
+    }
+    if (filters.position_id) {
+      where.push('position_id = ?');
+      args.push(filters.position_id);
+    }
+    if (filters.from) {
+      where.push('created_at >= ?');
+      args.push(filters.from);
+    }
+    if (filters.to) {
+      where.push('created_at <= ?');
+      args.push(filters.to);
+    }
+    if (typeof filters.min_size === 'number') {
+      where.push('size >= ?');
+      args.push(filters.min_size);
+    }
+    if (typeof filters.max_size === 'number') {
+      where.push('size <= ?');
+      args.push(filters.max_size);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const countSql = `SELECT COUNT(*) as cnt FROM executions ${whereSql}`;
+    const listSql = `SELECT * FROM executions ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+
+    const count = await new Promise<number>((resolve, reject) => {
+      this.db!.get(countSql, args, (err, row: any) => {
+        if (err) return reject(err);
+        resolve(Number(row?.cnt ?? 0));
+      });
+    });
+
+    const items = await new Promise<ExecutionRecord[]>((resolve, reject) => {
+      this.db!.all(listSql, [...args, limit, offset], (err, rows: any[]) => {
+        if (err) return reject(err);
+        const mapped = Array.isArray(rows) ? rows.map((r) => this.rowToExecution(r)) : [];
+        resolve(mapped);
+      });
+    });
+
+    return { items, count };
+  }
+
+  // 轻量级迁移：确保新增列存在
+  // 新增：保存监控快照
+  async saveMonitoringSnapshot(s: MonitoringSnapshot): Promise<number> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    const sql = `
+      INSERT INTO recommendation_monitoring (
+        recommendation_id, check_time, current_price,
+        unrealized_pnl, unrealized_pnl_percent,
+        is_stop_loss_triggered, is_take_profit_triggered,
+        extra_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const checkTime = (s.check_time instanceof Date)
+      ? s.check_time.toISOString()
+      : (s.check_time || new Date().toISOString());
+    const params = [
+      s.recommendation_id,
+      checkTime,
+      s.current_price,
+      s.unrealized_pnl ?? null,
+      s.unrealized_pnl_percent ?? null,
+      (s.is_stop_loss_triggered ? 1 : 0),
+      (s.is_take_profit_triggered ? 1 : 0),
+      s.extra_json ?? null
+    ];
+    return new Promise<number>((resolve, reject) => {
+      this.db!.run(sql, params, function(this: any, err: any) {
+        if (err) {
+          console.error('Error saving monitoring snapshot:', err);
+          reject(err);
+        } else {
+          resolve(this?.lastID ?? 0);
+        }
+      });
+    });
+  }
+
+  // 新增：查询最近的门控（GATED）监控快照，按 id 倒序
+  async listGatedMonitoring(
+    limit: number = 500,
+    offset: number = 0,
+    filters?: {
+      recommendation_id?: string;
+      gid?: string; // alias of recommendation_id
+      symbol?: string;
+      direction?: 'LONG' | 'SHORT';
+      reason?: string;
+      stage?: string;
+      source?: string;
+      timeStart?: string | number | Date; // inclusive
+      timeEnd?: string | number | Date;   // inclusive
+    }
+  ): Promise<Array<{
+    id: number;
+    recommendation_id: string;
+    check_time: string;
+    current_price: number;
+    gid?: string | null;
+    symbol?: string | null;
+    direction?: 'LONG' | 'SHORT' | null;
+    reason?: string | null;
+    stage?: string | null;
+    source?: string | null;
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    const cap = Math.max(0, Math.min(Number(limit) || 0, 2000));
+    const off = Math.max(0, Number(offset) || 0);
+
+    const where: string[] = [];
+    const args: any[] = [];
+
+    // 仅选择 GATED 记录（利用 recommendation_id 前缀 GATED|symbol|dir|ts）
+    where.push("recommendation_id LIKE 'GATED|%'");
+
+    const toIso = (v: any): string | undefined => {
+      if (v == null) return undefined;
+      if (v instanceof Date) return v.toISOString();
+      const n = Number(v);
+      if (Number.isFinite(n)) return new Date(n).toISOString();
+      const d = new Date(String(v));
+      if (!isNaN(d.getTime())) return d.toISOString();
+      return undefined;
+    };
+
+    // 时间范围
+    const fromIso = toIso(filters?.timeStart);
+    const toIsoStr = toIso(filters?.timeEnd);
+    if (fromIso) { where.push('check_time >= ?'); args.push(fromIso); }
+    if (toIsoStr) { where.push('check_time <= ?'); args.push(toIsoStr); }
+
+    // 精确或前缀匹配 recommendation_id
+    const recId = filters?.recommendation_id || filters?.gid;
+    if (recId) {
+      where.push('recommendation_id = ?');
+      args.push(String(recId));
+    } else {
+      const sym = filters?.symbol ? String(filters.symbol).toUpperCase() : undefined;
+      const dir = filters?.direction && (filters.direction === 'LONG' || filters.direction === 'SHORT') ? filters.direction : undefined;
+      if (sym && dir) {
+        where.push('recommendation_id LIKE ?');
+        args.push(`GATED|${sym}|${dir}|%`);
+      } else if (sym) {
+        where.push('recommendation_id LIKE ?');
+        args.push(`GATED|${sym}|%`);
+      } else if (dir) {
+        where.push('recommendation_id LIKE ?');
+        args.push(`GATED|%|${dir}|%`);
+      }
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const sql = `SELECT id, recommendation_id, check_time, current_price, extra_json FROM recommendation_monitoring ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`;
+
+    return new Promise((resolve, reject) => {
+      this.db!.all(sql, [...args, cap, off], (err, rows: any[]) => {
+        if (err) return reject(err);
+        const items: any[] = [];
+        for (const r of rows || []) {
+          let ej: any = null;
+          try { ej = JSON.parse(r.extra_json || 'null'); } catch { ej = null; }
+          const type = ej?.type || ej?.event?.type;
+          if (type === 'GATED') {
+            const reason = ej?.reason || ej?.event?.reason || null;
+            const stage = ej?.stage || ej?.event?.stage || null;
+            const source = ej?.source || ej?.event?.source || null;
+            const symbol = ej?.symbol || ej?.event?.symbol || null;
+            const direction = ej?.direction || ej?.event?.direction || null;
+            const gid = ej?.gid || ej?.event?.gid || String(r.recommendation_id || '');
+
+            // JS 层补充过滤（字段在 JSON 中）
+            if (filters?.reason && String(filters.reason) !== String(reason)) continue;
+            if (filters?.stage && String(filters.stage) !== String(stage)) continue;
+            if (filters?.source && String(filters.source) !== String(source)) continue;
+            if (filters?.symbol && String(filters.symbol).toUpperCase() !== String(symbol || '').toUpperCase()) continue;
+            if (filters?.direction && (direction !== 'LONG' && direction !== 'SHORT' || filters.direction !== direction)) continue;
+
+            items.push({
+              id: Number(r.id),
+              recommendation_id: String(r.recommendation_id),
+              check_time: String(r.check_time),
+              current_price: Number(r.current_price),
+              gid, symbol, direction, reason, stage, source
+            });
+          }
+        }
+        resolve(items);
+      });
+    });
+  }
+
+  private async migrateSchema(): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.db!.all("PRAGMA table_info(ml_samples)", [], (err, rows: any[]) => {
+        if (err) {
+          return reject(err);
+        }
+        const hasCalibrated = Array.isArray(rows) && rows.some((r: any) => r.name === 'ml_calibrated_confidence');
+        if (!hasCalibrated) {
+          this.db!.run("ALTER TABLE ml_samples ADD COLUMN ml_calibrated_confidence REAL", (alterErr: Error | null) => {
+            if (alterErr) {
+              console.error('Error migrating ml_samples schema:', alterErr);
+              return reject(alterErr);
+            }
+          });
+        }
+        // 新增：为 recommendations 增加 exit_label 列，并进行一次性回填（幂等）
+        this.db!.all("PRAGMA table_info(recommendations)", [], (err2, recRows: any[]) => {
+          if (err2) {
+            return reject(err2);
+          }
+          const hasExitLabel = Array.isArray(recRows) && recRows.some((r: any) => r.name === 'exit_label');
+          const hasDedupeKey = Array.isArray(recRows) && recRows.some((r: any) => r.name === 'dedupe_key');
+          const doBackfill = () => {
+            const backfillSql = `
+              UPDATE recommendations
+              SET exit_label = CASE
+                WHEN exit_reason = 'TIMEOUT' THEN 'TIMEOUT'
+                WHEN exit_reason = 'BREAKEVEN' OR result = 'BREAKEVEN' THEN 'BREAKEVEN'
+                WHEN result = 'WIN' THEN 'DYNAMIC_TAKE_PROFIT'
+                WHEN result = 'LOSS' THEN 'DYNAMIC_STOP_LOSS'
+                WHEN pnl_percent IS NOT NULL AND pnl_percent > 0.1 THEN 'DYNAMIC_TAKE_PROFIT'
+                WHEN pnl_percent IS NOT NULL AND pnl_percent < -0.1 THEN 'DYNAMIC_STOP_LOSS'
+                ELSE 'BREAKEVEN'
+              END
+              WHERE exit_label IS NULL AND (status = 'CLOSED' OR status = 'EXPIRED' OR result IS NOT NULL OR exit_reason IS NOT NULL)
+            `;
+            this.db!.run(backfillSql, (bfErr: Error | null) => {
+              if (bfErr) {
+                console.error('Error backfilling exit_label:', bfErr);
+                // 回填失败不应阻断初始化，打印警告后继续
+              }
+              // Ensure recommendation_monitoring has extra_json column (idempotent)
+              this.db!.all("PRAGMA table_info(recommendation_monitoring)", [], (mErr, mRows: any[]) => {
+                if (mErr) {
+                  console.warn('Failed to inspect recommendation_monitoring schema (non-fatal):', mErr);
+                  return resolve();
+                }
+                const hasExtra = Array.isArray(mRows) && mRows.some((r: any) => r.name === 'extra_json');
+                const afterMonitoring = () => {
+                  this.db!.all("PRAGMA table_info(recommendations)", [], (err3, recRows2: any[]) => {
+                    if (err3) {
+                      console.warn('Failed to inspect recommendations schema for EV columns (non-fatal):', err3);
+                      return resolve();
+                    }
+                    const hasExpected = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'expected_return');
+                    const hasEv = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ev');
+                    const hasEvTh = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ev_threshold');
+                    const hasEvOk = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ev_ok');
+                    const hasAB = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ab_group');
+                    const alters: string[] = [];
+                    if (!hasExpected) alters.push("ALTER TABLE recommendations ADD COLUMN expected_return REAL");
+                    if (!hasEv) alters.push("ALTER TABLE recommendations ADD COLUMN ev REAL");
+                    if (!hasEvTh) alters.push("ALTER TABLE recommendations ADD COLUMN ev_threshold REAL");
+                    if (!hasEvOk) alters.push("ALTER TABLE recommendations ADD COLUMN ev_ok INTEGER");
+                    if (!hasAB) alters.push("ALTER TABLE recommendations ADD COLUMN ab_group TEXT");
+                    if (alters.length === 0) return resolve();
+                    const runNext = (i: number) => {
+                      if (i >= alters.length) return resolve();
+                      this.db!.run(alters[i], (aErr: Error | null) => {
+                        if (aErr) {
+                          console.warn('EV schema migrate step failed (non-fatal):', alters[i], aErr);
+                        }
+                        runNext(i + 1);
+                      });
+                    };
+                    runNext(0);
+                  });
+                };
+                if (!hasExtra) {
+                  this.db!.run("ALTER TABLE recommendation_monitoring ADD COLUMN extra_json TEXT", (alterErr: Error | null) => {
+                    if (alterErr) {
+                      console.warn('Error migrating recommendation_monitoring schema (add extra_json):', alterErr);
+                    }
+                    afterMonitoring();
+                  });
+                } else {
+                  afterMonitoring();
+                }
+              });
+            });
+          };
+
+          const ensureUniqueIndex = () => {
+            // 幂等创建唯一索引
+            this.db!.run("CREATE UNIQUE INDEX IF NOT EXISTS ux_recommendations_dedupe_key ON recommendations(dedupe_key)", (idxErr: Error | null) => {
+              if (idxErr) {
+                console.warn('Create unique index for dedupe_key failed (non-fatal):', idxErr);
+              }
+              // 继续执行 backfill 流程
+              if (hasExitLabel) return doBackfill();
+              this.db!.run("ALTER TABLE recommendations ADD COLUMN exit_label TEXT", (alterErr2: Error | null) => {
+                if (alterErr2) {
+                  console.error('Error migrating recommendations schema (add exit_label):', alterErr2);
+                  return reject(alterErr2);
+                }
+                doBackfill();
+              });
+            });
+          };
+
+          if (!hasDedupeKey) {
+            this.db!.run("ALTER TABLE recommendations ADD COLUMN dedupe_key TEXT", (alterErr3: Error | null) => {
+              if (alterErr3) {
+                console.error('Error migrating recommendations schema (add dedupe_key):', alterErr3);
+                // 不中断，可能已经存在或 SQLite 版本不支持部分场景
+              }
+              ensureUniqueIndex();
+            });
+          } else {
+            ensureUniqueIndex();
+          }
+        });
+      });
+    });
   }
 }
 

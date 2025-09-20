@@ -3,6 +3,10 @@ import { ethStrategyEngine } from './strategy/eth-strategy-engine'
 import { webServer } from './server/web-server'
 import { enhancedOKXDataService } from './services/enhanced-okx-data-service'
 import { recommendationDatabase } from './services/recommendation-database'
+import axios from 'axios'
+import { spawn, ChildProcessWithoutNullStreams } from 'child_process'
+import path from 'path'
+import fs from 'fs'
 
 /**
  * ETH合约策略分析应用程序主入口
@@ -12,6 +16,8 @@ class ETHStrategyApp {
   private isRunning = false;
   private shutdownHandlers: (() => Promise<void>)[] = [];
   private labelScheduler?: NodeJS.Timeout;
+  // 新增：Kronos 子进程句柄
+  private kronosProc?: ChildProcessWithoutNullStreams;
 
   constructor() {
     this.setupGracefulShutdown();
@@ -46,6 +52,10 @@ class ETHStrategyApp {
       console.log('🤖 启动策略引擎...');
       await ethStrategyEngine.start();
       console.log('✅ 策略引擎启动成功');
+
+      // 新增：跟随服务启动本地 Kronos 模型服务（若启用）
+      // 不阻塞主启动流程，准备就绪后会自动触发一次分析
+      void this.startKronosServiceIfEnabled();
 
       // 启动 ML 标签回填定时任务
       await this.startMLLabelBackfillScheduler();
@@ -168,6 +178,155 @@ class ETHStrategyApp {
       console.log(`🧪 ML 标签回填调度已启动（间隔 ${pollMs}ms，默认窗口 ${defaultHorizon} 分钟）`);
     } catch (e) {
       console.warn('无法启动 ML 标签回填调度：', (e as any)?.message ?? e);
+    }
+  }
+
+  // 新增：按需启动本地 Kronos Python 服务，并在就绪后立即触发一次策略分析
+  private async startKronosServiceIfEnabled(): Promise<void> {
+    try {
+      const kronosCfg = (config as any)?.strategy?.kronos;
+      const enabled = !!kronosCfg?.enabled;
+      const baseUrl: string | undefined = kronosCfg?.baseUrl;
+      if (!enabled) {
+        console.log('ℹ️ Kronos 未启用，跳过本地模型服务启动');
+        return;
+      }
+
+      // 仅当 baseUrl 指向本机默认端口时才自动拉起本地服务
+      let shouldAutostart = false;
+      try {
+        const u = new URL(baseUrl || 'http://localhost:8001');
+        const host = (u.hostname || '').toLowerCase();
+        const port = Number(u.port || 80);
+        shouldAutostart = (host === 'localhost' || host === '127.0.0.1') && port === 8001;
+        if (!shouldAutostart) {
+          console.warn(`⚠️ Kronos baseUrl 非本地默认端口(${u.origin})，将不会自动启动本地Python服务；如需自动启动，请将 KRONOS_BASE_URL 配置为 http://localhost:8001`);
+        }
+      } catch {
+        // 解析失败则尝试默认
+        shouldAutostart = true;
+      }
+
+      if (!shouldAutostart) {
+        // 不自动拉起，但仍尝试健康检查，若就绪则触发一次即时分析
+        await this.waitKronosReadyAndTrigger(baseUrl || 'http://localhost:8001');
+        return;
+      }
+
+      const appPath = path.resolve(process.cwd(), 'kronos-service', 'app.py');
+      if (!fs.existsSync(appPath)) {
+        console.warn(`⚠️ 未找到本地 Kronos 服务入口: ${appPath}，跳过自动启动`);
+        // 尝试直接等待远端（或自有）服务就绪
+        await this.waitKronosReadyAndTrigger(baseUrl || 'http://localhost:8001');
+        return;
+      }
+
+      if (this.kronosProc) {
+        // 已有进程在运行
+        await this.waitKronosReadyAndTrigger(baseUrl || 'http://localhost:8001');
+        return;
+      }
+
+      console.log('🧠 启动本地 Kronos 模型服务...');
+
+      const trySpawn = (cmd: string, args: string[]) => {
+        try {
+          const p = spawn(cmd, args, {
+            cwd: path.dirname(appPath),
+            env: process.env,
+            stdio: 'pipe'
+          });
+          return p;
+        } catch {
+          return undefined;
+        }
+      };
+
+      // 优先顺序：环境变量 PYTHON -> python -> py
+      const candidates: Array<[string, string[]]> = [];
+      if (process.env.PYTHON) candidates.push([process.env.PYTHON, [appPath]]);
+      candidates.push(['python', [appPath]]);
+      // Windows 常见 Python 启动器
+      candidates.push(['py', ['-3', appPath]]);
+      candidates.push(['py', [appPath]]);
+
+      let proc: ChildProcessWithoutNullStreams | undefined;
+      for (const [cmd, args] of candidates) {
+        proc = trySpawn(cmd, args);
+        if (proc) {
+          this.kronosProc = proc;
+          break;
+        }
+      }
+
+      if (!this.kronosProc) {
+        console.error('❌ 无法启动 Kronos Python 服务：未找到可用的 Python 解释器（请确保已安装 Python 并在 PATH 中）');
+        // 即使未能启动本地服务，也尝试等待可能已在运行的远端/本地服务
+        await this.waitKronosReadyAndTrigger(baseUrl || 'http://localhost:8001');
+        return;
+      }
+
+      // 日志输出
+      this.kronosProc.stdout.on('data', (d: Buffer) => {
+        const s = d.toString().trim();
+        if (s) console.log(`[KRONOS] ${s}`);
+      });
+      this.kronosProc.stderr.on('data', (d: Buffer) => {
+        const s = d.toString().trim();
+        if (s) console.warn(`[KRONOS:ERR] ${s}`);
+      });
+      this.kronosProc.on('exit', (code, signal) => {
+        console.warn(`⚠️ Kronos 服务已退出 (code=${code}, signal=${signal})`);
+        this.kronosProc = undefined;
+      });
+
+      // 关闭时终止 Kronos
+      this.addShutdownHandler(async () => {
+        if (this.kronosProc && !this.kronosProc.killed) {
+          console.log('🛑 终止本地 Kronos 模型服务...');
+          try { this.kronosProc.kill(); } catch {}
+          this.kronosProc = undefined;
+        }
+      });
+
+      // 等待就绪并触发一次分析
+      await this.waitKronosReadyAndTrigger(baseUrl || 'http://localhost:8001');
+    } catch (e) {
+      console.warn('启动 Kronos 服务失败：', (e as any)?.message ?? e);
+    }
+  }
+
+  // 新增：等待 Kronos /health 就绪，并在就绪后触发一次即时分析
+  private async waitKronosReadyAndTrigger(baseUrl: string): Promise<void> {
+    const healthUrl = `${(baseUrl || 'http://localhost:8001').replace(/\/$/, '')}/health`;
+    const startTs = Date.now();
+    const timeoutMs = Math.min(Math.max(Number((config as any)?.strategy?.kronos?.timeoutMs) || 1200, 800), 10000);
+    const deadline = startTs + timeoutMs;
+    let ready = false;
+    while (Date.now() < deadline && !ready) {
+      try {
+        const resp = await axios.get(healthUrl, { timeout: 600 });
+        if (resp.status === 200) {
+          ready = true;
+          break;
+        }
+      } catch {
+        // 未就绪，稍后重试
+      }
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    if (ready) {
+      console.log('✅ Kronos 服务已就绪');
+      // 就绪后立即触发一次策略分析（不阻塞）
+      try {
+        void ethStrategyEngine.analyzeMarket();
+        console.log('🟢 已在 Kronos 就绪后触发一次即时分析');
+      } catch (e) {
+        console.warn('无法触发即时分析：', (e as any)?.message ?? e);
+      }
+    } else {
+      console.warn('⏱️ Kronos 健康检查超时，将在后续分析循环中按需调用');
     }
   }
 

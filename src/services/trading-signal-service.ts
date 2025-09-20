@@ -1,6 +1,6 @@
 import { MultiFactorAnalyzer, MultiFactorAnalysisResult } from '../analyzers/multi-factor-analyzer';
 import { HighWinrateAlgorithm, HighWinrateSignal } from '../algorithms/high-winrate-algorithm';
-import { EnhancedOKXDataService } from './enhanced-okx-data-service';
+import { EnhancedOKXDataService, getEffectiveTestingFGIOverride } from './enhanced-okx-data-service';
 import { MarketData } from '../ml/ml-analyzer';
 import { config } from '../config';
 import { riskManagementService } from './risk-management-service';
@@ -980,6 +980,13 @@ export class TradingSignalService {
   // 获取恐惧与贪婪指数（FGI），返回 0-100；失败返回 null
   private async fetchFGIScore(): Promise<number | null> {
     try {
+      // 覆盖优先（若启用）
+      if (((config as any)?.testing?.allowFGIOverride) === true) {
+        const ov = getEffectiveTestingFGIOverride();
+        if (typeof ov === 'number' && Number.isFinite(ov)) {
+          return Math.max(0, Math.min(100, ov));
+        }
+      }
       const url = process.env.FGI_API_URL || 'https://api.alternative.me/fng/?limit=1&format=json';
       const resp = await axios.get(url, { timeout: config.okx?.timeout ?? 30000 });
       const data = (resp?.data && (resp.data.data || resp.data.result || resp.data.items)) || resp?.data?.data;

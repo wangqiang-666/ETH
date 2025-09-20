@@ -1,7 +1,0 @@
-{
-  "analysisInterval": 12000,
-  "signalCooldownMs": 0,
-  "kronos": {
-    "enabled": true
-  }
-}

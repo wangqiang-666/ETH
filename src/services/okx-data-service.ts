@@ -103,6 +103,12 @@ export class OKXDataService {
   private rateLimitDelay = 100; // 请求间隔，避免触发限流
   private lastRequestTime = 0;
 
+  // 新增：是否禁用外部行情请求（CI/本地防网络调用）
+  private isExternalDisabled(): boolean {
+    const v = (process.env.WEB_DISABLE_EXTERNAL_MARKET || '').toLowerCase();
+    return v === '1' || v === 'true';
+  }
+
   constructor() {
     // 当 forceOnly 为 true 时，始终走代理
     this.useProxy = (config.proxy.forceOnly || config.okx.useProxy);
@@ -149,6 +155,10 @@ export class OKXDataService {
   // 获取Ticker数据
   async getTicker(symbol: string = 'ETH-USDT-SWAP'): Promise<MarketData | null> {
     try {
+      // 新增：环境禁用守卫
+      if (this.isExternalDisabled()) {
+        return null;
+      }
       await this.waitForRateLimit();
       
       let response: OKXTickerResponse;
@@ -199,6 +209,10 @@ export class OKXDataService {
     limit: number = 100
   ): Promise<KlineData[]> {
     try {
+      // 新增：环境禁用守卫
+      if (this.isExternalDisabled()) {
+        return [];
+      }
       await this.waitForRateLimit();
       
       let response: OKXKlineResponse;
@@ -246,19 +260,19 @@ export class OKXDataService {
   // 获取资金费率
   async getFundingRate(symbol: string = 'ETH-USDT-SWAP'): Promise<number | null> {
     try {
+      // 新增：环境禁用守卫
+      if (this.isExternalDisabled()) {
+        return null;
+      }
       await this.waitForRateLimit();
       
       let response: OKXFundingRateResponse;
       
       if (this.useProxy && this.proxyClient) {
-        const proxyResponse = await this.proxyClient.get(
-          `/api/v5/public/funding-rate?instId=${symbol}`
-        );
+        const proxyResponse = await this.proxyClient.get(`/api/v5/public/funding-rate?instId=${symbol}`);
         response = proxyResponse.data;
       } else {
-        const apiResponse = await this.apiClient.get(
-          `/api/v5/public/funding-rate?instId=${symbol}`
-        );
+        const apiResponse = await this.apiClient.get(`/api/v5/public/funding-rate?instId=${symbol}`);
         response = apiResponse.data;
       }
 
@@ -278,19 +292,19 @@ export class OKXDataService {
   // 获取持仓量
   async getOpenInterest(symbol: string = 'ETH-USDT-SWAP'): Promise<number | null> {
     try {
+      // 新增：环境禁用守卫
+      if (this.isExternalDisabled()) {
+        return null;
+      }
       await this.waitForRateLimit();
       
       let response: OKXOpenInterestResponse;
       
       if (this.useProxy && this.proxyClient) {
-        const proxyResponse = await this.proxyClient.get(
-          `/api/v5/public/open-interest?instId=${symbol}`
-        );
+        const proxyResponse = await this.proxyClient.get(`/api/v5/public/open-interest?instId=${symbol}`);
         response = proxyResponse.data;
       } else {
-        const apiResponse = await this.apiClient.get(
-          `/api/v5/public/open-interest?instId=${symbol}`
-        );
+        const apiResponse = await this.apiClient.get(`/api/v5/public/open-interest?instId=${symbol}`);
         response = apiResponse.data;
       }
 

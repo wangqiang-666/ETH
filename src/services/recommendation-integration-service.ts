@@ -1,5 +1,5 @@
-import { RecommendationTracker, CooldownError } from './recommendation-tracker';
-import { RecommendationDatabase } from './recommendation-database';
+import { RecommendationTracker, CooldownError, OppositeConstraintError, ExposureLimitError, ExposureCapError, MTFConsistencyError } from './recommendation-tracker';
+import { RecommendationDatabase, ExecutionRecord } from './recommendation-database';
 import { StatisticsCalculator } from './statistics-calculator';
 import { PriceMonitor } from './price-monitor';
 import { RecommendationAPI } from '../api/recommendation-api';
@@ -90,6 +90,8 @@ export class RecommendationIntegrationService extends EventEmitter {
           const recommendationId = await this.tracker.addRecommendation(recInput);
           this.positionToRecommendation.set(position.positionId, recommendationId);
           this.emit('recommendation_created_from_position', { positionId: position.positionId, recommendationId });
+          // 新增：保存开仓执行记录
+          await this.recordExecution('OPEN', payload, { recId: recommendationId });
         } catch (e) {
           console.error('[Integration] failed to create recommendation from position-opened:', e);
         }
@@ -107,6 +109,15 @@ export class RecommendationIntegrationService extends EventEmitter {
           await this.database.updateTargetPrices(recId, {
             stop_loss_price: position.entryPrice ?? undefined
           });
+          // 同步更新内存中的跟踪对象，便于追踪止损立即生效
+          try {
+            const list = this.tracker.getActiveRecommendations();
+            const rec = list.find(r => r.id === recId);
+            if (rec && typeof position.entryPrice === 'number') {
+              rec.stop_loss_price = position.entryPrice;
+              rec.updated_at = new Date();
+            }
+          } catch {}
         } catch (e) {
           console.warn('[Integration] updateTargetPrices on TP1 failed:', (e as any)?.message || String(e));
         }
@@ -124,6 +135,18 @@ export class RecommendationIntegrationService extends EventEmitter {
             stop_loss_price: position.tp1 ?? position.stopLoss ?? undefined,
             take_profit_price: position.tp3 ?? position.takeProfit ?? undefined
           });
+          // 同步更新内存中的跟踪对象
+          try {
+            const list = this.tracker.getActiveRecommendations();
+            const rec = list.find(r => r.id === recId);
+            if (rec) {
+              if (typeof position.tp1 === 'number') rec.stop_loss_price = position.tp1;
+              else if (typeof position.stopLoss === 'number') rec.stop_loss_price = position.stopLoss;
+              if (typeof position.tp3 === 'number') rec.take_profit_price = position.tp3;
+              else if (typeof position.takeProfit === 'number') rec.take_profit_price = position.takeProfit;
+              rec.updated_at = new Date();
+            }
+          } catch {}
         } catch (e) {
           console.warn('[Integration] updateTargetPrices on TP2 failed:', (e as any)?.message || String(e));
         }
@@ -135,6 +158,12 @@ export class RecommendationIntegrationService extends EventEmitter {
         if (!position?.positionId) return;
         const recId = this.positionToRecommendation.get(position.positionId);
         if (!recId) return;
+        // 新增：保存减仓执行记录
+        try {
+          await this.recordExecution('REDUCE', payload, { recId });
+        } catch (e) {
+          console.warn('[Integration] failed to save reduce execution:', (e as any)?.message || String(e));
+        }
         // 暂不需要数据库变更，仅打点
         this.emit('recommendation_partial_close', { recommendationId: recId, reductionRatio: payload?.reductionRatio });
       });
@@ -147,6 +176,12 @@ export class RecommendationIntegrationService extends EventEmitter {
           if (!posId) return;
           const recId = this.positionToRecommendation.get(posId);
           if (!recId) return;
+          // 新增：保存平仓执行记录（优先记录，再关闭推荐）
+          try {
+            await this.recordExecution('CLOSE', payload, { recId });
+          } catch (e) {
+            console.warn('[Integration] failed to save close execution:', (e as any)?.message || String(e));
+          }
           const reason: string = payload?.reason || 'MANUAL';
           await this.tracker.manualCloseRecommendation(recId, reason);
           this.positionToRecommendation.delete(posId);
@@ -161,6 +196,111 @@ export class RecommendationIntegrationService extends EventEmitter {
       console.log('Event listeners setup completed (using polling mode)');
     }
    }
+  
+  // 新增：统一记录执行的方法
+  private async recordExecution(
+    eventType: 'OPEN' | 'CLOSE' | 'REDUCE',
+    payload: any,
+    opts?: { recId?: string }
+  ): Promise<void> {
+    try {
+      const position = payload?.position;
+      if (!position?.positionId) return;
+      const trade = payload?.trade;
+      const recommendationId = opts?.recId || this.positionToRecommendation.get(position.positionId) || null;
+
+      const commission = Number(((config as any)?.commission) ?? 0.001);
+      const feeBps = Math.round(commission * 10000);
+
+      // 公共字段
+      const symbol: string = position.symbol || (config as any)?.trading?.defaultSymbol || 'ETH-USDT-SWAP';
+      const direction: 'LONG' | 'SHORT' = position.side;
+
+      let fill_price: number | null = null;
+      let fill_timestamp: number | null = null;
+      let size: number | null = null;
+      let intended_timestamp: number | null = null;
+      let intended_price: number | null = null;
+      let pnl_amount: number | null = null;
+      let pnl_percent: number | null = null;
+
+      if (eventType === 'OPEN') {
+        fill_price = Number(position.entryPrice);
+        fill_timestamp = Number(position.timestamp);
+        size = Number(position.size);
+        intended_timestamp = Number(payload?.strategyResult?.signal?.metadata?.timestamp) || null;
+        // 暂无独立意向价来源，默认以入场价作为意向价（滑点=0），后续可接入下单前报价
+        intended_price = fill_price;
+      } else if (eventType === 'CLOSE' || eventType === 'REDUCE') {
+        if (!trade) return;
+        fill_price = Number(trade.price);
+        fill_timestamp = Number(trade.timestamp);
+        size = Number(trade.size);
+        intended_timestamp = Number(trade?.strategySignal?.metadata?.timestamp) || null;
+        // 暂无独立意向价来源，默认以成交价作为意向价（滑点=0）
+        intended_price = fill_price;
+        pnl_amount = typeof trade.pnl === 'number' ? Number(trade.pnl) : null;
+        pnl_percent = typeof trade.pnlPercent === 'number' ? Number(trade.pnlPercent) : null;
+      }
+
+      const latency_ms = intended_timestamp && fill_timestamp ? Math.max(0, fill_timestamp - intended_timestamp) : null;
+
+      let slippage_amount: number | null = null;
+      let slippage_bps: number | null = null;
+      if (typeof fill_price === 'number' && typeof intended_price === 'number' && isFinite(fill_price) && isFinite(intended_price) && intended_price > 0) {
+        slippage_amount = fill_price - intended_price;
+        slippage_bps = (slippage_amount / intended_price) * 10000;
+      }
+
+      const fee_amount = (typeof size === 'number' && typeof fill_price === 'number') ? Math.abs(size) * fill_price * commission : null;
+
+      const extra = {
+        source: 'STRATEGY_ENGINE',
+        reason: payload?.reason,
+        positionId: position.positionId
+      } as any;
+
+      const exe: ExecutionRecord = {
+        created_at: new Date(),
+        updated_at: new Date(),
+        recommendation_id: recommendationId,
+        position_id: position.positionId,
+        event_type: eventType,
+        symbol,
+        direction,
+        size,
+        intended_price,
+        intended_timestamp,
+        fill_price,
+        fill_timestamp,
+        latency_ms,
+        slippage_bps,
+        slippage_amount,
+        fee_bps: feeBps,
+        fee_amount,
+        pnl_amount,
+        pnl_percent,
+        extra_json: JSON.stringify(extra)
+      };
+
+      try {
+        await this.database.saveExecution(exe);
+      } catch (err: any) {
+        if (err && /Database not initialized/i.test(String(err.message || err))) {
+          try {
+            await this.database.initialize();
+            await this.database.saveExecution(exe);
+          } catch (e2) {
+            console.error('[Integration] saveExecution retry failed:', e2);
+          }
+        } else {
+          console.error('[Integration] saveExecution failed:', err);
+        }
+      }
+    } catch (e) {
+      console.warn('[Integration] recordExecution error:', (e as any)?.message || String(e));
+    }
+  }
   
   /**
    * 初始化推荐系统
@@ -326,8 +466,19 @@ export class RecommendationIntegrationService extends EventEmitter {
       // 获取当前活跃推荐
       const active = this.tracker.getActiveRecommendations();
       const hasActive = active && active.length > 0;
-      const hasLong = active.some(r => r.direction === 'LONG' && r.status === 'ACTIVE');
-      const hasShort = active.some(r => r.direction === 'SHORT' && r.status === 'ACTIVE');
+      const nowTs = Date.now();
+      const concurrencyAgeHours = Number((config as any)?.recommendation?.concurrencyCountAgeHours ?? 24);
+      const countCandidates = Array.isArray(active)
+        ? active.filter(r => r.status === 'ACTIVE' && (
+            // 若配置<=0，则不过滤，全部计入；否则仅统计未超过窗口的推荐
+            concurrencyAgeHours <= 0 || ((nowTs - r.created_at.getTime()) / (1000 * 60 * 60) < concurrencyAgeHours)
+          ))
+        : [];
+      const hasLong = countCandidates.some(r => r.direction === 'LONG');
+      const hasShort = countCandidates.some(r => r.direction === 'SHORT');
+      const maxSameDir = Number((config as any)?.risk?.maxSameDirectionActives ?? 2);
+      const longCount = countCandidates.filter(r => r.direction === 'LONG').length;
+      const shortCount = countCandidates.filter(r => r.direction === 'SHORT').length;
 
       // 适配新版结构：recommendation 为对象，使用 action 字段
       const action = strategyResult?.recommendation?.action as string | undefined;
@@ -362,6 +513,11 @@ export class RecommendationIntegrationService extends EventEmitter {
           console.log('Risk level too high for auto recommendation');
           return;
         }
+        // 净敞口限流：限制同向活跃数上限
+        if ((action === 'OPEN_LONG' && longCount >= maxSameDir) || (action === 'OPEN_SHORT' && shortCount >= maxSameDir)) {
+          console.log(`Same-direction active recommendations reached limit (${maxSameDir}), skip auto open`);
+          return;
+        }
         // 若已有同向活跃单，仍允许并存；若已有反向活跃单，尊重开关与最低置信度
         if ((hasActive && ((action === 'OPEN_LONG' && hasShort) || (action === 'OPEN_SHORT' && hasLong)))) {
           if (!allowOpposite || confidence < oppositeMinConf) {
@@ -385,10 +541,8 @@ export class RecommendationIntegrationService extends EventEmitter {
           source: 'AUTO_GENERATION',
           is_strategy_generated: true,
           exclude_from_ml: false,
-          status: 'PENDING' as const,
-          // 允许在“反向并存”开启的情况下绕过冷却，以免被 last same-symbol 限制
-          ...(allowOpposite ? { bypass_cooldown: true } : {})
-        } as any;
+          status: 'PENDING' as const
+        };
         const recommendationId = await this.tracker.addRecommendation(recommendation);
         this.postRecommendationToDBAPI(recommendationId, recommendation).catch(err => {
           console.warn('Sync to DB API failed (auto generation):', err?.message || err);
@@ -402,6 +556,11 @@ export class RecommendationIntegrationService extends EventEmitter {
       if (allowOpposite && hasActive && direction && (riskAssessment.riskLevel !== 'HIGH' || allowAutoOnHighRisk)) {
         // 仅在存在反向持仓/推荐时触发
         const isOppositeToActive = (direction === 'LONG' && hasShort) || (direction === 'SHORT' && hasLong);
+        // 净敞口限流（方向来自推导）
+        if ((direction === 'LONG' && longCount >= maxSameDir) || (direction === 'SHORT' && shortCount >= maxSameDir)) {
+          console.log(`Same-direction active recommendations reached limit (${maxSameDir}), skip opposite co-existence open`);
+          return;
+        }
         if (isOppositeToActive && (signal.confidence ?? confidence) >= oppositeMinConf) {
           const recommendation = {
             symbol: config.trading.defaultSymbol,
@@ -418,9 +577,8 @@ export class RecommendationIntegrationService extends EventEmitter {
             source: 'AUTO_GENERATION',
             is_strategy_generated: true,
             exclude_from_ml: false,
-            status: 'PENDING' as const,
-            bypass_cooldown: true
-          } as any;
+            status: 'PENDING' as const
+          };
           const recommendationId = await this.tracker.addRecommendation(recommendation);
           this.postRecommendationToDBAPI(recommendationId, recommendation).catch(err => {
             console.warn('Sync to DB API failed (auto generation opposite):', err?.message || err);
@@ -452,11 +610,11 @@ export class RecommendationIntegrationService extends EventEmitter {
       const enrichedData = {
         ...recommendationData,
         source: recommendationData.source || 'MANUAL',
-        is_strategy_generated: false,
+        is_strategy_generated: (recommendationData as any)?.is_strategy_generated ?? false,
         exclude_from_ml: recommendationData.exclude_from_ml || false
       };
       
-      const recommendationId = await this.tracker.addRecommendation(enrichedData);
+      const recommendationId = await this.tracker.addRecommendation(enrichedData, { bypassCooldown: (recommendationData as any)?.bypassCooldown === true });
       this.postRecommendationToDBAPI(recommendationId, enrichedData).catch(err => {
         console.warn('Sync to DB API failed (manual create):', err?.message || err);
       });
@@ -464,8 +622,15 @@ export class RecommendationIntegrationService extends EventEmitter {
       return recommendationId;
       
     } catch (error) {
-      if (error instanceof CooldownError) {
-        // 交由上层(API)统一映射为 429
+      if (
+        error instanceof CooldownError ||
+        error instanceof OppositeConstraintError ||
+        error instanceof ExposureLimitError
+      ) {
+        try {
+          await this.logGatingDecision('MANUAL', recommendationData, error);
+        } catch {}
+        // 交由上层(API)统一映射状态码
         throw error;
       }
       console.error('Failed to create recommendation manually:', error);
@@ -512,12 +677,29 @@ export class RecommendationIntegrationService extends EventEmitter {
         signal_strength: strategyResult.strength || 0.5,
         source: 'STRATEGY_ENGINE',
         is_strategy_generated: true,
-        exclude_from_ml: false
+        exclude_from_ml: false,
+        // 透传 EV 相关字段（兼容不同命名）
+        expected_return: strategyResult?.performance?.expectedReturn ?? strategyResult?.gating?.ev,
+        ev: strategyResult?.gating?.ev ?? strategyResult?.performance?.expectedReturn,
+        ev_threshold: strategyResult?.gating?.evThreshold,
+        ev_ok: strategyResult?.gating?.evOk,
+        ab_group: strategyResult?.recommendation?.ab_group ?? strategyResult?.ab_group
       };
       
       await this.createRecommendation(recommendation);
       
     } catch (error) {
+      if (
+        error instanceof CooldownError ||
+        error instanceof OppositeConstraintError ||
+        error instanceof ExposureLimitError
+      ) {
+        try {
+          await this.logGatingDecision('STRATEGY_ENGINE', strategyResult, error);
+        } catch {}
+        console.warn('[Integration] Strategy recommendation gated:', (error as any)?.message || String(error));
+        return;
+      }
       console.error('Error handling strategy recommendation:', error);
     }
   }
@@ -556,6 +738,17 @@ export class RecommendationIntegrationService extends EventEmitter {
       
       await this.createRecommendation(recommendation);
     } catch (error) {
+      if (
+        error instanceof CooldownError ||
+        error instanceof OppositeConstraintError ||
+        error instanceof ExposureLimitError
+      ) {
+        try {
+          await this.logGatingDecision('TRADING_SIGNAL_SERVICE', signal, error);
+        } catch {}
+        console.warn('[Integration] Trading signal gated:', (error as any)?.message || String(error));
+        return;
+      }
       console.error('Error handling trading signal:', error);
     }
   }
@@ -636,6 +829,101 @@ export class RecommendationIntegrationService extends EventEmitter {
     return this.priceMonitor;
   }
 
+  private async logGatingDecision(source: string, payload: any, error: any): Promise<void> {
+    try {
+      const upper = (v: any) => (typeof v === 'string' ? v.toUpperCase() : '');
+      const action = upper(payload?.recommendation?.action || payload?.action);
+      let dir: 'LONG' | 'SHORT' | null = (payload?.direction === 'LONG' || payload?.direction === 'SHORT') ? payload.direction : null;
+      if (!dir) {
+        if (action === 'OPEN_LONG' || action === 'BUY' || action === 'STRONG_BUY') dir = 'LONG';
+        else if (action === 'OPEN_SHORT' || action === 'SELL' || action === 'STRONG_SELL') dir = 'SHORT';
+      }
+      const direction = dir;
+      const symbol = String(payload?.symbol || payload?.recommendation?.symbol || config.trading.defaultSymbol || 'UNKNOWN');
+
+      const candidates = [
+        payload?.current_price,
+        payload?.entry_price,
+        payload?.price,
+        payload?.marketData?.price,
+        payload?.recommendation?.current_price,
+        payload?.recommendation?.entry_price
+      ];
+      let currentPrice = 0;
+      for (const c of candidates) {
+        const v = Number(c);
+        if (Number.isFinite(v) && v > 0) { currentPrice = v; break; }
+      }
+
+      const gid = `GATED|${symbol}|${direction || 'NA'}|${Date.now()}`;
+      const detail: any = {
+        type: 'GATED',
+        stage: 'INTEGRATION',
+        source,
+        symbol,
+        direction: direction || undefined
+      };
+
+      if (error instanceof CooldownError) {
+        // 兼容老字段并记录增强的细化信息
+        const kind = (error as any)?.kind as ('SAME_DIRECTION' | 'OPPOSITE' | 'GLOBAL' | undefined);
+        detail.reason = kind === 'SAME_DIRECTION' ? 'COOLDOWN_SAME_DIRECTION'
+          : kind === 'OPPOSITE' ? 'COOLDOWN_OPPOSITE'
+          : kind === 'GLOBAL' ? 'COOLDOWN_GLOBAL'
+          : 'COOLDOWN';
+        detail.remainingMs = (error as any)?.remainingMs;
+        detail.nextAvailableAt = (error as any)?.nextAvailableAt;
+        detail.cooldownKind = kind;
+        detail.cooldownDirection = (error as any)?.direction;
+        detail.usedCooldownMs = (error as any)?.usedCooldownMs;
+        detail.lastRecommendationId = (error as any)?.lastRecommendationId;
+        detail.lastCreatedAt = (error as any)?.lastCreatedAt;
+      } else if (error instanceof OppositeConstraintError) {
+        detail.reason = 'OPPOSITE_CONSTRAINT';
+        detail.subReason = (error as any)?.reason;
+        if ((error as any)?.confidence !== undefined) detail.confidence = (error as any).confidence;
+        if ((error as any)?.threshold !== undefined) detail.threshold = (error as any).threshold;
+        if ((error as any)?.oppositeActiveCount !== undefined) detail.oppositeActiveCount = (error as any).oppositeActiveCount;
+      } else if (error instanceof ExposureLimitError) {
+        detail.reason = 'EXPOSURE_LIMIT';
+      } else if (error instanceof ExposureCapError) {
+        detail.reason = 'EXPOSURE_CAP';
+        detail.totalCap = (error as any)?.totalCap;
+        detail.dirCap = (error as any)?.dirCap;
+        detail.currentTotal = (error as any)?.currentTotal;
+        detail.currentDirection = (error as any)?.currentDirection;
+        detail.adding = (error as any)?.adding;
+        detail.maxSameDirection = (error as any)?.maxSameDirection;
+        detail.currentCount = (error as any)?.currentCount;
+        detail.windowHours = (error as any)?.windowHours;
+      } else if (error instanceof MTFConsistencyError || (error as any)?.code === 'MTF_CONSISTENCY') {
+        detail.reason = 'MTF_CONSISTENCY';
+        detail.requireMTFAgreement = (error as any)?.requireMTFAgreement;
+        detail.minMTFAgreement = (error as any)?.minMTFAgreement;
+        detail.agreement = (error as any)?.agreement;
+        detail.dominantDirection = (error as any)?.dominantDirection;
+        detail.mtfOk = (error as any)?.mtfOk;
+      } else {
+        detail.reason = 'UNKNOWN';
+        detail.message = (error as any)?.message || String(error);
+        detail.name = (error as any)?.name;
+      }
+
+      await this.database.saveMonitoringSnapshot({
+        recommendation_id: gid,
+        check_time: new Date().toISOString(),
+        current_price: currentPrice,
+        unrealized_pnl: null,
+        unrealized_pnl_percent: null,
+        is_stop_loss_triggered: false,
+        is_take_profit_triggered: false,
+        extra_json: JSON.stringify(detail)
+      });
+    } catch (e) {
+      console.warn('[Integration] logGatingDecision failed:', (e as any)?.message || String(e));
+    }
+  }
+
   /**
    * 将推荐记录推送到外部数据库API服务
    * - 默认指向 http://localhost:3001，可用环境变量 DB_API_URL 覆盖
@@ -693,7 +981,18 @@ export class RecommendationIntegrationService extends EventEmitter {
         market_volatility: data.market_volatility,
         volume_24h: data.volume_24h,
         price_change_24h: data.price_change_24h,
-        notes: data.notes
+        notes: data.notes,
+        // EV/AB 相关字段（与数据库字段一致）
+        expected_return: data.expected_return ?? data.ev,
+        ev: data.ev ?? data.expected_return,
+        ev_threshold: data.ev_threshold ?? (data as any).evThreshold,
+        ev_ok: ((): boolean | undefined => {
+          const v: any = (data as any).ev_ok;
+          if (typeof v === 'boolean') return v;
+          if (typeof v === 'number') return !!v;
+          return undefined;
+        })(),
+        ab_group: data.ab_group ?? (data as any).abGroup
       };
       
       const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Loop-Guard': '1' };

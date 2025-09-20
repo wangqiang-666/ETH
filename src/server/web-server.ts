@@ -11,7 +11,7 @@ const __dirname = dirname(__filename);
 import { ethStrategyEngine } from '../strategy/eth-strategy-engine';
 import { StrategyResult } from '../strategy/eth-strategy-engine';
 import { smartSignalAnalyzer } from '../analyzers/smart-signal-analyzer';
-import { enhancedOKXDataService } from '../services/enhanced-okx-data-service';
+import { enhancedOKXDataService, setTestingFGIOverride, clearTestingFGIOverride, setTestingFundingOverride, clearTestingFundingOverride, getEffectiveTestingFGIOverride } from '../services/enhanced-okx-data-service';
 import { config } from '../config';
 import riskRoutes from '../api/risk-routes';
 import backtestRoutes from '../api/backtest-routes';
@@ -25,6 +25,7 @@ import { tradingSignalService } from '../services/trading-signal-service';
 import { riskManagementService } from '../services/risk-management-service';
 import { MLAnalyzer } from '../ml/ml-analyzer';
 import NodeCache from 'node-cache';
+import { spawn } from 'child_process';
 
 // FGI 缓存（5分钟）
 const fgiCache = new NodeCache({ stdTTL: 300, useClones: false });
@@ -61,6 +62,10 @@ export class WebServer {
   private manualTriggerInProgress: boolean = false;
   private lastManualTriggerAt: number = 0;
   private manualTriggerTimestamps: number[] = [];
+  private retrainInProgress: boolean = false;
+  // 推荐广播控制：去重窗口与快照
+  private recoDedupeMap: Map<string, number> = new Map();
+  private snapshotDirEnsured: boolean = false;
 
   constructor(port: number = config.webServer.port) {
     this.port = port;
@@ -85,6 +90,74 @@ export class WebServer {
     this.setupRoutes();
     this.setupSocketIO();
     this.setupRecommendationEvents();
+  }
+
+  // 计算推荐事件的去重Key（symbol+direction）
+  private computeRecoKey(data: any): string {
+    const s = (data && (data.symbol || (data as any).pair || (data as any).symbol_name)) || 'UNKNOWN';
+    const d = (data && (data.direction || (data as any).side || (data as any).action || (data as any).type)) || 'NA';
+    return `${s}|${d}`;
+  }
+
+  // 尝试写入快照（占位：仅文件，不入库）
+  private async maybeWriteSnapshot(eventName: string, data: any): Promise<void> {
+    const rt: any = (config as any)?.realtime;
+    if (!rt?.snapshotEnabled || !rt?.snapshotDir) return;
+    try {
+      if (!this.snapshotDirEnsured) {
+        await fs.promises.mkdir(rt.snapshotDir, { recursive: true });
+        this.snapshotDirEnsured = true;
+      }
+      const now = new Date();
+      const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
+      const fname = `reco_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.ndjson`;
+      const fpath = path.join(rt.snapshotDir, fname);
+      const record = {
+        ts: Date.now(),
+        event: eventName,
+        key: this.computeRecoKey(data),
+        data
+      };
+      await fs.promises.appendFile(fpath, JSON.stringify(record) + "\n", 'utf8');
+    } catch (e) {
+      // 仅记录，不影响主流程
+      console.warn('snapshot write failed:', e);
+    }
+  }
+
+  // 统一的推荐事件广播（支持微抖动与短窗去重）
+  private broadcastRecommendation(eventName: string, data: any): void {
+    const rt: any = (config as any)?.realtime || {};
+    const key = this.computeRecoKey(data);
+    const now = Date.now();
+
+    // 去重：同symbol+direction在窗口内仅广播一次
+    if (rt.dedupeEnabled) {
+      const win = Math.max(0, Number(rt.dedupeWindowMs || 0));
+      const last = this.recoDedupeMap.get(key) || 0;
+      if (now - last < win) {
+        return; // 丢弃重复事件
+      }
+      this.recoDedupeMap.set(key, now);
+    }
+
+    const doEmit = () => {
+      try {
+        this.io.emit(eventName, data);
+      } catch (e) {
+        console.warn(`emit ${eventName} error:`, e);
+      }
+      // 快照写入异步进行
+      this.maybeWriteSnapshot(eventName, data).catch(() => {});
+    };
+
+    if (rt.jitterEnabled) {
+      const max = Math.max(0, Number(rt.jitterMaxMs || 0));
+      const delay = max > 0 ? Math.floor(Math.random() * (max + 1)) : 0;
+      setTimeout(doEmit, delay);
+    } else {
+      doEmit();
+    }
   }
 
   // 设置中间件
@@ -167,6 +240,98 @@ export class WebServer {
     this.app.get('/api/config', this.handleGetConfig.bind(this));
     this.app.post('/api/config', this.handleUpdateConfig.bind(this));
 
+    // 测试：价格覆盖端点（始终注册，按需授权）
+    this.app.post('/api/testing/price-override', (req: Request, res: Response) => {
+      try {
+        if (!((config as any)?.testing?.allowPriceOverride)) {
+          return res.status(403).json({ success: false, error: 'price override not allowed by config.testing.allowPriceOverride' });
+        }
+        const { symbol = config.trading.defaultSymbol, price, ttlMs } = req.body || {};
+        const p = Number(price);
+        if (!Number.isFinite(p) || p <= 0) {
+          return res.status(400).json({ success: false, error: 'invalid price' });
+        }
+        enhancedOKXDataService.setPriceOverride(symbol, p, ttlMs);
+        res.json({ success: true, symbol, price: p, ttlMs: ttlMs ?? (config as any)?.testing?.priceOverrideDefaultTtlMs });
+      } catch (e) {
+        res.status(500).json({ success: false, error: String((e as any)?.message || e) });
+      }
+    });
+
+    this.app.post('/api/testing/price-override/clear', (req: Request, res: Response) => {
+      try {
+        if (!((config as any)?.testing?.allowPriceOverride)) {
+          return res.status(403).json({ success: false, error: 'price override not allowed by config.testing.allowPriceOverride' });
+        }
+        const { symbol } = req.body || {};
+        enhancedOKXDataService.clearPriceOverride(symbol);
+        res.json({ success: true, symbol: symbol || '*', cleared: true });
+      } catch (e) {
+        res.status(500).json({ success: false, error: String((e as any)?.message || e) });
+      }
+    });
+
+    // 测试：FGI 覆盖端点
+    this.app.post('/api/testing/fgi-override', (req: Request, res: Response) => {
+      try {
+        if (!((config as any)?.testing?.allowFGIOverride)) {
+          return res.status(403).json({ success: false, error: 'fgi override not allowed by config.testing.allowFGIOverride' });
+        }
+        const { value, ttlMs } = req.body || {};
+        const v = Number(value);
+        if (!Number.isFinite(v) || v < 0 || v > 100) {
+          return res.status(400).json({ success: false, error: 'invalid fgi value (0-100)' });
+        }
+        setTestingFGIOverride(v, ttlMs);
+        res.json({ success: true, value: Math.max(0, Math.min(100, v)), ttlMs: ttlMs ?? (config as any)?.testing?.fgiOverrideDefaultTtlMs });
+      } catch (e) {
+        res.status(500).json({ success: false, error: String((e as any)?.message || e) });
+      }
+    });
+
+    this.app.post('/api/testing/fgi-override/clear', (req: Request, res: Response) => {
+      try {
+        if (!((config as any)?.testing?.allowFGIOverride)) {
+          return res.status(403).json({ success: false, error: 'fgi override not allowed by config.testing.allowFGIOverride' });
+        }
+        clearTestingFGIOverride();
+        res.json({ success: true, cleared: true });
+      } catch (e) {
+        res.status(500).json({ success: false, error: String((e as any)?.message || e) });
+      }
+    });
+
+    // 测试：资金费率覆盖端点
+    this.app.post('/api/testing/funding-override', (req: Request, res: Response) => {
+      try {
+        if (!((config as any)?.testing?.allowFundingOverride)) {
+          return res.status(403).json({ success: false, error: 'funding override not allowed by config.testing.allowFundingOverride' });
+        }
+        const { symbol = config.trading.defaultSymbol, value, ttlMs } = req.body || {};
+        const v = Number(value);
+        if (!Number.isFinite(v)) {
+          return res.status(400).json({ success: false, error: 'invalid funding value' });
+        }
+        setTestingFundingOverride(symbol, v, ttlMs);
+        res.json({ success: true, symbol, value: v, ttlMs: ttlMs ?? (config as any)?.testing?.fundingOverrideDefaultTtlMs });
+      } catch (e) {
+        res.status(500).json({ success: false, error: String((e as any)?.message || e) });
+      }
+    });
+
+    this.app.post('/api/testing/funding-override/clear', (req: Request, res: Response) => {
+      try {
+        if (!((config as any)?.testing?.allowFundingOverride)) {
+          return res.status(403).json({ success: false, error: 'funding override not allowed by config.testing.allowFundingOverride' });
+        }
+        const { symbol } = req.body || {};
+        clearTestingFundingOverride(symbol);
+        res.json({ success: true, symbol: symbol || '*', cleared: true });
+      } catch (e) {
+        res.status(500).json({ success: false, error: String((e as any)?.message || e) });
+      }
+    });
+
     // ML 离线模型热更新
     this.app.post('/api/ml/reload', async (req: Request, res: Response) => {
       try {
@@ -187,6 +352,88 @@ export class WebServer {
         }
       } catch (e: any) {
         res.status(500).json({ success: false, error: e?.message || String(e) });
+      }
+    });
+
+    // ML 触发离线再训练并热更新
+    this.app.post('/api/ml/retrain', async (req: Request, res: Response) => {
+      try {
+        if (this.retrainInProgress) {
+          return res.status(429).json({ success: false, error: '再训练任务进行中，请稍后重试' });
+        }
+        this.retrainInProgress = true;
+
+        const args: string[] = ['src/ml/train.ts'];
+        if (req.body && typeof req.body === 'object') {
+          const { windowDays, labelWindow, minSamples, calibrate } = req.body as any;
+          if (Number.isFinite(windowDays)) args.push('--windowDays', String(windowDays));
+          if (Number.isFinite(labelWindow)) args.push('--labelWindow', String(labelWindow));
+          if (Number.isFinite(minSamples)) args.push('--minSamples', String(minSamples));
+          if (typeof calibrate === 'boolean') args.push('--calibrate', String(calibrate));
+        }
+
+        console.log('[ML] Retrain request received, args:', args);
+
+        // 使用 Node + tsx CLI 路径，避免在 Windows 上直接执行 .cmd 造成 spawn EINVAL
+        let tsxCliPath: string;
+        try {
+          const { createRequire } = await import('module');
+          const req = createRequire(import.meta.url);
+          tsxCliPath = req.resolve('tsx/cli');
+        } catch (e) {
+          // 回退到本地 node_modules 约定路径
+          tsxCliPath = path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
+        }
+        console.log('[ML] Using tsx CLI:', tsxCliPath);
+        const child = spawn(process.execPath, [tsxCliPath, ...args], {
+          stdio: 'pipe',
+          env: { ...process.env },
+          shell: false,
+          windowsHide: true,
+        });
+
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (d) => { stdout += d.toString(); });
+        child.stderr.on('data', (d) => { stderr += d.toString(); });
+        child.on('error', (err) => {
+          this.retrainInProgress = false;
+          return res.status(500).json({ success: false, error: `训练进程启动失败: ${err?.message || String(err)}` });
+        });
+
+        child.on('close', async (code) => {
+          try {
+            if (code !== 0) {
+              this.retrainInProgress = false;
+              const msg = `训练脚本退出码 ${code}. ${stderr || ''}`.trim();
+              return res.status(500).json({ success: false, error: msg });
+            }
+
+            const reload = await MLAnalyzer.loadOfflineModel();
+            this.retrainInProgress = false;
+            if (!reload.ok) {
+              return res.status(500).json({ success: false, error: reload.error || '模型热更新失败' });
+            }
+
+            return res.json({
+              success: true,
+              message: '再训练完成并已热更新模型',
+              logs: stdout.slice(-4000),
+              model: {
+                version: reload.model?.version,
+                sampleCount: reload.model?.sampleCount,
+                thresholds: reload.model?.thresholds
+              }
+            });
+          } catch (err: any) {
+            this.retrainInProgress = false;
+            return res.status(500).json({ success: false, error: err?.message || String(err) });
+          }
+        });
+      } catch (error: any) {
+        this.retrainInProgress = false;
+        const detail = error?.message || String(error);
+        this.handleError(res, error, `Failed to trigger ML retrain: ${detail}`);
       }
     });
     
@@ -234,15 +481,15 @@ export class WebServer {
   private setupRecommendationEvents(): void {
     // 监听推荐系统事件并通过WebSocket广播
     this.recommendationService.on('recommendation_created', (data) => {
-      this.io.emit('recommendation-created', data);
+      this.broadcastRecommendation('recommendation-created', data);
     });
     
     this.recommendationService.on('recommendation_result', (data) => {
-      this.io.emit('recommendation-result', data);
+      this.broadcastRecommendation('recommendation-result', data);
     });
     
     this.recommendationService.on('recommendation_triggered', (data) => {
-      this.io.emit('recommendation-triggered', data);
+      this.broadcastRecommendation('recommendation-triggered', data);
     });
     
     this.recommendationService.on('statistics_updated', (data) => {
@@ -250,7 +497,7 @@ export class WebServer {
     });
     
     this.recommendationService.on('auto_recommendation_created', (data) => {
-      this.io.emit('auto-recommendation-created', data);
+      this.broadcastRecommendation('auto-recommendation-created', data);
     });
 
     // 监听策略引擎分析进度并通过 Socket.IO 转发
@@ -450,6 +697,23 @@ export class WebServer {
       const interval = (req.query.interval as string) || '1m';
       const limit = parseInt((req.query.limit as string) || '100', 10);
 
+      const disableExternalRaw = (process.env.WEB_DISABLE_EXTERNAL_MARKET || '').toLowerCase();
+      const disableExternal = disableExternalRaw === '1' || disableExternalRaw === 'true';
+      if (disableExternal) {
+        const response: ApiResponse = {
+          success: true,
+          data: {
+            symbol,
+            interval,
+            limit,
+            externalMarketDisabled: true
+          },
+          timestamp: Date.now()
+        };
+        res.json(response);
+        return;
+      }
+
       const [ticker, klines] = await Promise.all([
         enhancedOKXDataService.getTicker(symbol),
         enhancedOKXDataService.getKlineData(symbol, interval, limit)
@@ -628,6 +892,19 @@ export class WebServer {
   private async handleMarketTicker(req: Request, res: Response): Promise<void> {
     try {
       const symbol = req.query.symbol as string || config.trading.defaultSymbol;
+      const disableExternalRaw = (process.env.WEB_DISABLE_EXTERNAL_MARKET || '').toLowerCase();
+      const disableExternal = disableExternalRaw === '1' || disableExternalRaw === 'true';
+      if (disableExternal) {
+        // 外部市场禁用时，也尝试通过增强数据服务返回覆盖价（若未设置覆盖则可能为 null）
+        const ticker = await enhancedOKXDataService.getTicker(symbol);
+        const response: ApiResponse = {
+          success: true,
+          data: ticker,
+          timestamp: Date.now()
+        };
+        res.json(response);
+        return;
+      }
       const ticker = await enhancedOKXDataService.getTicker(symbol);
       const response: ApiResponse = {
         success: true,
@@ -676,6 +953,32 @@ export class WebServer {
   // 新增：FGI 情绪指数（带缓存）
   private async handleFGI(req: Request, res: Response): Promise<void> {
     try {
+      // 覆盖优先：若允许且有效，则直接返回覆盖值（不走缓存，确保TTL实时生效）
+      if (((config as any)?.testing?.allowFGIOverride) === true) {
+        const ov = getEffectiveTestingFGIOverride();
+        if (typeof ov === 'number' && Number.isFinite(ov)) {
+          const valueNum = ov;
+          const classification = (() => {
+            if (Number.isNaN(valueNum)) return '未知';
+            if (valueNum <= 25) return '极度恐惧';
+            if (valueNum <= 45) return '恐惧';
+            if (valueNum < 55) return '中性';
+            if (valueNum <= 75) return '贪婪';
+            return '极度贪婪';
+          })();
+          const normalized = {
+            value: valueNum,
+            value_classification: classification,
+            timestamp: Date.now(),
+            time_until_update: null,
+            source: 'override'
+          } as any;
+          const response: ApiResponse = { success: true, data: normalized, timestamp: Date.now() };
+          res.json(response);
+          return;
+        }
+      }
+
       const cacheKey = 'fgi-latest';
       const cached = fgiCache.get(cacheKey) as any;
       if (cached) {
@@ -2429,7 +2732,22 @@ export class WebServer {
           maxDailyLoss: config.risk.maxDailyLoss,
           maxPositionSize: config.risk.maxPositionSize,
           stopLossPercent: config.risk.stopLossPercent,
-          takeProfitPercent: config.risk.takeProfitPercent
+          takeProfitPercent: config.risk.takeProfitPercent,
+          maxSameDirectionActives: Number((config as any)?.risk?.maxSameDirectionActives),
+          netExposureCaps: {
+            total: Number((config as any)?.risk?.netExposureCaps?.total ?? 0),
+            perDirection: {
+              LONG: Number((config as any)?.risk?.netExposureCaps?.perDirection?.LONG ?? 0),
+              SHORT: Number((config as any)?.risk?.netExposureCaps?.perDirection?.SHORT ?? 0)
+            }
+          },
+          hourlyOrderCaps: {
+            total: Number((config as any)?.risk?.hourlyOrderCaps?.total ?? 0),
+            perDirection: {
+              LONG: Number((config as any)?.risk?.hourlyOrderCaps?.perDirection?.LONG ?? 0),
+              SHORT: Number((config as any)?.risk?.hourlyOrderCaps?.perDirection?.SHORT ?? 0)
+            }
+          }
         },
         strategy: {
           signalThreshold: config.strategy.signalThreshold,
@@ -2437,14 +2755,36 @@ export class WebServer {
           useMLAnalysis: config.strategy.useMLAnalysis,
           analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : 30000,
           signalCooldownMs: (config as any)?.strategy?.signalCooldownMs,
+          oppositeCooldownMs: Number((config as any)?.strategy?.oppositeCooldownMs),
+          globalMinIntervalMs: Number(((config as any)?.strategy?.cooldown?.globalMinIntervalMs ?? (config as any)?.strategy?.globalMinIntervalMs ?? 0)),
+          cooldown: {
+            globalMinIntervalMs: Number(((config as any)?.strategy?.cooldown?.globalMinIntervalMs ?? (config as any)?.strategy?.globalMinIntervalMs ?? 0)),
+            sameDir: {
+              LONG: Number(((config as any)?.strategy?.cooldown?.sameDir?.LONG ?? NaN)),
+              SHORT: Number(((config as any)?.strategy?.cooldown?.sameDir?.SHORT ?? NaN))
+            },
+            opposite: {
+              LONG: Number(((config as any)?.strategy?.cooldown?.opposite?.LONG ?? NaN)),
+              SHORT: Number(((config as any)?.strategy?.cooldown?.opposite?.SHORT ?? NaN))
+            }
+          },
           maxManualTriggersPerMin: Number((config as any)?.strategy?.maxManualTriggersPerMin),
-          evThreshold: Number(((config as any)?.strategy?.expectedValueThreshold ?? (config as any)?.strategy?.evThreshold) ?? 0),
+          evThreshold: ((config as any)?.strategy?.evThreshold ?? (config as any)?.strategy?.expectedValueThreshold ?? 0),
           marketRegime: {
             avoidExtremeSentiment: !!((config as any)?.strategy?.marketRegime?.avoidExtremeSentiment),
             extremeSentimentLow: Number((config as any)?.strategy?.marketRegime?.extremeSentimentLow ?? 10),
             extremeSentimentHigh: Number((config as any)?.strategy?.marketRegime?.extremeSentimentHigh ?? 90),
             avoidHighFunding: !!((config as any)?.strategy?.marketRegime?.avoidHighFunding),
             highFundingAbs: Number((config as any)?.strategy?.marketRegime?.highFundingAbs ?? 0.03)
+          },
+          entryFilters: {
+            minCombinedStrengthLong: Number((config as any)?.strategy?.entryFilters?.minCombinedStrengthLong ?? 55),
+            minCombinedStrengthShort: Number((config as any)?.strategy?.entryFilters?.minCombinedStrengthShort ?? 55),
+            allowHighVolatilityEntries: !!((config as any)?.strategy?.entryFilters?.allowHighVolatilityEntries),
+            requireMTFAgreement: !!((config as any)?.strategy?.entryFilters?.requireMTFAgreement),
+            minMTFAgreement: Number((config as any)?.strategy?.entryFilters?.minMTFAgreement ?? 0.6),
+            require5m15mAlignment: !!((config as any)?.strategy?.entryFilters?.require5m15mAlignment),
+            require1hWith5mTrend: !!((config as any)?.strategy?.entryFilters?.require1hWith5mTrend)
           },
           kronos: {
             enabled: !!((config as any)?.strategy?.kronos?.enabled),
@@ -2455,8 +2795,32 @@ export class WebServer {
             longThreshold: Number((config as any)?.strategy?.kronos?.longThreshold),
             shortThreshold: Number((config as any)?.strategy?.kronos?.shortThreshold),
             minConfidence: Number((config as any)?.strategy?.kronos?.minConfidence)
-          }
-        }
+          },
+          allowOppositeWhileOpen: !!((config as any)?.strategy?.allowOppositeWhileOpen),
+          oppositeMinConfidence: Number((config as any)?.strategy?.oppositeMinConfidence ?? 0.7),
+          oppositeMinConfidenceByDirection: {
+            LONG: Number(((config as any)?.strategy?.oppositeMinConfidenceByDirection?.LONG ?? NaN)),
+            SHORT: Number(((config as any)?.strategy?.oppositeMinConfidenceByDirection?.SHORT ?? NaN))
+          },
+          allowAutoOnHighRisk: !!((config as any)?.strategy?.allowAutoOnHighRisk),
+          duplicateWindowMinutes: Number(((config as any)?.strategy?.duplicateWindowMinutes ?? 10)),
+          duplicatePriceBps: Number(((config as any)?.strategy?.duplicatePriceBps ?? 20))
+        },
+        // 新增：补充非敏感的 webServer 与 proxy 字段，供前端展示
+        webServer: {
+          port: (config as any)?.webServer?.port,
+          host: (config as any)?.webServer?.host
+        },
+        proxy: {
+          url: (config as any)?.proxy?.url,
+          enabled: !!((config as any)?.proxy?.enabled)
+        },
+        recommendation: {
+          maxHoldingHours: Number(((config as any)?.recommendation?.maxHoldingHours ?? (process.env.RECOMMENDATION_MAX_HOLDING_HOURS ?? 168))),
+          concurrencyCountAgeHours: Number(((config as any)?.recommendation?.concurrencyCountAgeHours ?? (process.env.RECOMMENDATION_CONCURRENCY_AGE_HOURS ?? 24)))
+        },
+        commission: Number((config as any)?.commission),
+        slippage: Number((config as any)?.slippage)
       };
       
       const response: ApiResponse = {
@@ -2474,7 +2838,7 @@ export class WebServer {
   private async handleUpdateConfig(req: Request, res: Response): Promise<void> {
     try {
       // 为了安全，只允许更新特定的配置项
-      const allowedUpdates = ['signalThreshold', 'maxPositionSize', 'stopLossPercent', 'useMLAnalysis', 'analysisInterval', 'signalCooldownMs', 'maxManualTriggersPerMin', 'evThreshold', 'marketRegime', 'kronos'];
+      const allowedUpdates = ['signalThreshold', 'minWinRate', 'maxPositionSize', 'stopLossPercent', 'useMLAnalysis', 'analysisInterval', 'signalCooldownMs', 'oppositeCooldownMs', 'globalMinIntervalMs', 'duplicateWindowMinutes', 'duplicatePriceBps', 'cooldown', 'oppositeMinConfidenceByDirection', 'maxManualTriggersPerMin', 'maxSameDirectionActives', 'evThreshold', 'marketRegime', 'entryFilters', 'kronos', 'allowOppositeWhileOpen', 'oppositeMinConfidence', 'allowAutoOnHighRisk', 'recommendation', 'testing', 'commission', 'slippage', 'netExposureCaps', 'hourlyOrderCaps'];
       const updates = req.body || {};
       
       // 新增：收集校验告警
@@ -2510,6 +2874,20 @@ export class WebServer {
               warnings.push('signalThreshold must be a number in [0,1]');
             }
             break;
+          case 'minWinRate':
+            if (typeof val === 'number' && Number.isFinite(val) && val >= 0 && val <= 100) {
+              (config as any).strategy.minWinRate = val;
+            } else if (typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 0 && n <= 100) {
+                (config as any).strategy.minWinRate = n;
+              } else {
+                warnings.push(`minWinRate must be a number in [0,100], got: ${val}`);
+              }
+            } else {
+              warnings.push('minWinRate must be a number in [0,100]');
+            }
+            break;
           case 'maxPositionSize':
             if (typeof val === 'number' && val > 0) {
               config.risk.maxPositionSize = val;
@@ -2525,17 +2903,24 @@ export class WebServer {
             }
             break;
           case 'stopLossPercent':
-            if (typeof val === 'number' && val > 0 && val < 100) {
-              config.risk.stopLossPercent = val;
-            } else if (typeof val === 'string') {
+            if (typeof val === 'number' || typeof val === 'string') {
               const n = Number(val);
-              if (Number.isFinite(n) && n > 0 && n < 100) {
-                config.risk.stopLossPercent = n;
+              if (Number.isFinite(n) && n > 0) {
+                let normalized = n;
+                if (normalized >= 1) {
+                  normalized = normalized / 100; // 百分比输入自动转换为小数
+                  warnings.push(`stopLossPercent interpreted as percent ${n} and normalized to fraction ${normalized}`);
+                }
+                if (normalized > 0 && normalized < 1) {
+                  (config as any).risk.stopLossPercent = normalized;
+                } else {
+                  warnings.push(`stopLossPercent must be in (0,1), got: ${val}`);
+                }
               } else {
-                warnings.push(`stopLossPercent must be in (0,100), got: ${val}`);
+                warnings.push('stopLossPercent must be a positive number');
               }
             } else {
-              warnings.push('stopLossPercent must be in (0,100)');
+              warnings.push('stopLossPercent must be a positive number');
             }
             break;
           case 'useMLAnalysis':
@@ -2575,6 +2960,121 @@ export class WebServer {
               warnings.push('signalCooldownMs must be a non-negative integer');
             }
             break;
+          case 'oppositeCooldownMs':
+            if (typeof val === 'number' && Number.isFinite(val) && val >= 0) {
+              (config as any).strategy.oppositeCooldownMs = val;
+            } else if (typeof val === 'string') {
+              const n = parseInt(val, 10);
+              if (!Number.isNaN(n) && n >= 0) {
+                (config as any).strategy.oppositeCooldownMs = n;
+              } else {
+                warnings.push(`oppositeCooldownMs must be a non-negative integer, got: ${val}`);
+              }
+            } else {
+              warnings.push('oppositeCooldownMs must be a non-negative integer');
+            }
+            break;
+          case 'globalMinIntervalMs':
+            if (typeof val === 'number' || typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) {
+                (config as any).strategy.globalMinIntervalMs = n;
+                const cd = ((config as any).strategy.cooldown) || (((config as any).strategy.cooldown) = {});
+                (cd as any).globalMinIntervalMs = n;
+              } else {
+                warnings.push(`globalMinIntervalMs must be a non-negative integer, got: ${val}`);
+              }
+            } else {
+              warnings.push('globalMinIntervalMs must be a non-negative integer');
+            }
+            break;
+          case 'duplicateWindowMinutes':
+            if (typeof val === 'number' || typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) {
+                (config as any).strategy.duplicateWindowMinutes = n;
+              } else {
+                warnings.push(`duplicateWindowMinutes must be a non-negative integer (minutes), got: ${val}`);
+              }
+            } else {
+              warnings.push('duplicateWindowMinutes must be a non-negative integer (minutes)');
+            }
+            break;
+          case 'duplicatePriceBps':
+            if (typeof val === 'number' || typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) {
+                (config as any).strategy.duplicatePriceBps = n;
+              } else {
+                warnings.push(`duplicatePriceBps must be a non-negative integer (bps), got: ${val}`);
+              }
+            } else {
+              warnings.push('duplicatePriceBps must be a non-negative integer (bps)');
+            }
+            break;
+          case 'cooldown':
+            if (val && typeof val === 'object') {
+              const c = ((config as any).strategy.cooldown) || (((config as any).strategy.cooldown) = {});
+              if ('globalMinIntervalMs' in val) {
+                const n = Number((val as any).globalMinIntervalMs);
+                if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) {
+                  (c as any).globalMinIntervalMs = n;
+                  (config as any).strategy.globalMinIntervalMs = n;
+                } else {
+                  warnings.push(`cooldown.globalMinIntervalMs must be a non-negative integer, got: ${(val as any).globalMinIntervalMs}`);
+                }
+              }
+              if ('sameDir' in val) {
+                const sd = (val as any).sameDir;
+                if (sd && typeof sd === 'object') {
+                  const tgt = (c as any).sameDir || (((c as any).sameDir) = {});
+                  if ('LONG' in sd) {
+                    const n = Number(sd.LONG);
+                    if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) { (tgt as any).LONG = n; } else { warnings.push(`cooldown.sameDir.LONG must be a non-negative integer, got: ${sd.LONG}`); }
+                  }
+                  if ('SHORT' in sd) {
+                    const n = Number(sd.SHORT);
+                    if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) { (tgt as any).SHORT = n; } else { warnings.push(`cooldown.sameDir.SHORT must be a non-negative integer, got: ${sd.SHORT}`); }
+                  }
+                } else {
+                  warnings.push('cooldown.sameDir must be an object with LONG/SHORT');
+                }
+              }
+              if ('opposite' in val) {
+                const op = (val as any).opposite;
+                if (op && typeof op === 'object') {
+                  const tgt = (c as any).opposite || (((c as any).opposite) = {});
+                  if ('LONG' in op) {
+                    const n = Number(op.LONG);
+                    if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) { (tgt as any).LONG = n; } else { warnings.push(`cooldown.opposite.LONG must be a non-negative integer, got: ${op.LONG}`); }
+                  }
+                  if ('SHORT' in op) {
+                    const n = Number(op.SHORT);
+                    if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) { (tgt as any).SHORT = n; } else { warnings.push(`cooldown.opposite.SHORT must be a non-negative integer, got: ${op.SHORT}`); }
+                  }
+                } else {
+                  warnings.push('cooldown.opposite must be an object with LONG/SHORT');
+                }
+              }
+            } else {
+              warnings.push('cooldown must be an object');
+            }
+            break;
+          case 'oppositeMinConfidenceByDirection':
+            if (val && typeof val === 'object') {
+              const m = ((config as any).strategy.oppositeMinConfidenceByDirection) || (((config as any).strategy.oppositeMinConfidenceByDirection) = {});
+              if ('LONG' in val) {
+                const n = Number((val as any).LONG);
+                if (Number.isFinite(n) && n >= 0 && n <= 1) { (m as any).LONG = n; } else { warnings.push(`oppositeMinConfidenceByDirection.LONG must be in [0,1], got: ${(val as any).LONG}`); }
+              }
+              if ('SHORT' in val) {
+                const n = Number((val as any).SHORT);
+                if (Number.isFinite(n) && n >= 0 && n <= 1) { (m as any).SHORT = n; } else { warnings.push(`oppositeMinConfidenceByDirection.SHORT must be in [0,1], got: ${(val as any).SHORT}`); }
+              }
+            } else {
+              warnings.push('oppositeMinConfidenceByDirection must be an object with LONG/SHORT in [0,1]');
+            }
+            break;
           case 'maxManualTriggersPerMin':
             if (typeof val === 'number' && Number.isFinite(val) && val >= 1 && Number.isInteger(val)) {
               (config as any).strategy.maxManualTriggersPerMin = val;
@@ -2587,6 +3087,105 @@ export class WebServer {
               }
             } else {
               warnings.push('maxManualTriggersPerMin must be an integer >= 1');
+            }
+            break;
+          case 'maxSameDirectionActives':
+            if (typeof val === 'number' && Number.isFinite(val) && val >= 1 && Number.isInteger(val)) {
+              (config as any).risk.maxSameDirectionActives = val;
+            } else if (typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 1 && Number.isInteger(n)) {
+                (config as any).risk.maxSameDirectionActives = n;
+              } else {
+                warnings.push(`maxSameDirectionActives must be an integer >= 1, got: ${val}`);
+              }
+            } else {
+              warnings.push('maxSameDirectionActives must be an integer >= 1');
+            }
+            break;
+          case 'netExposureCaps':
+            if (val && typeof val === 'object') {
+              const tgt = ((config as any).risk.netExposureCaps) || (((config as any).risk.netExposureCaps) = { total: 0, perDirection: { LONG: 0, SHORT: 0 } });
+              if ('total' in val) {
+                const n = Number((val as any).total);
+                if (Number.isFinite(n) && n >= 0) { (tgt as any).total = n; } else { warnings.push(`netExposureCaps.total must be a non-negative number, got: ${(val as any).total}`); }
+              }
+              if ('perDirection' in val) {
+                const pd = (val as any).perDirection;
+                if (pd && typeof pd === 'object') {
+                  const dir = (tgt as any).perDirection || (((tgt as any).perDirection) = {});
+                  if ('LONG' in pd) {
+                    const n = Number(pd.LONG);
+                    if (Number.isFinite(n) && n >= 0) { (dir as any).LONG = n; } else { warnings.push(`netExposureCaps.perDirection.LONG must be a non-negative number, got: ${pd.LONG}`); }
+                  }
+                  if ('SHORT' in pd) {
+                    const n = Number(pd.SHORT);
+                    if (Number.isFinite(n) && n >= 0) { (dir as any).SHORT = n; } else { warnings.push(`netExposureCaps.perDirection.SHORT must be a non-negative number, got: ${pd.SHORT}`); }
+                  }
+                } else {
+                  warnings.push('netExposureCaps.perDirection must be an object with LONG/SHORT');
+                }
+              }
+            } else {
+              warnings.push('netExposureCaps must be an object with total and optional perDirection');
+            }
+            break;
+          case 'hourlyOrderCaps':
+            if (val && typeof val === 'object') {
+              const tgt = ((config as any).risk.hourlyOrderCaps) || (((config as any).risk.hourlyOrderCaps) = { total: 0, perDirection: { LONG: 0, SHORT: 0 } });
+              if ('total' in val) {
+                const n = Number((val as any).total);
+                if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) { (tgt as any).total = n; } else { warnings.push(`hourlyOrderCaps.total must be a non-negative integer, got: ${(val as any).total}`); }
+              }
+              if ('perDirection' in val) {
+                const pd = (val as any).perDirection;
+                if (pd && typeof pd === 'object') {
+                  const dir = (tgt as any).perDirection || (((tgt as any).perDirection) = {});
+                  if ('LONG' in pd) {
+                    const n = Number(pd.LONG);
+                    if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) { (dir as any).LONG = n; } else { warnings.push(`hourlyOrderCaps.perDirection.LONG must be a non-negative integer, got: ${pd.LONG}`); }
+                  }
+                  if ('SHORT' in pd) {
+                    const n = Number(pd.SHORT);
+                    if (Number.isFinite(n) && n >= 0 && Number.isInteger(n)) { (dir as any).SHORT = n; } else { warnings.push(`hourlyOrderCaps.perDirection.SHORT must be a non-negative integer, got: ${pd.SHORT}`); }
+                  }
+                } else {
+                  warnings.push('hourlyOrderCaps.perDirection must be an object with LONG/SHORT');
+                }
+              }
+            } else {
+              warnings.push('hourlyOrderCaps must be an object with total and optional perDirection');
+            }
+            break;
+          case 'entryFilters':
+            if (val && typeof val === 'object') {
+              const ef = ((config as any).strategy.entryFilters) || (((config as any).strategy.entryFilters) = {});
+              if ('minCombinedStrengthLong' in val) {
+                const n = Number(val.minCombinedStrengthLong);
+                if (Number.isFinite(n) && n >= 0 && n <= 100) ef.minCombinedStrengthLong = n; else warnings.push(`entryFilters.minCombinedStrengthLong must be in [0,100], got: ${val.minCombinedStrengthLong}`);
+              }
+              if ('minCombinedStrengthShort' in val) {
+                const n = Number(val.minCombinedStrengthShort);
+                if (Number.isFinite(n) && n >= 0 && n <= 100) ef.minCombinedStrengthShort = n; else warnings.push(`entryFilters.minCombinedStrengthShort must be in [0,100], got: ${val.minCombinedStrengthShort}`);
+              }
+              if ('allowHighVolatilityEntries' in val) {
+                if (typeof val.allowHighVolatilityEntries === 'boolean') ef.allowHighVolatilityEntries = val.allowHighVolatilityEntries; else warnings.push(`entryFilters.allowHighVolatilityEntries must be boolean, got: ${val.allowHighVolatilityEntries}`);
+              }
+              if ('requireMTFAgreement' in val) {
+                if (typeof val.requireMTFAgreement === 'boolean') ef.requireMTFAgreement = val.requireMTFAgreement; else warnings.push(`entryFilters.requireMTFAgreement must be boolean, got: ${val.requireMTFAgreement}`);
+              }
+              if ('minMTFAgreement' in val) {
+                const n = Number(val.minMTFAgreement);
+                if (Number.isFinite(n) && n >= 0 && n <= 1) ef.minMTFAgreement = n; else warnings.push(`entryFilters.minMTFAgreement must be in [0,1], got: ${val.minMTFAgreement}`);
+              }
+              if ('require5m15mAlignment' in val) {
+                if (typeof val.require5m15mAlignment === 'boolean') ef.require5m15mAlignment = val.require5m15mAlignment; else warnings.push(`entryFilters.require5m15mAlignment must be boolean, got: ${val.require5m15mAlignment}`);
+              }
+              if ('require1hWith5mTrend' in val) {
+                if (typeof val.require1hWith5mTrend === 'boolean') ef.require1hWith5mTrend = val.require1hWith5mTrend; else warnings.push(`entryFilters.require1hWith5mTrend must be boolean, got: ${val.require1hWith5mTrend}`);
+              }
+            } else {
+              warnings.push('entryFilters must be an object');
             }
             break;
           case 'kronos':
@@ -2625,16 +3224,123 @@ export class WebServer {
               warnings.push('kronos must be an object');
             }
             break;
-          case 'evThreshold':
+          case 'allowOppositeWhileOpen':
+            if (typeof val === 'boolean') {
+              (config as any).strategy.allowOppositeWhileOpen = val;
+            } else if (val === 'true' || val === 'false') {
+              (config as any).strategy.allowOppositeWhileOpen = (val === 'true');
+            } else {
+              warnings.push(`allowOppositeWhileOpen must be boolean, got: ${val}`);
+            }
+            break;
+          case 'oppositeMinConfidence':
             if (typeof val === 'number' || typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 0 && n <= 1) {
+                (config as any).strategy.oppositeMinConfidence = n;
+              } else {
+                warnings.push(`oppositeMinConfidence must be in [0,1], got: ${val}`);
+              }
+            } else {
+              warnings.push('oppositeMinConfidence must be a number in [0,1]');
+            }
+            break;
+          case 'allowAutoOnHighRisk':
+            if (typeof val === 'boolean') {
+              (config as any).strategy.allowAutoOnHighRisk = val;
+            } else if (val === 'true' || val === 'false') {
+              (config as any).strategy.allowAutoOnHighRisk = (val === 'true');
+            } else {
+              warnings.push(`allowAutoOnHighRisk must be boolean, got: ${val}`);
+            }
+            break;
+          case 'evThreshold':
+            if (val && typeof val === 'object') {
+              const obj: any = {};
+              if ('default' in val) {
+                const n = Number(val.default);
+                if (Number.isFinite(n)) obj.default = n; else warnings.push(`evThreshold.default must be a finite number, got: ${val.default}`);
+              }
+              if ('byVolatility' in val && val.byVolatility && typeof val.byVolatility === 'object') {
+                const bv: any = {};
+                const keys = ['HIGH','MEDIUM','LOW'] as const;
+                for (const k of keys) {
+                  if (k in val.byVolatility) {
+                    const n = Number(val.byVolatility[k]);
+                    if (Number.isFinite(n)) bv[k] = n; else warnings.push(`evThreshold.byVolatility.${k} must be a finite number, got: ${val.byVolatility[k]}`);
+                  }
+                }
+                if (Object.keys(bv).length > 0) obj.byVolatility = bv;
+              }
+              if ('byRegime' in val && val.byRegime && typeof val.byRegime === 'object') {
+                const br: any = {};
+                const keys = ['TREND','RANGE'] as const;
+                for (const k of keys) {
+                  if (k in val.byRegime) {
+                    const n = Number(val.byRegime[k]);
+                    if (Number.isFinite(n)) br[k] = n; else warnings.push(`evThreshold.byRegime.${k} must be a finite number, got: ${val.byRegime[k]}`);
+                  }
+                }
+                if (Object.keys(br).length > 0) obj.byRegime = br;
+              }
+              if (Object.keys(obj).length === 0) {
+                warnings.push('evThreshold object is empty or invalid; no changes applied');
+              } else {
+                (config as any).strategy.evThreshold = obj;
+                delete (config as any).strategy.expectedValueThreshold;
+              }
+            } else if (typeof val === 'number' || typeof val === 'string') {
               const n = Number(val);
               if (Number.isFinite(n)) {
                 ((config as any).strategy.expectedValueThreshold) = n;
+                delete (config as any).strategy.evThreshold;
               } else {
                 warnings.push(`evThreshold must be a finite number, got: ${val}`);
               }
             } else {
-              warnings.push('evThreshold must be a number');
+              warnings.push('evThreshold must be a number or an object');
+            }
+            break;
+          case 'commission':
+            if (typeof val === 'number' || typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 0) {
+                let normalized = n;
+                if (normalized >= 1) {
+                  normalized = normalized / 100; // 百分比输入自动转换为小数
+                  warnings.push(`commission interpreted as percent ${n} and normalized to fraction ${normalized}`);
+                }
+                if (normalized >= 0 && normalized < 1) {
+                  (config as any).commission = normalized;
+                } else {
+                  warnings.push(`commission must be in [0,1), got: ${val}`);
+                }
+              } else {
+                warnings.push('commission must be a non-negative number');
+              }
+            } else {
+              warnings.push('commission must be a non-negative number');
+            }
+            break;
+          case 'slippage':
+            if (typeof val === 'number' || typeof val === 'string') {
+              const n = Number(val);
+              if (Number.isFinite(n) && n >= 0) {
+                let normalized = n;
+                if (normalized >= 1) {
+                  normalized = normalized / 100; // 百分比输入自动转换为小数
+                  warnings.push(`slippage interpreted as percent ${n} and normalized to fraction ${normalized}`);
+                }
+                if (normalized >= 0 && normalized < 1) {
+                  (config as any).slippage = normalized;
+                } else {
+                  warnings.push(`slippage must be in [0,1), got: ${val}`);
+                }
+              } else {
+                warnings.push('slippage must be a non-negative number');
+              }
+            } else {
+              warnings.push('slippage must be a non-negative number');
             }
             break;
           case 'marketRegime':
@@ -2662,6 +3368,110 @@ export class WebServer {
               warnings.push('marketRegime must be an object');
             }
             break;
+          case 'recommendation':
+            if (val && typeof val === 'object') {
+              const r = (config as any).recommendation || ((config as any).recommendation = {});
+              if ('maxHoldingHours' in val) {
+                const n = Number(val.maxHoldingHours);
+                if (Number.isFinite(n) && n >= 0) {
+                  r.maxHoldingHours = n;
+                } else {
+                  warnings.push(`recommendation.maxHoldingHours must be a non-negative number (hours), got: ${val.maxHoldingHours}`);
+                }
+              }
+              if ('concurrencyCountAgeHours' in val) {
+                const n = Number((val as any).concurrencyCountAgeHours);
+                if (Number.isFinite(n) && n >= 0) {
+                  (r as any).concurrencyCountAgeHours = n;
+                } else {
+                  warnings.push(`recommendation.concurrencyCountAgeHours must be a non-negative number (hours), got: ${(val as any).concurrencyCountAgeHours}`);
+                }
+              }
+              if ('trailing' in val) {
+                const tv = (val as any).trailing;
+                if (tv && typeof tv === 'object') {
+                  const t = (r as any).trailing || (((r as any).trailing) = {});
+                  if ('enabled' in tv) {
+                    if (typeof tv.enabled === 'boolean') t.enabled = tv.enabled; else warnings.push(`recommendation.trailing.enabled must be boolean, got: ${tv.enabled}`);
+                  }
+                  if ('percent' in tv) {
+                    const n = Number(tv.percent);
+                    if (Number.isFinite(n) && n >= 0) t.percent = n; else warnings.push(`recommendation.trailing.percent must be a non-negative number, got: ${tv.percent}`);
+                  }
+                  if ('activateProfitPct' in tv) {
+                    const n = Number(tv.activateProfitPct);
+                    if (Number.isFinite(n) && n >= 0) t.activateProfitPct = n; else warnings.push(`recommendation.trailing.activateProfitPct must be a non-negative number, got: ${tv.activateProfitPct}`);
+                  }
+                  if ('activateOnBreakeven' in tv) {
+                    if (typeof tv.activateOnBreakeven === 'boolean') t.activateOnBreakeven = tv.activateOnBreakeven; else warnings.push(`recommendation.trailing.activateOnBreakeven must be boolean, got: ${tv.activateOnBreakeven}`);
+                  }
+                  if ('minStep' in tv) {
+                    const n = Number(tv.minStep);
+                    if (Number.isFinite(n) && n >= 0) t.minStep = n; else warnings.push(`recommendation.trailing.minStep must be a non-negative number, got: ${tv.minStep}`);
+                  }
+                  if ('flex' in tv) {
+                    const fv = (tv as any).flex;
+                    if (fv && typeof fv === 'object') {
+                      const f = (t as any).flex || (((t as any).flex) = {});
+                      if ('enabled' in fv) {
+                        if (typeof fv.enabled === 'boolean') f.enabled = fv.enabled; else warnings.push(`recommendation.trailing.flex.enabled must be boolean, got: ${fv.enabled}`);
+                      }
+                      if ('lowProfitThreshold' in fv) {
+                        const n = Number(fv.lowProfitThreshold);
+                        if (Number.isFinite(n) && n >= 0) f.lowProfitThreshold = n; else warnings.push(`recommendation.trailing.flex.lowProfitThreshold must be a non-negative number, got: ${fv.lowProfitThreshold}`);
+                      }
+                      if ('highProfitThreshold' in fv) {
+                        const n = Number(fv.highProfitThreshold);
+                        if (Number.isFinite(n) && n >= 0) f.highProfitThreshold = n; else warnings.push(`recommendation.trailing.flex.highProfitThreshold must be a non-negative number, got: ${fv.highProfitThreshold}`);
+                      }
+                      if ('lowMultiplier' in fv) {
+                        const n = Number(fv.lowMultiplier);
+                        if (Number.isFinite(n) && n > 0) f.lowMultiplier = n; else warnings.push(`recommendation.trailing.flex.lowMultiplier must be a positive number, got: ${fv.lowMultiplier}`);
+                      }
+                      if ('highTightenMultiplier' in fv) {
+                        const n = Number(fv.highTightenMultiplier);
+                        if (Number.isFinite(n) && n > 0) f.highTightenMultiplier = n; else warnings.push(`recommendation.trailing.flex.highTightenMultiplier must be a positive number, got: ${fv.highTightenMultiplier}`);
+                      }
+                    } else {
+                      warnings.push('recommendation.trailing.flex must be an object');
+                    }
+                  }
+                } else {
+                  warnings.push('recommendation.trailing must be an object');
+                }
+              }
+            } else {
+              warnings.push('recommendation must be an object');
+            }
+            break;
+          case 'testing':
+            if (val && typeof val === 'object') {
+              const t = (config as any).testing || (((config as any).testing) = {});
+              if ('allowPriceOverride' in val) {
+                if (typeof (val as any).allowPriceOverride === 'boolean') t.allowPriceOverride = (val as any).allowPriceOverride; else warnings.push(`testing.allowPriceOverride must be boolean, got: ${(val as any).allowPriceOverride}`);
+              }
+              if ('priceOverrideDefaultTtlMs' in val) {
+                const n = Number((val as any).priceOverrideDefaultTtlMs);
+                if (Number.isFinite(n) && n >= 0) t.priceOverrideDefaultTtlMs = n; else warnings.push(`testing.priceOverrideDefaultTtlMs must be a non-negative number, got: ${(val as any).priceOverrideDefaultTtlMs}`);
+              }
+              if ('allowFGIOverride' in val) {
+                if (typeof (val as any).allowFGIOverride === 'boolean') t.allowFGIOverride = (val as any).allowFGIOverride; else warnings.push(`testing.allowFGIOverride must be boolean, got: ${(val as any).allowFGIOverride}`);
+              }
+              if ('fgiOverrideDefaultTtlMs' in val) {
+                const n = Number((val as any).fgiOverrideDefaultTtlMs);
+                if (Number.isFinite(n) && n >= 0) t.fgiOverrideDefaultTtlMs = n; else warnings.push(`testing.fgiOverrideDefaultTtlMs must be a non-negative number, got: ${(val as any).fgiOverrideDefaultTtlMs}`);
+              }
+              if ('allowFundingOverride' in val) {
+                if (typeof (val as any).allowFundingOverride === 'boolean') t.allowFundingOverride = (val as any).allowFundingOverride; else warnings.push(`testing.allowFundingOverride must be boolean, got: ${(val as any).allowFundingOverride}`);
+              }
+              if ('fundingOverrideDefaultTtlMs' in val) {
+                const n = Number((val as any).fundingOverrideDefaultTtlMs);
+                if (Number.isFinite(n) && n >= 0) t.fundingOverrideDefaultTtlMs = n; else warnings.push(`testing.fundingOverrideDefaultTtlMs must be a non-negative number, got: ${(val as any).fundingOverrideDefaultTtlMs}`);
+              }
+            } else {
+              warnings.push('testing must be an object');
+            }
+            break;
         }
       }
       
@@ -2674,15 +3484,39 @@ export class WebServer {
             minWinRate: config.strategy.minWinRate,
             useMLAnalysis: config.strategy.useMLAnalysis,
             analysisInterval: ethStrategyEngine.getAnalysisInterval ? ethStrategyEngine.getAnalysisInterval() : undefined,
-            signalCooldownMs: (config as any)?.strategy?.signalCooldownMs,
+            // 兼容旧字段
+            signalCooldownMs: Number((config as any)?.strategy?.signalCooldownMs),
+            oppositeCooldownMs: Number((config as any)?.strategy?.oppositeCooldownMs),
+            // 新增：全局与方向级冷却配置
+            globalMinIntervalMs: Number(((config as any)?.strategy?.cooldown?.globalMinIntervalMs ?? (config as any)?.strategy?.globalMinIntervalMs ?? 0)),
+            cooldown: {
+              globalMinIntervalMs: Number(((config as any)?.strategy?.cooldown?.globalMinIntervalMs ?? (config as any)?.strategy?.globalMinIntervalMs ?? 0)),
+              sameDir: {
+                LONG: Number(((config as any)?.strategy?.cooldown?.sameDir?.LONG ?? NaN)),
+                SHORT: Number(((config as any)?.strategy?.cooldown?.sameDir?.SHORT ?? NaN))
+              },
+              opposite: {
+                LONG: Number(((config as any)?.strategy?.cooldown?.opposite?.LONG ?? NaN)),
+                SHORT: Number(((config as any)?.strategy?.cooldown?.opposite?.SHORT ?? NaN))
+              }
+            },
             maxManualTriggersPerMin: Number((config as any)?.strategy?.maxManualTriggersPerMin),
-            evThreshold: Number(((config as any)?.strategy?.expectedValueThreshold ?? (config as any)?.strategy?.evThreshold) ?? 0),
+            evThreshold: ((config as any)?.strategy?.evThreshold ?? (config as any)?.strategy?.expectedValueThreshold ?? 0),
             marketRegime: {
               avoidExtremeSentiment: !!((config as any)?.strategy?.marketRegime?.avoidExtremeSentiment),
               extremeSentimentLow: Number((config as any)?.strategy?.marketRegime?.extremeSentimentLow ?? 10),
               extremeSentimentHigh: Number((config as any)?.strategy?.marketRegime?.extremeSentimentHigh ?? 90),
               avoidHighFunding: !!((config as any)?.strategy?.marketRegime?.avoidHighFunding),
               highFundingAbs: Number((config as any)?.strategy?.marketRegime?.highFundingAbs ?? 0.03)
+            },
+            entryFilters: {
+              minCombinedStrengthLong: Number((config as any)?.strategy?.entryFilters?.minCombinedStrengthLong ?? 55),
+              minCombinedStrengthShort: Number((config as any)?.strategy?.entryFilters?.minCombinedStrengthShort ?? 55),
+              allowHighVolatilityEntries: !!((config as any)?.strategy?.entryFilters?.allowHighVolatilityEntries),
+              requireMTFAgreement: !!((config as any)?.strategy?.entryFilters?.requireMTFAgreement),
+              minMTFAgreement: Number((config as any)?.strategy?.entryFilters?.minMTFAgreement ?? 0.6),
+              require5m15mAlignment: !!((config as any)?.strategy?.entryFilters?.require5m15mAlignment),
+              require1hWith5mTrend: !!((config as any)?.strategy?.entryFilters?.require1hWith5mTrend)
             },
             kronos: {
               enabled: !!((config as any)?.strategy?.kronos?.enabled),
@@ -2693,12 +3527,33 @@ export class WebServer {
               longThreshold: Number((config as any)?.strategy?.kronos?.longThreshold),
               shortThreshold: Number((config as any)?.strategy?.kronos?.shortThreshold),
               minConfidence: Number((config as any)?.strategy?.kronos?.minConfidence)
-            }
+            },
+            allowOppositeWhileOpen: !!((config as any)?.strategy?.allowOppositeWhileOpen),
+            oppositeMinConfidence: Number((config as any)?.strategy?.oppositeMinConfidence ?? 0.7),
+            oppositeMinConfidenceByDirection: {
+              LONG: Number(((config as any)?.strategy?.oppositeMinConfidenceByDirection?.LONG ?? NaN)),
+              SHORT: Number(((config as any)?.strategy?.oppositeMinConfidenceByDirection?.SHORT ?? NaN))
+            },
+            allowAutoOnHighRisk: !!((config as any)?.strategy?.allowAutoOnHighRisk)
           },
           risk: {
-            maxPositionSize: config.risk.maxPositionSize,
-            stopLossPercent: config.risk.stopLossPercent
+          maxPositionSize: config.risk.maxPositionSize,
+          stopLossPercent: config.risk.stopLossPercent,
+          maxSameDirectionActives: Number((config as any)?.risk?.maxSameDirectionActives),
+          netExposureCaps: {
+            total: Number((config as any)?.risk?.netExposureCaps?.total ?? 0),
+            perDirection: {
+              LONG: Number((config as any)?.risk?.netExposureCaps?.perDirection?.LONG ?? 0),
+              SHORT: Number((config as any)?.risk?.netExposureCaps?.perDirection?.SHORT ?? 0)
+            }
+          }
+        },
+          recommendation: {
+            maxHoldingHours: Number(((config as any)?.recommendation?.maxHoldingHours ?? (process.env.RECOMMENDATION_MAX_HOLDING_HOURS ?? 168))),
+            concurrencyCountAgeHours: Number(((config as any)?.recommendation?.concurrencyCountAgeHours ?? (process.env.RECOMMENDATION_CONCURRENCY_AGE_HOURS ?? 24)))
           },
+          commission: Number((config as any)?.commission),
+          slippage: Number((config as any)?.slippage),
           warnings
         },
         timestamp: Date.now()
@@ -2751,10 +3606,14 @@ export class WebServer {
           this.io.to('strategy-updates').emit('strategy-update', analysis);
         }
         
-        // 发送市场数据更新
-        const marketData = await enhancedOKXDataService.getTicker(config.trading.defaultSymbol);
-        if (marketData) {
-          this.io.to('strategy-updates').emit('market-data', marketData);
+        // 发送市场数据更新（CI可禁用）
+        const disableExternalRaw = (process.env.WEB_DISABLE_EXTERNAL_MARKET || '').toLowerCase();
+        const disableExternal = disableExternalRaw === '1' || disableExternalRaw === 'true';
+        if (!disableExternal) {
+          const marketData = await enhancedOKXDataService.getTicker(config.trading.defaultSymbol);
+          if (marketData) {
+            this.io.to('strategy-updates').emit('market-data', marketData);
+          }
         }
         
         // 发送持仓更新
@@ -2802,10 +3661,25 @@ export class WebServer {
           console.log(`📈 Recommendations API: http://localhost:${this.port}/api/recommendations`);
           
           this.isRunning = true;
-          this.startRealTimeUpdates();
           
-          // 异步初始化推荐系统，不阻塞Web服务器启动
-          this.initializeRecommendationSystemAsync();
+          // 允许通过环境变量禁用实时更新（CI/测试环境）
+          const disableRealtimeRaw = process.env.WEB_DISABLE_REALTIME || '';
+          const disableRealtime = disableRealtimeRaw.toLowerCase() === '1' || disableRealtimeRaw.toLowerCase() === 'true';
+          if (disableRealtime) {
+            console.log('⏸️ 实时更新已禁用 (WEB_DISABLE_REALTIME)');
+          } else {
+            this.startRealTimeUpdates();
+          }
+          
+          // 允许通过环境变量禁用推荐系统初始化（CI/测试环境）
+          const disableRecoInitRaw = process.env.WEB_DISABLE_RECO_INIT || '';
+          const disableRecoInit = disableRecoInitRaw.toLowerCase() === '1' || disableRecoInitRaw.toLowerCase() === 'true';
+          if (disableRecoInit) {
+            console.log('⏸️ 推荐系统初始化已禁用 (WEB_DISABLE_RECO_INIT)');
+          } else {
+            // 异步初始化推荐系统，不阻塞Web服务器启动
+            this.initializeRecommendationSystemAsync();
+          }
           
           resolve();
         });
@@ -2828,6 +3702,109 @@ export class WebServer {
       await this.recommendationService.initialize();
       await this.recommendationService.start();
       console.log('✅ 推荐系统后台初始化完成');
+
+      // 启动回放：在服务器就绪后尝试从文件回放并应用最佳配置（可通过 CONFIG_PLAYBACK_PATH 指定路径，默认 ./config-best.json）
+      try {
+        const pathMod: any = await import('path');
+        const fsMod: any = await import('fs');
+        const fs = (fsMod as any).promises;
+        const envPath = process.env.CONFIG_PLAYBACK_PATH || './config-best.json';
+        const playbackPath = pathMod.resolve(process.cwd(), envPath);
+        const stat = await fs.stat(playbackPath).catch(() => null);
+        if (!stat || !stat.isFile()) {
+          console.log(`ℹ️ 启动回放：未发现配置快照 ${playbackPath}，跳过`);
+        } else {
+          console.log(`🔁 启动回放：加载 ${playbackPath}`);
+          const raw = await fs.readFile(playbackPath, 'utf8');
+          let json: any = null;
+          try { json = JSON.parse(raw); } catch (e: any) {
+            console.warn('启动回放：JSON 解析失败，跳过', e?.message ?? e);
+          }
+          if (json) {
+            const updates: any = {};
+            const src: any = json?.data ? json.data : json;
+            const pick = (obj: any, path: string[]) => path.reduce((a: any, k: string) => (a && typeof a === 'object') ? a[k] : undefined, obj);
+            const setIf = (key: string, val: any, pred: (v: any) => boolean = (v) => v !== undefined && v !== null) => { if (pred(val)) updates[key] = val; };
+
+            // strategy
+            setIf('signalThreshold', pick(src, ['strategy','signalThreshold']));
+            setIf('minWinRate', pick(src, ['strategy','minWinRate']));
+            setIf('useMLAnalysis', pick(src, ['strategy','useMLAnalysis']));
+            setIf('analysisInterval', pick(src, ['strategy','analysisInterval']));
+            setIf('signalCooldownMs', pick(src, ['strategy','signalCooldownMs']));
+            setIf('oppositeCooldownMs', pick(src, ['strategy','oppositeCooldownMs']));
+            setIf('globalMinIntervalMs', pick(src, ['strategy','globalMinIntervalMs']));
+            setIf('duplicateWindowMinutes', pick(src, ['strategy','duplicateWindowMinutes']));
+            setIf('duplicatePriceBps', pick(src, ['strategy','duplicatePriceBps']));
+            setIf('cooldown', pick(src, ['strategy','cooldown']));
+            setIf('oppositeMinConfidenceByDirection', pick(src, ['strategy','oppositeMinConfidenceByDirection']));
+            setIf('maxManualTriggersPerMin', pick(src, ['strategy','maxManualTriggersPerMin']));
+            setIf('evThreshold', pick(src, ['strategy','evThreshold']));
+            setIf('marketRegime', pick(src, ['strategy','marketRegime']));
+            setIf('entryFilters', pick(src, ['strategy','entryFilters']));
+            setIf('kronos', pick(src, ['strategy','kronos']));
+            setIf('allowOppositeWhileOpen', pick(src, ['strategy','allowOppositeWhileOpen']));
+            setIf('oppositeMinConfidence', pick(src, ['strategy','oppositeMinConfidence']));
+            setIf('allowAutoOnHighRisk', pick(src, ['strategy','allowAutoOnHighRisk']));
+
+            // risk
+            setIf('maxPositionSize', pick(src, ['risk','maxPositionSize']));
+            setIf('stopLossPercent', pick(src, ['risk','stopLossPercent']));
+            setIf('maxSameDirectionActives', pick(src, ['risk','maxSameDirectionActives']));
+            setIf('netExposureCaps', pick(src, ['risk','netExposureCaps']));
+            setIf('hourlyOrderCaps', pick(src, ['risk','hourlyOrderCaps']));
+
+            // recommendation & costs
+            setIf('recommendation', pick(src, ['recommendation']));
+            setIf('commission', src?.commission);
+            setIf('slippage', src?.slippage);
+
+            // 如果快照中没有任何可更新项，回退到内置最佳基线
+            if (Object.keys(updates).length === 0) {
+              updates.signalThreshold = 0.5;
+              updates.minWinRate = 55;
+              updates.allowOppositeWhileOpen = false;
+              updates.oppositeMinConfidence = 0.7;
+              updates.maxPositionSize = 0.2;
+              updates.stopLossPercent = 0.02;
+              updates.netExposureCaps = { total: 0, perDirection: { LONG: 0, SHORT: 0 } };
+              updates.hourlyOrderCaps = { total: 0, perDirection: { LONG: 0, SHORT: 0 } };
+              updates.recommendation = { maxHoldingHours: 168, concurrencyCountAgeHours: 24 };
+              updates.commission = 0.001;
+              updates.slippage = 0.0005;
+            }
+
+            const url = `http://localhost:${this.port}/api/config`;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 10000);
+            try {
+              const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates),
+                signal: controller.signal
+              });
+              clearTimeout(timer);
+              if (!resp.ok) {
+                console.warn(`启动回放：更新失败 HTTP ${resp.status}`);
+              } else {
+                let ret: any = null;
+                try { ret = await resp.json(); } catch {}
+                const warn = ret?.data?.warnings;
+                if (Array.isArray(warn) && warn.length > 0) {
+                  console.log('启动回放：已应用，包含警告：', warn);
+                } else {
+                  console.log('启动回放：最佳配置已应用');
+                }
+              }
+            } catch (e: any) {
+              console.warn('启动回放：请求失败，跳过', e?.message ?? e);
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn('启动回放：发生异常，已跳过', e?.message ?? e);
+      }
     } catch (error) {
       console.error('❌ 推荐系统初始化失败:', error);
     }
@@ -2900,14 +3877,24 @@ const selectedPort = (() => {
 })();
 export const webServer = new WebServer(selectedPort);
 
-// 当作为入口文件直接执行时，自动启动 Web 服务器
-console.log('🔍 检查是否需要自动启动Web服务器...');
-console.log('process.argv[1]:', process.argv[1]);
-console.log('import.meta.url:', import.meta.url);
+// 仅当作为入口文件直接执行时才自动启动 Web 服务器，避免被 app.ts 导入时重复监听导致 ERR_SERVER_ALREADY_LISTEN
+try {
+  const isDirectRun = (() => {
+    const argvPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
+    const modulePath = fileURLToPath(import.meta.url);
+    return argvPath && argvPath === modulePath;
+  })();
 
-// 直接启动服务器，不依赖复杂的判断逻辑
-console.log('🚀 开始启动Web服务器...');
-webServer.start().catch((err) => {
-  console.error('❌ Web服务器启动失败:', err);
-  process.exit(1);
-});
+  if (isDirectRun) {
+    console.log('🟢 直接执行 web-server.ts，自动启动 Web 服务器');
+    console.log('🚀 开始启动Web服务器...');
+    webServer.start().catch((err) => {
+      console.error('❌ Web服务器启动失败:', err);
+      process.exit(1);
+    });
+  } else {
+    console.log('ℹ️ web-server 作为模块被导入（例如由 app.ts），不自动启动');
+  }
+} catch (e) {
+  console.warn('⚠️ 自动启动判定失败，作为模块使用，跳过自启：', (e as any)?.message ?? e);
+}

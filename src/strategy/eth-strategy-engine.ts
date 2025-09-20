@@ -1,6 +1,6 @@
 import { SmartSignalAnalyzer, SmartSignalResult } from '../analyzers/smart-signal-analyzer';
 import type { MarketData, KlineData } from '../services/okx-data-service';
-import { EnhancedOKXDataService } from '../services/enhanced-okx-data-service';
+import { EnhancedOKXDataService, enhancedOKXDataService, getEffectiveTestingFGIOverride } from '../services/enhanced-okx-data-service';
 import { MLAnalyzer } from '../ml/ml-analyzer';
 import { config } from '../config';
 import axios from 'axios';
@@ -8,6 +8,37 @@ import NodeCache from 'node-cache';
 import { riskManagementService, RiskAssessment, PositionRisk, PortfolioRisk } from '../services/risk-management-service';
 import { logger } from '../utils/logger';
 import { EventEmitter } from 'events';
+
+// 计算基础EV阈值：支持 evThreshold 对象形式（default/byVolatility/byRegime）与兼容旧的 expectedValueThreshold
+function computeEvBaseThreshold(metaVol?: number, marketCondition?: string): number {
+  const s: any = (config as any)?.strategy || {};
+  const e: any = s.evThreshold;
+  const legacy = s.expectedValueThreshold;
+  // 对象形式
+  if (e && typeof e === 'object') {
+    let base = Number(e.default) || 0;
+    // byVolatility
+    if (typeof metaVol === 'number' && e.byVolatility && typeof e.byVolatility === 'object') {
+      const cat: 'HIGH' | 'MEDIUM' | 'LOW' = metaVol > 0.6 ? 'HIGH' : metaVol < 0.3 ? 'LOW' : 'MEDIUM';
+      const add = Number(e.byVolatility[cat]);
+      if (Number.isFinite(add)) base += add;
+    }
+    // byRegime（内部市场状态为 TRENDING/RANGING，配置键为 TREND/RANGE）
+    if (marketCondition && e.byRegime && typeof e.byRegime === 'object') {
+      const rc = (marketCondition === 'TRENDING' || marketCondition === 'TREND') ? 'TREND'
+              : (marketCondition === 'RANGING' || marketCondition === 'RANGE') ? 'RANGE'
+              : undefined;
+      if (rc) {
+        const add = Number(e.byRegime[rc]);
+        if (Number.isFinite(add)) base += add;
+      }
+    }
+    return base;
+  }
+  // 兼容数值/旧字段
+  const n = Number(legacy ?? e ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
 
 // 交易策略结果
 export interface StrategyResult {
@@ -45,6 +76,21 @@ export interface StrategyResult {
     message: string;
     timestamp: number;
   }[];
+  // 新增：动态EV门控计算结果，便于前端/调用方直接读取
+  gating?: {
+    ev: number;                // 预测期望收益（与 performance.expectedReturn 一致）
+    evThreshold: number;       // 动态EV阈值（基础+波动），expectedReturn 已含交易成本
+    evOk: boolean;             // 是否通过EV门槛
+    regimeOk: boolean;         // 是否通过市场状态门控
+    fgi?: number;              // 当次分析使用的情绪分值（如有）
+    funding?: number;          // 当次资金费率（如有）
+    components: {              // 阈值组成明细
+      baseEv: number;
+      volAdjust: number;
+      cost: number;
+      volPct: number;
+    };
+  };
 }
 
 // 持仓信息
@@ -132,7 +178,7 @@ export class ETHStrategyEngine extends EventEmitter {
     super();
     this.signalAnalyzer = new SmartSignalAnalyzer();
     // this.dataService = new OKXDataService(); // 基础服务实例已移除
-    this.enhancedDataService = new EnhancedOKXDataService();
+    this.enhancedDataService = enhancedOKXDataService;
     this.mlAnalyzer = new MLAnalyzer();
     this.cache = new NodeCache({ stdTTL: 300 }); // 5分钟缓存
     
@@ -378,25 +424,133 @@ export class ETHStrategyEngine extends EventEmitter {
     
     // 预测性能指标
     const performance = this.predictPerformance(signalResult);
-    
-    // 生成警告信息
-    const alerts = this.generateAlerts(signalResult, marketData, riskManagement);
 
-    return {
-      signal: signalResult,
-      recommendation,
-      riskManagement,
-      marketAnalysis: {
-        trend: signalResult.metadata.marketCondition,
-        volatility: signalResult.metadata.volatility > 0.6 ? 'HIGH' : signalResult.metadata.volatility < 0.3 ? 'LOW' : 'MEDIUM',
-        momentum: signalResult.metadata.momentum,
-        support: keyLevels.support,
-        resistance: keyLevels.resistance,
-        keyLevels: keyLevels.levels
-      },
-      performance,
-      alerts
-    };
+    // 新增：计算动态EV门槛（与推荐逻辑中的门控保持一致），用于对外返回
+    try {
+      const perfForGate = this.predictPerformance(signalResult);
+      const baseEv = computeEvBaseThreshold(signalResult?.metadata?.volatility, signalResult?.metadata?.marketCondition);
+      const hi = Number((marketData as any)?.high24h);
+      const lo = Number((marketData as any)?.low24h);
+      const atr = (Number.isFinite(hi) && Number.isFinite(lo)) ? Math.max(0, hi - lo) : 0;
+      const price = Number(marketData?.price ?? 0);
+      const volPct = price > 0 && atr > 0 ? Math.min(0.2, Math.max(0, atr / price)) : 0; // 上限20%
+      const volAdjust = volPct * 0.5; // 波动越大，门槛抬升
+      const evThreshold = baseEv + volAdjust; // expectedReturn 已扣除交易成本，阈值不再叠加成本
+      const evOk = (perfForGate.expectedReturn ?? 0) >= evThreshold;
+
+      const mr = ((config as any).strategy?.marketRegime) || {};
+      const fgi = marketData.fgiScore;
+      const funding = marketData.fundingRate;
+      let regimeOk = true;
+      if (mr.avoidExtremeSentiment === true && typeof fgi === 'number') {
+        const low = mr.extremeSentimentLow ?? 10;
+        const high = mr.extremeSentimentHigh ?? 90;
+        if (fgi <= low || fgi >= high) regimeOk = false;
+      }
+      if (mr.avoidHighFunding === true && typeof funding === 'number') {
+        const highFundingAbs = mr.highFundingAbs ?? 0.03;
+        if (Math.abs(funding) > highFundingAbs) regimeOk = false;
+      }
+
+      logger.debug(
+        'Gates | EV=%.4f thr=%.4f evOk=%s | regimeOk=%s (fgi=%s funding=%s)',
+        perfForGate.expectedReturn ?? 0,
+        evThreshold,
+        String(evOk),
+        String(regimeOk),
+        typeof fgi === 'number' ? fgi.toFixed(1) : 'NA',
+        typeof funding === 'number' ? funding.toFixed(4) : 'NA'
+      );
+
+      // 新增：多时间框一致性门控（可配置）。默认不开启。
+      const mtf = signalResult?.metadata?.multiTFConsistency;
+      const mtfAgreement = Number(mtf?.agreement ?? 0.5);
+      const byTF = (mtf && typeof mtf.byTimeframe === 'object') ? mtf.byTimeframe as Record<string, { direction: 'UP'|'DOWN'|'SIDEWAYS'; strength: number; confidence: number; }> : {};
+      const efMtf = (config as any)?.strategy?.entryFilters || {};
+      const requireMtf = efMtf.requireMTFAgreement === true;
+      const minMtfAgree = Number(efMtf.minMTFAgreement ?? 0.6);
+      const need5m15m = efMtf.require5m15mAlignment === true;
+      const need1hWith5m = efMtf.require1hWith5mTrend === true;
+      const has5m = !!byTF['5m'];
+      const has15m = !!byTF['15m'];
+      const has1h = !!byTF['1H'];
+      const align5m15m = has5m && has15m && byTF['5m'].direction !== 'SIDEWAYS' && byTF['5m'].direction === byTF['15m'].direction;
+      const align1hWith5m = has1h && has5m && byTF['1H'].direction !== 'SIDEWAYS' && byTF['1H'].direction === byTF['5m'].direction;
+      let mtfOk = true;
+      if (requireMtf) {
+        mtfOk = (mtfAgreement >= minMtfAgree);
+        if (mtfOk && (need5m15m || need1hWith5m)) {
+          if (need5m15m && !align5m15m) mtfOk = false;
+          if (need1hWith5m && !align1hWith5m) mtfOk = false;
+        }
+      }
+
+      logger.debug(
+        'MTF | agree=%.2f thr=%.2f need(5m/15m)=%s ok=%s | need(1H&5m)=%s ok=%s',
+        mtfAgreement,
+        minMtfAgree,
+        String(need5m15m),
+        String(align5m15m),
+        String(need1hWith5m),
+        String(align1hWith5m)
+      );
+
+      // 计算成本用于组件展示（不参与阈值计算，因为 expectedReturn 已扣除）
+      const commission = Number(((config as any).commission) ?? 0.001);
+      const slippage = Number(((config as any).slippage) ?? 0.0005);
+      const cost = 2 * (commission + slippage); // 开平各一次
+
+      // 生成警告信息
+      const alerts = this.generateAlerts(signalResult, marketData, riskManagement);
+  
+      return {
+        signal: signalResult,
+        recommendation,
+        riskManagement,
+        marketAnalysis: {
+          trend: signalResult.metadata.marketCondition,
+          volatility: signalResult.metadata.volatility > 0.6 ? 'HIGH' : signalResult.metadata.volatility < 0.3 ? 'LOW' : 'MEDIUM',
+          momentum: signalResult.metadata.momentum,
+          support: keyLevels.support,
+          resistance: keyLevels.resistance,
+          keyLevels: keyLevels.levels
+        },
+        performance,
+        alerts,
+        gating: {
+          ev: perfForGate.expectedReturn ?? 0,
+          evThreshold,
+          evOk,
+          regimeOk,
+          fgi: typeof fgi === 'number' ? fgi : undefined,
+          funding: typeof funding === 'number' ? funding : undefined,
+          components: {
+            baseEv: Number(baseEv) || 0,
+            volAdjust,
+            cost,
+            volPct
+          }
+        }
+      };
+    } catch {
+      // 兜底：若计算失败，仍返回无 gating 字段的结果
+      const alerts = this.generateAlerts(signalResult, marketData, riskManagement);
+      return {
+        signal: signalResult,
+        recommendation,
+        riskManagement,
+        marketAnalysis: {
+          trend: signalResult.metadata.marketCondition,
+          volatility: signalResult.metadata.volatility > 0.6 ? 'HIGH' : signalResult.metadata.volatility < 0.3 ? 'LOW' : 'MEDIUM',
+          momentum: signalResult.metadata.momentum,
+          support: keyLevels.support,
+          resistance: keyLevels.resistance,
+          keyLevels: keyLevels.levels
+        },
+        performance,
+        alerts
+      };
+    }
   }
 
   // 生成交易建议
@@ -490,8 +644,16 @@ export class ETHStrategyEngine extends EventEmitter {
 
     // 新增：EV 门槛与市场状态门控（默认不生效，配置后启用）
     const perfForGate = this.predictPerformance(signalResult);
-    const evMin = (((config as any).strategy?.expectedValueThreshold) ?? ((config as any).strategy?.evThreshold) ?? 0);
-    const evOk = (perfForGate.expectedReturn ?? 0) >= evMin;
+    // 动态EV阈值：基础门槛 + 波动/成本自适应
+    const baseEv = computeEvBaseThreshold(signalResult?.metadata?.volatility, signalResult?.metadata?.marketCondition);
+    const hi = Number((marketData as any)?.high24h);
+    const lo = Number((marketData as any)?.low24h);
+    const atr = (Number.isFinite(hi) && Number.isFinite(lo)) ? Math.max(0, hi - lo) : 0;
+    const price = Number(marketData?.price ?? 0);
+    const volPct = price > 0 && atr > 0 ? Math.min(0.2, Math.max(0, atr / price)) : 0; // 上限20%
+    const volAdjust = volPct * 0.5; // 波动越大，门槛抬升
+    const evThreshold = baseEv + volAdjust; // expectedReturn 已扣除交易成本，阈值不再叠加成本
+    const evOk = (perfForGate.expectedReturn ?? 0) >= evThreshold;
 
     const mr = ((config as any).strategy?.marketRegime) || {};
     const fgi = marketData.fgiScore;
@@ -510,20 +672,53 @@ export class ETHStrategyEngine extends EventEmitter {
     logger.debug(
       'Gates | EV=%.4f thr=%.4f evOk=%s | regimeOk=%s (fgi=%s funding=%s)',
       perfForGate.expectedReturn ?? 0,
-      evMin,
+      evThreshold,
       String(evOk),
       String(regimeOk),
       typeof fgi === 'number' ? fgi.toFixed(1) : 'NA',
       typeof funding === 'number' ? funding.toFixed(4) : 'NA'
     );
 
+    // 新增：多时间框一致性门控（可配置）。默认不开启。
+    const mtf = signalResult?.metadata?.multiTFConsistency;
+    const mtfAgreement = Number(mtf?.agreement ?? 0.5);
+    const byTF = (mtf && typeof mtf.byTimeframe === 'object') ? mtf.byTimeframe as Record<string, { direction: 'UP'|'DOWN'|'SIDEWAYS'; strength: number; confidence: number; }> : {};
+    const efMtf = (config as any)?.strategy?.entryFilters || {};
+    const requireMtf = efMtf.requireMTFAgreement === true;
+    const minMtfAgree = Number(efMtf.minMTFAgreement ?? 0.6);
+    const need5m15m = efMtf.require5m15mAlignment === true;
+    const need1hWith5m = efMtf.require1hWith5mTrend === true;
+    const has5m = !!byTF['5m'];
+    const has15m = !!byTF['15m'];
+    const has1h = !!byTF['1H'];
+    const align5m15m = has5m && has15m && byTF['5m'].direction !== 'SIDEWAYS' && byTF['5m'].direction === byTF['15m'].direction;
+    const align1hWith5m = has1h && has5m && byTF['1H'].direction !== 'SIDEWAYS' && byTF['1H'].direction === byTF['5m'].direction;
+    let mtfOk = true;
+    if (requireMtf) {
+      mtfOk = (mtfAgreement >= minMtfAgree);
+      if (mtfOk && (need5m15m || need1hWith5m)) {
+        if (need5m15m && !align5m15m) mtfOk = false;
+        if (need1hWith5m && !align1hWith5m) mtfOk = false;
+      }
+    }
+
+    logger.debug(
+      'MTF | agree=%.2f thr=%.2f need(5m/15m)=%s ok=%s | need(1H&5m)=%s ok=%s',
+      mtfAgreement,
+      minMtfAgree,
+      String(need5m15m),
+      String(align5m15m),
+      String(need1hWith5m),
+      String(align1hWith5m)
+    );
+
     // 新开仓逻辑 - 考虑风险评估与过滤器
     if (!this.currentPosition && signalResult.strength.confidence >= config.strategy.signalThreshold && riskAssessment.riskLevel !== 'EXTREME') {
-      if ((signalResult.signal === 'STRONG_BUY' || signalResult.signal === 'BUY') && trendOkLong && strengthOkLong && volOk && bollOkLong && squeezeOk && evOk && regimeOk) {
+      if ((signalResult.signal === 'STRONG_BUY' || signalResult.signal === 'BUY') && trendOkLong && strengthOkLong && volOk && bollOkLong && squeezeOk && mtfOk && evOk && regimeOk) {
         logger.debug('Decision: OPEN_LONG | price=%s', String(marketData.price));
         action = 'OPEN_LONG';
         urgency = (signalResult.signal === 'STRONG_BUY' && riskAssessment.riskLevel === 'LOW' && combined >= 75) ? 'HIGH' : 'MEDIUM';
-      } else if ((signalResult.signal === 'STRONG_SELL' || signalResult.signal === 'SELL') && trendOkShort && strengthOkShort && volOk && bollOkShort && squeezeOk && evOk && regimeOk) {
+      } else if ((signalResult.signal === 'STRONG_SELL' || signalResult.signal === 'SELL') && trendOkShort && strengthOkShort && volOk && bollOkShort && squeezeOk && mtfOk && evOk && regimeOk) {
         logger.debug('Decision: OPEN_SHORT | price=%s', String(marketData.price));
         action = 'OPEN_SHORT';
         urgency = (signalResult.signal === 'STRONG_SELL' && riskAssessment.riskLevel === 'LOW' && combined >= 75) ? 'HIGH' : 'MEDIUM';
@@ -584,14 +779,22 @@ export class ETHStrategyEngine extends EventEmitter {
       }
     }
 
-    // 时间止损优化（1H）：
+    // 基于配置的时间止损策略
     const holdingTime = Date.now() - position.timestamp;
-    // 6小时仍处于显著亏损时先减仓，降低回撤
-    if (holdingTime > 6 * 60 * 60 * 1000 && pnlPercent < -0.5) {
+    const recCfg = (config as any)?.recommendation || {};
+    const maxHoldingMs = (Number(recCfg.maxHoldingHours || 0) > 0) ? Number(recCfg.maxHoldingHours) * 3600 * 1000 : 0;
+    const minHoldingMs = (Number(recCfg.minHoldingMinutes || 0) > 0) ? Number(recCfg.minHoldingMinutes) * 60 * 1000 : 0;
+
+    // 达到最大持仓时长：直接平仓
+    if (maxHoldingMs > 0 && holdingTime > maxHoldingMs) {
+      return { close: true, reduce: false, confidence: 0.65, urgency: 'MEDIUM' };
+    }
+    // 超过最小持仓时间后，若亏损较多先减仓，避免更大回撤
+    if (minHoldingMs > 0 && holdingTime > minHoldingMs && pnlPercent < -0.5) {
       return { close: false, reduce: true, confidence: 0.7, urgency: 'MEDIUM' };
     }
-    // 12小时仍为亏损则直接平仓
-    if (holdingTime > 12 * 60 * 60 * 1000 && pnlPercent < -1) {
+    // 长时间仍显著亏损：直接平仓（取更保守阈值）
+    if (minHoldingMs > 0 && holdingTime > Math.max(minHoldingMs * 3, 12 * 60 * 60 * 1000) && pnlPercent < -1) {
       return { close: true, reduce: false, confidence: 0.6, urgency: 'MEDIUM' };
     }
 
@@ -639,12 +842,30 @@ export class ETHStrategyEngine extends EventEmitter {
       leverage = Math.max(2, Math.floor(leverage * 0.8)); // 窄带震荡降低杠杆，最低2x
     }
 
-    // 计算最大损失
-    const maxLoss = finalPositionSize * config.risk.stopLossPercent;
+    // 新增：Kelly 缩放（可选，默认关闭）
+    const kellyCfg = (((config as any).strategy?.kelly) || {});
+    let positionSize = finalPositionSize;
+    try {
+      if (kellyCfg.enabled === true) {
+        const perf = this.predictPerformance(signalResult);
+        const p = Math.max(0.001, Math.min(0.999, perf.expectedWinRate || 0));
+        const R = Math.max(0.0001, (signalResult as any)?.riskReward || perf.riskRewardRatio || 0);
+        const k = p - (1 - p) / R; // Kelly fraction
+        const kMax = Number(kellyCfg.maxFraction ?? 0.2);
+        const kMin = Number(kellyCfg.minFraction ?? 0.02);
+        const kClamped = Math.max(kMin, Math.min(kMax, k));
+        const scale = Math.max(0.1, Math.min(1.0, kClamped / kMax));
+        positionSize = Math.max(0.01, finalPositionSize * scale);
+      }
+    } catch {
+      // 安全兜底：忽略 Kelly 计算异常
+    }
+
+    const maxLoss = positionSize * config.risk.stopLossPercent;
     
     return {
       maxLoss,
-      positionSize: finalPositionSize,
+      positionSize,
       leverage,
       stopLoss: riskAssessment.stopLossPrice,
       takeProfit: riskAssessment.takeProfitPrice,
@@ -688,7 +909,12 @@ export class ETHStrategyEngine extends EventEmitter {
     const confidenceBonus = (signalResult.strength.confidence - 0.5) * 0.2;
     const expectedWinRate = Math.min(0.9, Math.max(0.3, baseWinRate + confidenceBonus));
     
-    const expectedReturn = signalResult.riskReward * expectedWinRate - (1 - expectedWinRate);
+    // 新增：将手续费与滑点成本计入期望收益
+    const commission = Number(((config as any).commission) ?? 0.001);
+    const slippage = Number(((config as any).slippage) ?? 0.0005);
+    const tradingCost = 2 * (commission + slippage); // 开仓+平仓
+    const expectedReturnGross = signalResult.riskReward * expectedWinRate - (1 - expectedWinRate);
+    const expectedReturn = expectedReturnGross - tradingCost;
     
     return {
       expectedWinRate,
@@ -1310,6 +1536,13 @@ export const ethStrategyEngine = new ETHStrategyEngine();
 // 新增：获取恐惧与贪婪指数（FGI），返回 0-100；失败返回 null
 async function fetchFGIScore(): Promise<number | null> {
   try {
+    // 覆盖优先（若启用）
+    if (((config as any)?.testing?.allowFGIOverride) === true) {
+      const ov = getEffectiveTestingFGIOverride();
+      if (typeof ov === 'number' && Number.isFinite(ov)) {
+        return Math.max(0, Math.min(100, ov));
+      }
+    }
     const url = process.env.FGI_API_URL || 'https://api.alternative.me/fng/?limit=1&format=json';
     const resp = await axios.get(url, { timeout: config.okx.timeout || 30000 });
     const data = (resp?.data && (resp.data.data || resp.data.result || resp.data.items)) || resp?.data?.data;

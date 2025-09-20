@@ -27,6 +27,8 @@ export const config = {
         enabled: (process.env.FORCE_PROXY === 'true') || (process.env.USE_PROXY === 'true'),
         // 强制仅走代理（大陆直连不可用场景）
         forceOnly: process.env.FORCE_PROXY === 'true',
+        // 显式将 FORCE_PROXY 与 USE_PROXY 都设置为 'false' 时，固定直连模式，禁止自动切换到代理
+        directOnly: (process.env.FORCE_PROXY === 'false') && (process.env.USE_PROXY === 'false'),
         timeout: 30000,  // 增加到30秒
         
         // 连接池配置
@@ -71,6 +73,16 @@ export const config = {
         }
     },
     
+    // 实时广播控制
+    realtime: {
+        jitterEnabled: (process.env.RT_JITTER_ENABLED || 'false') === 'true',
+        jitterMaxMs: parseInt(process.env.RT_JITTER_MAX_MS || '800'),
+        dedupeEnabled: (process.env.RT_DEDUPE_ENABLED || 'false') === 'true',
+        dedupeWindowMs: parseInt(process.env.RT_DEDUPE_WINDOW_MS || '2000'),
+        snapshotEnabled: (process.env.RT_SNAPSHOT_ENABLED || 'false') === 'true',
+        snapshotDir: process.env.RT_SNAPSHOT_DIR || ''
+    },
+    
     trading: {
         defaultSymbol: process.env.DEFAULT_SYMBOL || 'ETH-USDT-SWAP',
         symbols: [
@@ -90,10 +102,36 @@ export const config = {
         maxDailyLoss: parseFloat(process.env.MAX_DAILY_LOSS || '0.05'),        // 5%
         maxPositionSize: parseFloat(process.env.MAX_POSITION_SIZE || '0.2'),   // 20%
         stopLossPercent: parseFloat(process.env.STOP_LOSS_PERCENT || '0.02'),  // 2%
-        takeProfitPercent: parseFloat(process.env.TAKE_PROFIT_PERCENT || '0.04'), // 4%
+        takeProfitPercent: parseFloat(
+          process.env.TAKE_PROFIT_PERCENT || String(parseFloat(process.env.STOP_LOSS_PERCENT || '0.02') * 1.4)
+        ), // 默认=止损的1.4倍（止损默认0.02 -> 0.028）
         maxRiskPerTrade: parseFloat(process.env.MAX_RISK_PER_TRADE || '0.02'),  // 2%
-        maxDrawdown: parseFloat(process.env.MAX_DRAWDOWN || '0.10')             // 10%
+        maxDrawdown: parseFloat(process.env.MAX_DRAWDOWN || '0.10'),            // 10%
+        // 新增：同向活跃推荐的上限，默认2
+        maxSameDirectionActives: parseInt(process.env.MAX_SAME_DIR_ACTIVES || '2'),
+        // 新增：净杠杆敞口上限（单位为账户名义比例）。<=0 表示不限制
+        netExposureCaps: {
+            // 总净名义敞口上限（所有方向合计 size*leverage 的和，与 maxPositionSize 同量纲）
+            total: parseFloat(process.env.NET_EXPOSURE_CAP_TOTAL || '0'),
+            // 分方向上限（可选），未设置或<=0 表示不限制
+            perDirection: {
+                LONG: parseFloat(process.env.NET_EXPOSURE_CAP_LONG || '0'),
+                SHORT: parseFloat(process.env.NET_EXPOSURE_CAP_SHORT || '0')
+            }
+        },
+        // 新增：每小时下单次数上限（0 表示不限制）
+        hourlyOrderCaps: {
+            total: parseInt(process.env.HOURLY_ORDER_CAP_TOTAL || '0'),
+            perDirection: {
+                LONG: parseInt(process.env.HOURLY_ORDER_CAP_LONG || '0'),
+                SHORT: parseInt(process.env.HOURLY_ORDER_CAP_SHORT || '0')
+            }
+        }
     },
+    
+    // 交易成本配置（用于动态EV阈值与回测一致）
+    commission: parseFloat(process.env.COMMISSION || '0.001'),   // 手续费（单边）
+    slippage: parseFloat(process.env.SLIPPAGE || '0.0005'),      // 滑点（比例）
     
     // 技术指标参数
     indicators: {
@@ -163,6 +201,8 @@ export const config = {
     strategy: {
         // 信号强度阈值（0-1），用于交易决策过滤
         signalThreshold: parseFloat(process.env.SIGNAL_THRESHOLD || '0.50'),
+        // 新增：EV 门槛（支持 EV_THRESHOLD/EXPECTED_VALUE_THRESHOLD 环境变量），默认 0.35
+        evThreshold: parseFloat(process.env.EV_THRESHOLD || process.env.EXPECTED_VALUE_THRESHOLD || '0.35'),
         // 最小历史胜率（百分比数值，如 55 表示 55%）
         minWinRate: parseFloat(process.env.MIN_WIN_RATE || '55'),
         // 是否启用机器学习辅助分析
@@ -193,6 +233,8 @@ export const config = {
         autoRecommendationIntervalMs: parseInt(process.env.AUTO_RECO_INTERVAL_MS || '15000'),
         // 新增：策略信号冷却时间（毫秒），默认30分钟
         signalCooldownMs: parseInt(process.env.SIGNAL_COOLDOWN_MS || '1800000'),
+        // 新增：反向信号的最小间隔（毫秒），默认5分钟
+        oppositeCooldownMs: parseInt(process.env.OPPOSITE_COOLDOWN_MS || '300000'),
         // 新增：振荡器开关（默认停用KDJ与Williams）
         oscillators: {
             useKDJ: (process.env.USE_KDJ || 'false') === 'true',
@@ -214,6 +256,26 @@ export const config = {
                 atrPctMin: parseFloat(process.env.GATE_ATR_PCT_MIN || '0.005'),
                 squeezeBlock: (process.env.GATE_SQUEEZE_BLOCK || 'true') === 'true'
             }
+        },
+        // 新增：Kelly 缩放（可选，默认关闭）
+        kelly: {
+            enabled: (process.env.KELLY_ENABLED || 'false') === 'true',
+            maxFraction: parseFloat(process.env.KELLY_MAX_FRACTION || '0.2'),
+            minFraction: parseFloat(process.env.KELLY_MIN_FRACTION || '0.02')
+        },
+        // 新增：ATR 驱动的止损/止盈（可选，默认关闭）
+        atrStops: {
+            enabled: (process.env.ATR_STOPS_ENABLED || 'false') === 'true',
+            // ATR 来源：'hl' 使用高低价近似，'indicators' 使用指标管道，默认 hl
+            source: process.env.ATR_SOURCE || 'hl',
+            // ATR 参数（若指标不可用则仅作记录）
+            atrPeriod: parseInt(process.env.ATR_PERIOD || process.env.KC_ATR_PERIOD || '14'),
+            // 距离倍数
+            slMultiplier: parseFloat(process.env.ATR_SL_MULTIPLIER || '1.5'),
+            tpMultiplier: parseFloat(process.env.ATR_TP_MULTIPLIER || '2.2'),
+            // 最小/上限 ATR 百分比（用于 hl 近似防抖）
+            minAtrPct: parseFloat(process.env.ATR_MIN_PCT || process.env.GATE_ATR_PCT_MIN || '0.005'),
+            capAtrPct: parseFloat(process.env.ATR_CAP_PCT || '0.2')
         },
         // 新增：Kronos 模型集成配置
         kronos: {
@@ -303,8 +365,59 @@ export const config = {
             origin: process.env.CORS_ORIGIN || '*',
             credentials: true
         }
-    }
-};
+    },
+
+    // 测试与调试配置
+    testing: {
+        // 是否允许通过测试接口覆盖行情价格（仅用于本地/E2E 调试，不可在生产启用）
+        allowPriceOverride: (process.env.TEST_ALLOW_PRICE_OVERRIDE || 'false') === 'true',
+        // 覆盖价格默认有效期（毫秒）
+        priceOverrideDefaultTtlMs: parseInt(process.env.TEST_PRICE_OVERRIDE_TTL_MS || '15000'),
+        // 是否允许覆盖情绪指数（FGI）
+        allowFGIOverride: (process.env.TEST_ALLOW_FGI_OVERRIDE || 'false') === 'true',
+        // FGI 覆盖默认有效期（毫秒）
+        fgiOverrideDefaultTtlMs: parseInt(process.env.TEST_FGI_OVERRIDE_TTL_MS || '15000'),
+        // 是否允许覆盖资金费率
+        allowFundingOverride: (process.env.TEST_ALLOW_FUNDING_OVERRIDE || 'false') === 'true',
+        // 资金费率覆盖默认有效期（毫秒）
+        fundingOverrideDefaultTtlMs: parseInt(process.env.TEST_FUNDING_OVERRIDE_TTL_MS || '15000')
+    },
+
+    // 新增：推荐跟踪与并发统计配置
+    recommendation: {
+        // 最大持仓时长（小时）。<=0 则表示不自动过期
+        maxHoldingHours: parseInt(process.env.RECOMMENDATION_MAX_HOLDING_HOURS || '168'),
+        // 最小持仓时间（分钟）。仅限制“止盈”触发；<=0 表示不限制
+        minHoldingMinutes: parseInt(process.env.RECOMMENDATION_MIN_HOLDING_MINUTES || '0'),
+        // 并发计数的时间窗口（小时）。仅统计持仓时长小于该值的 ACTIVE 推荐
+        concurrencyCountAgeHours: parseInt(process.env.RECOMMENDATION_CONCURRENCY_AGE_HOURS || '24'),
+        // 新增：追踪止损配置
+        trailing: {
+            // 是否启用追踪止损
+            enabled: (process.env.RECOMMENDATION_TRAIL_ENABLED || 'false') === 'true',
+            // 追踪距离（百分比，基于标的价格变动，不包含杠杆），例如 0.8 表示 0.8%
+            percent: parseFloat(process.env.RECOMMENDATION_TRAIL_PERCENT || '0'),
+            // 新增：只有当基础涨跌幅达到该阈值（%）后才开始移动追踪止盈/止损，避免过早被扫出
+            activateProfitPct: parseFloat(process.env.RECOMMENDATION_TRAIL_ACTIVATE_PROFIT_PCT || '2.2'),
+            // 是否在“止损已抬到保本（TP1 命中）”后才开始追踪
+            activateOnBreakeven: (process.env.RECOMMENDATION_TRAIL_ON_BREAKEVEN || 'true') === 'true',
+            // 最小更新步长（价格，避免频繁抖动更新）。<=0 则不限制
+            minStep: parseFloat(process.env.RECOMMENDATION_TRAIL_MIN_STEP || '0'),
+            // 自适应：在低利润阶段放宽、在高利润阶段收紧
+            flex: {
+                enabled: (process.env.RECOMMENDATION_TRAIL_FLEX_ENABLED || 'true') === 'true',
+                // 低利润区阈值（基于标的百分比，不含杠杆），例如 3.5 表示 3.5%
+                lowProfitThreshold: parseFloat(process.env.RECOMMENDATION_TRAIL_FLEX_LOW_THRESHOLD || '3.5'),
+                // 高利润区阈值（更晚才收紧）
+                highProfitThreshold: parseFloat(process.env.RECOMMENDATION_TRAIL_FLEX_HIGH_THRESHOLD || '7'),
+                // 低利润区放宽倍数（>1 表示轨距更宽）
+                lowMultiplier: parseFloat(process.env.RECOMMENDATION_TRAIL_FLEX_LOW_MULTIPLIER || '2.8'),
+                // 高利润区收紧倍数（<1 表示轨距更窄）
+                highTightenMultiplier: parseFloat(process.env.RECOMMENDATION_TRAIL_FLEX_HIGH_TIGHTEN || '0.6')
+            }
+        }
+     }
+ };
 
 /**
  * 验证配置

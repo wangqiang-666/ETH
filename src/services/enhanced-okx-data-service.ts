@@ -68,6 +68,73 @@ interface ErrorAnalysis {
  * 增强的OKX数据服务
  * 提供更好的错误处理、重试机制、连接池管理和故障恢复功能
  */
+// 测试覆盖：FGI 与资金费率（进程级，跨实例共享）
+export let testingFGIOverride: { value: number; expireAt: number } | null = null;
+export function setTestingFGIOverride(value: number, ttlMs?: number): void {
+  try {
+    const ttl = Number.isFinite(ttlMs as number) && (ttlMs as number)! > 0
+      ? (ttlMs as number)
+      : ((config as any)?.testing?.fgiOverrideDefaultTtlMs ?? 10_000);
+    const expireAt = Date.now() + ttl;
+    const v = Math.max(0, Math.min(100, Number(value)));
+    if (!Number.isFinite(v)) return;
+    testingFGIOverride = { value: v, expireAt };
+    console.log(`[Testing] Set FGI override: ${v} (ttlMs=${ttl})`);
+  } catch (e) {
+    console.warn('[Testing] setTestingFGIOverride failed:', e);
+  }
+}
+export function clearTestingFGIOverride(): void {
+  testingFGIOverride = null;
+  console.log('[Testing] Cleared FGI override');
+}
+export function getEffectiveTestingFGIOverride(): number | undefined {
+  const entry = testingFGIOverride;
+  if (!entry) return undefined;
+  if (entry.expireAt <= Date.now()) {
+    testingFGIOverride = null;
+    return undefined;
+  }
+  return entry.value;
+}
+const testingFundingOverrideMap: Map<string, { value: number; expireAt: number }> = new Map();
+export function setTestingFundingOverride(symbol: string, value: number, ttlMs?: number): void {
+  try {
+    const ttl = Number.isFinite(ttlMs as number) && (ttlMs as number)! > 0
+      ? (ttlMs as number)
+      : ((config as any)?.testing?.fundingOverrideDefaultTtlMs ?? 10_000);
+    const expireAt = Date.now() + ttl;
+    const v = Number(value);
+    if (!Number.isFinite(v)) return;
+    testingFundingOverrideMap.set(symbol, { value: v, expireAt });
+    console.log(`[Testing] Set funding override: ${symbol} -> ${v} (ttlMs=${ttl})`);
+  } catch (e) {
+    console.warn('[Testing] setTestingFundingOverride failed:', e);
+  }
+}
+export function clearTestingFundingOverride(symbol?: string): void {
+  try {
+    if (symbol) {
+      testingFundingOverrideMap.delete(symbol);
+      console.log(`[Testing] Cleared funding override for ${symbol}`);
+    } else {
+      testingFundingOverrideMap.clear();
+      console.log('[Testing] Cleared funding override for ALL');
+    }
+  } catch (e) {
+    console.warn('[Testing] clearTestingFundingOverride failed:', e);
+  }
+}
+export function getEffectiveTestingFundingOverride(symbol: string): number | undefined {
+  const entry = testingFundingOverrideMap.get(symbol);
+  if (!entry) return undefined;
+  if (entry.expireAt <= Date.now()) {
+    testingFundingOverrideMap.delete(symbol);
+    return undefined;
+  }
+  return entry.value;
+}
+
 export class EnhancedOKXDataService extends EventEmitter {
   private apiClient!: AxiosInstance;
   private proxyClient: AxiosInstance | null = null;
@@ -78,6 +145,9 @@ export class EnhancedOKXDataService extends EventEmitter {
   private requestStats: Map<string, RequestStats> = new Map();
   private rateLimitDelay = 100;
   private lastRequestTime = 0;
+  // 新增：请求抖动与在途去重
+  private rateLimitJitter = 0.3; // 30% 抖动
+  private inflightRequests: Map<string, Promise<any>> = new Map();
   private circuitBreakerOpen = false;
   private circuitBreakerOpenTime = 0;
   private readonly CIRCUIT_BREAKER_TIMEOUT = 60000; // 1分钟
@@ -121,7 +191,54 @@ export class EnhancedOKXDataService extends EventEmitter {
   private analyzerTimer?: NodeJS.Timeout;
   private healthTimer?: NodeJS.Timeout;
   private lastAnalyzerRecommendation: 'use_proxy' | 'use_direct' | 'optimize_proxy' | null = null;
+// 测试：价格覆盖存储（symbol -> { price, expireAt }）
+  private priceOverrideMap: Map<string, { price: number; expireAt: number }> = new Map();
 
+  // 测试：设置价格覆盖
+  public setPriceOverride(symbol: string, price: number, ttlMs?: number): void {
+    try {
+      const ttl = Number.isFinite(ttlMs as number) && (ttlMs as number)! > 0
+        ? (ttlMs as number)
+        : ((config as any)?.testing?.priceOverrideDefaultTtlMs ?? 10_000);
+      const expireAt = Date.now() + ttl;
+      this.priceOverrideMap.set(symbol, { price, expireAt });
+      // 清理缓存，确保立即生效
+      const endpoint = `/api/v5/market/ticker?instId=${symbol}`;
+      try { this.cacheManager.delete(endpoint); } catch {}
+      try { this.cacheManager.clear(); } catch {}
+      console.log(`[Testing] Set price override: ${symbol} -> ${price} (ttlMs=${ttl})`);
+    } catch (e) {
+      console.warn('[Testing] setPriceOverride failed:', e);
+    }
+  }
+
+  // 测试：清除价格覆盖（若未传 symbol 则全部清除）
+  public clearPriceOverride(symbol?: string): void {
+    try {
+      if (symbol) {
+        this.priceOverrideMap.delete(symbol);
+        const endpoint = `/api/v5/market/ticker?instId=${symbol}`;
+        try { this.cacheManager.delete(endpoint); } catch {}
+      } else {
+        this.priceOverrideMap.clear();
+      }
+      try { this.cacheManager.clear(); } catch {}
+      console.log(`[Testing] Cleared price override for ${symbol || 'ALL'}`);
+    } catch (e) {
+      console.warn('[Testing] clearPriceOverride failed:', e);
+    }
+  }
+
+  // 测试：获取有效覆盖（过期自动清理）
+  private getEffectiveOverride(symbol: string): number | undefined {
+    const entry = this.priceOverrideMap.get(symbol);
+    if (!entry) return undefined;
+    if (entry.expireAt <= Date.now()) {
+      this.priceOverrideMap.delete(symbol);
+      return undefined;
+    }
+    return entry.price;
+  }
   constructor() {
     super();
     this.compressionService = dataCompressionService;
@@ -150,13 +267,15 @@ export class EnhancedOKXDataService extends EventEmitter {
       logLevel: 'info'
     });
     // 按配置决定是否使用代理：当 FORCE_PROXY=true 或 USE_PROXY=true 时启用代理
-    this.useProxy = !!(config.proxy.forceOnly || config.okx.useProxy);
+    this.useProxy = config.proxy.directOnly ? false : !!(config.proxy.forceOnly || config.okx.useProxy);
     // 强制仅走代理模式提示
     if (config.proxy.forceOnly) {
       console.log('🔒 已启用强制代理模式：所有OKX请求将仅通过香港代理转发，直连已禁用');
     }
-    // 新增：在强制代理模式下禁用网络性能分析，避免任何直连探测
-    this.analyzerEnabled = !config.proxy.forceOnly;
+    // 强制直连模式提示
+    if (config.proxy.directOnly) {
+      console.log('🔒 已启用强制直连模式：所有OKX请求将仅通过直连，代理已禁用');
+    }
     this.initializeConnectionHealth();
     this.initializeClients();
     this.startHealthMonitoring();
@@ -354,16 +473,24 @@ export class EnhancedOKXDataService extends EventEmitter {
   private async performFailover(): Promise<void> {
     console.log('🔄 执行故障转移...');
     
+    // 强制直连模式下，不切换到代理
+    if (config.proxy.directOnly) {
+      console.log('🔒 强制直连模式生效，保持直连并重新初始化客户端');
+      this.useProxy = false;
+      this.initializeClients();
+      this.connectionHealth.consecutiveErrors = 0;
+      this.connectionStatus = ConnectionStatus.RECONNECTING;
+      this.emit('failover', { useProxy: this.useProxy });
+      return;
+    }
+    
     // 强制代理模式下，不切换到直连
     if (config.proxy.forceOnly) {
       console.log('🔒 强制代理模式生效，保持代理连接并重新初始化客户端');
       this.useProxy = true;
-      // 重新初始化客户端
       this.initializeClients();
-      // 重置连接健康状态
       this.connectionHealth.consecutiveErrors = 0;
       this.connectionStatus = ConnectionStatus.RECONNECTING;
-      // 发出故障转移事件
       this.emit('failover', { useProxy: this.useProxy });
       return;
     }
@@ -391,21 +518,24 @@ export class EnhancedOKXDataService extends EventEmitter {
   // 网络性能分析监控（片段）
   private startNetworkAnalysisMonitoring(): void {
     if (!this.analyzerEnabled) return;
+    // 强制直连模式：禁用网络分析驱动的切换
+    if (config.proxy.directOnly) {
+      console.log('🔒 强制直连模式：已禁用网络性能分析切换');
+      return;
+    }
     const intervalMs = 120000; // 120秒
     const runAnalysis = async () => {
       try {
         const analysis = await networkPerformanceAnalyzer.analyzeNetworkPerformance();
-        // 根据区域策略，若强制代理，则忽略直连建议
-        const recommendation = config.proxy.forceOnly ? 'use_proxy' : analysis.proxyComparison.recommendation; // 'use_proxy' | 'use_direct' | 'optimize_proxy'
+        const recommendation = config.proxy.forceOnly ? 'use_proxy' : analysis.proxyComparison.recommendation;
         this.lastAnalyzerRecommendation = recommendation;
         this.emit('network-analysis', analysis);
 
-        // 阈值：仅当代理与直连性能差异显著时才切换，避免频繁抖动
         const improvement = analysis.proxyComparison.improvement; // 相对直连的提升百分比
         const significant = Math.abs(improvement) >= 10; // 10% 作为显著阈值
 
         if (significant) {
-          if (recommendation === 'use_proxy' && !this.useProxy) {
+          if (recommendation === 'use_proxy' && !this.useProxy && !config.proxy.directOnly) {
             console.log(`🧭 网络分析建议切换到代理模式 (提升: ${improvement.toFixed(2)}%)`);
             this.useProxy = true;
             this.initializeClients();
@@ -703,50 +833,131 @@ export class EnhancedOKXDataService extends EventEmitter {
    private async waitForRateLimit(): Promise<void> {
      const now = Date.now();
      const elapsed = now - this.lastRequestTime;
-     if (elapsed < this.rateLimitDelay) {
-       await new Promise((resolve) => setTimeout(resolve, this.rateLimitDelay - elapsed));
+     // 基于基础间隔添加随机抖动，避免同一时刻大量并发
+     const jitter = Math.random() * this.rateLimitDelay * this.rateLimitJitter;
+     const targetDelay = this.rateLimitDelay + jitter;
+     if (elapsed < targetDelay) {
+       await new Promise((resolve) => setTimeout(resolve, targetDelay - elapsed));
      }
      this.lastRequestTime = Date.now();
    }
+
+  // 新增：通用 缓存+在途去重+错误恢复 封装
+  private async fetchWithCache<T>(endpoint: string, operation: () => Promise<T>, customTTL?: number): Promise<T> {
+    // 1) 命中缓存直接返回
+    const cached = this.cacheManager.get(endpoint);
+    if (cached !== null && cached !== undefined) {
+      return cached as T;
+    }
+
+    // 2) 若存在在途请求，复用其 Promise 防止雷群
+    const existing = this.inflightRequests.get(endpoint) as Promise<T> | undefined;
+    if (existing) {
+      return await existing;
+    }
+
+    // 3) 创建新请求，纳入错误恢复与自动缓存
+    const p = this.errorRecoveryManager
+      .executeWithRecovery<T>(async () => {
+        const result = await operation();
+        return result;
+      }, endpoint)
+      .then((result) => {
+        try {
+          this.cacheManager.set(endpoint, result, undefined, customTTL);
+        } catch {}
+        return result;
+      })
+      .finally(() => {
+        this.inflightRequests.delete(endpoint);
+      });
+
+    this.inflightRequests.set(endpoint, p as Promise<any>);
+    return await p;
+  }
   
   // 获取Ticker数据（增强版）
   async getTicker(symbol: string = 'ETH-USDT-SWAP'): Promise<MarketData | null> {
     const start = Date.now();
     this.connectionHealth.totalRequests++;
+    const endpoint = `/api/v5/market/ticker?instId=${symbol}`;
     try {
-      await this.waitForRateLimit();
-      const client = this.selectBestClient();
-      const resp = await client.get(`/api/v5/market/ticker?instId=${symbol}`);
-      const data = resp.data as any;
-      if (data.code !== '0' || !data.data || data.data.length === 0) {
-        console.error('Invalid ticker response:', data);
-        this.connectionHealth.failedRequests++;
-        this.connectionHealth.lastErrorTime = Date.now();
-        this.connectionHealth.consecutiveErrors++;
+      // CI/Local: 可通过环境变量禁用外部行情请求
+      const disableExternalRaw = (process.env.WEB_DISABLE_EXTERNAL_MARKET || '').toLowerCase();
+      const disableExternal = disableExternalRaw === '1' || disableExternalRaw === 'true';
+      if (disableExternal) {
+        // 若允许测试价格覆盖，则返回覆盖价格组成的最小行情对象
+        if ((config as any)?.testing?.allowPriceOverride) {
+          const override = this.getEffectiveOverride(symbol);
+          if (typeof override === 'number' && Number.isFinite(override) && override > 0) {
+            const nowTs = Date.now();
+            const faux: MarketData = {
+              price: override,
+              volume: 0,
+              timestamp: nowTs,
+              high24h: override,
+              low24h: override,
+              change24h: 0,
+              changeFromSodUtc8: 0,
+              open24hPrice: override,
+              sodUtc8Price: override
+            } as any;
+            return this.enableCompression ? this.compressMarketData(faux) : faux;
+          }
+        }
         return null;
       }
-      const t = data.data[0];
-      const baseOpen = parseFloat(t.sodUtc8 || t.open24h);
-      const open24hPrice = parseFloat(t.open24h);
-      const sodUtc8Price = t.sodUtc8 ? parseFloat(t.sodUtc8) : undefined;
-      const changeFromSodUtc8 = ((parseFloat(t.last) - baseOpen) / baseOpen) * 100;
-      const result: MarketData = {
-        price: parseFloat(t.last),
-        volume: parseFloat(t.vol24h),
-        timestamp: parseInt(t.ts),
-        high24h: parseFloat(t.high24h),
-        low24h: parseFloat(t.low24h),
-        change24h: ((parseFloat(t.last) - open24hPrice) / open24hPrice) * 100,
-        changeFromSodUtc8,
-        open24hPrice,
-        sodUtc8Price
-      };
+      // 优先：测试价格覆盖（仅当允许时）
+      if ((config as any)?.testing?.allowPriceOverride) {
+        const override = this.getEffectiveOverride(symbol);
+        if (typeof override === 'number' && Number.isFinite(override) && override > 0) {
+          const nowTs = Date.now();
+          const result: MarketData = {
+            price: override,
+            volume: 0,
+            timestamp: nowTs,
+            high24h: override,
+            low24h: override,
+            change24h: 0,
+            changeFromSodUtc8: 0,
+            open24hPrice: override,
+            sodUtc8Price: override
+          } as any;
+          return result;
+        }
+      }
+await this.waitForRateLimit();
+      const result = await this.fetchWithCache<MarketData>(endpoint, async () => {
+        const client = this.selectBestClient();
+        const resp = await client.get(endpoint);
+        const data = resp.data as any;
+        if (data.code !== '0' || !data.data || data.data.length === 0) {
+          throw new Error(`Invalid ticker response: code=${data?.code ?? 'N/A'}`);
+        }
+        const t = data.data[0];
+        const baseOpen = parseFloat(t.sodUtc8 || t.open24h);
+        const open24hPrice = parseFloat(t.open24h);
+        const sodUtc8Price = t.sodUtc8 ? parseFloat(t.sodUtc8) : undefined;
+        const changeFromSodUtc8 = ((parseFloat(t.last) - baseOpen) / baseOpen) * 100;
+        const result: MarketData = {
+          price: parseFloat(t.last),
+          volume: parseFloat(t.vol24h),
+          timestamp: parseInt(t.ts),
+          high24h: parseFloat(t.high24h),
+          low24h: parseFloat(t.low24h),
+          change24h: ((parseFloat(t.last) - open24hPrice) / open24hPrice) * 100,
+          changeFromSodUtc8,
+          open24hPrice,
+          sodUtc8Price
+        };
+        this.handleResponseCompression({ data });
+        return this.enableCompression ? this.compressMarketData(result) : result;
+      });
+
       this.connectionHealth.successfulRequests++;
       this.connectionHealth.lastSuccessTime = Date.now();
       this.connectionHealth.consecutiveErrors = 0;
-      // 可选：压缩统计
-      this.handleResponseCompression({ data });
-      return this.enableCompression ? this.compressMarketData(result) : result;
+      return result;
     } catch (err) {
       console.error('Failed to fetch ticker data (enhanced):', err);
       this.connectionHealth.failedRequests++;
@@ -769,14 +980,49 @@ export class EnhancedOKXDataService extends EventEmitter {
     interval: string = '1m',
     limit: number = 100
   ): Promise<KlineData[]> {
+    // 环境禁用：返回合成K线以便测试（若启用价格覆盖），否则返回空数组
+    if (this.isExternalDisabled()) {
+      try {
+        if ((config as any)?.testing?.allowPriceOverride) {
+          const override = this.getEffectiveOverride(symbol);
+          if (typeof override === 'number' && Number.isFinite(override) && override > 0) {
+            const now = Date.now();
+            const m = /^\s*(\d+)\s*([mMhHdD])\s*$/.exec(String(interval));
+            let tfMs = 60_000;
+            if (m) {
+              const n = parseInt(m[1], 10);
+              const u = m[2].toLowerCase();
+              tfMs = u === 'm' ? n * 60_000 : u === 'h' ? n * 3_600_000 : n * 86_400_000;
+            }
+            const arr: KlineData[] = [];
+            let price = override;
+            for (let i = limit - 1; i >= 0; i--) {
+              const ts = now - i * tfMs;
+              const drift = (Math.random() - 0.5) * 0.002 * override; // ±0.2% 随机漂移
+              const open = price;
+              price = Math.max(0.0001, price + drift);
+              const close = price;
+              const high = Math.max(open, close) * 1.0005;
+              const low = Math.min(open, close) * 0.9995;
+              const volume = 100 + Math.random() * 200;
+              const turnover = volume * ((open + close) / 2) * 0.1; // 合约乘数0.1
+              arr.push({ timestamp: ts, open, high, low, close, volume, turnover });
+            }
+            return this.enableCompression ? this.compressKlineData(arr) : arr;
+          }
+        }
+      } catch (e) {
+        console.warn('Synth Kline generation failed:', e);
+      }
+      return [];
+    }
     const start = Date.now();
     this.connectionHealth.totalRequests++;
     const endpoint = `/api/v5/market/candles?instId=${symbol}&bar=${interval}&limit=${limit}`;
     try {
       await this.waitForRateLimit();
 
-      // 使用错误恢复管理器统一重试与熔断
-      const klines = await this.errorRecoveryManager.executeWithRecovery<KlineData[]>(async () => {
+      const klines = await this.fetchWithCache<KlineData[]>(endpoint, async () => {
         const client = this.selectBestClient();
         // 针对K线请求适当延长超时（代理模式更宽松）
         const baseTimeout = client.defaults.timeout || 30000;
@@ -804,10 +1050,9 @@ export class EnhancedOKXDataService extends EventEmitter {
           volume: parseFloat(k[5]),
           turnover: parseFloat(k[6])
         })).reverse();
-        // 记录压缩统计
         this.handleResponseCompression({ data });
         return this.enableCompression ? this.compressKlineData(parsed) : parsed;
-      }, endpoint);
+      });
 
       // 成功统计
       this.connectionHealth.successfulRequests++;
@@ -831,6 +1076,20 @@ export class EnhancedOKXDataService extends EventEmitter {
   
   // 获取资金费率（增强版）
   async getFundingRate(symbol: string = 'ETH-USDT-SWAP'): Promise<number | null> {
+    const allowOverride = ((config as any)?.testing?.allowFundingOverride) === true;
+    // 环境禁用：若允许覆盖则返回覆盖值，否则直接返回 null，避免外部HTTP调用
+    if (this.isExternalDisabled()) {
+      if (allowOverride) {
+        const ov = getEffectiveTestingFundingOverride(symbol);
+        if (typeof ov === 'number' && Number.isFinite(ov)) return ov;
+      }
+      return null;
+    }
+    // 优先返回覆盖值（若允许且存在）
+    if (allowOverride) {
+      const ov = getEffectiveTestingFundingOverride(symbol);
+      if (typeof ov === 'number' && Number.isFinite(ov)) return ov;
+    }
     const start = Date.now();
     this.connectionHealth.totalRequests++;
     try {
@@ -839,11 +1098,7 @@ export class EnhancedOKXDataService extends EventEmitter {
       const resp = await client.get(`/api/v5/public/funding-rate?instId=${symbol}`);
       const data = resp.data as any;
       if (data.code !== '0' || !data.data || data.data.length === 0) {
-        console.error('Invalid funding rate response:', data);
-        this.connectionHealth.failedRequests++;
-        this.connectionHealth.lastErrorTime = Date.now();
-        this.connectionHealth.consecutiveErrors++;
-        return null;
+        throw new Error(`Invalid funding rate response: code=${data?.code ?? 'N/A'}`);
       }
       const rate = parseFloat(data.data[0].fundingRate);
       this.connectionHealth.successfulRequests++;
@@ -868,6 +1123,10 @@ export class EnhancedOKXDataService extends EventEmitter {
   
   // 获取持仓量（增强版）
   async getOpenInterest(symbol: string = 'ETH-USDT-SWAP'): Promise<number | null> {
+    // 环境禁用：直接返回 null
+    if (this.isExternalDisabled()) {
+      return null;
+    }
     const start = Date.now();
     this.connectionHealth.totalRequests++;
     try {
@@ -876,11 +1135,7 @@ export class EnhancedOKXDataService extends EventEmitter {
       const resp = await client.get(`/api/v5/public/open-interest?instId=${symbol}`);
       const data = resp.data as any;
       if (data.code !== '0' || !data.data || data.data.length === 0) {
-        console.error('Invalid open interest response:', data);
-        this.connectionHealth.failedRequests++;
-        this.connectionHealth.lastErrorTime = Date.now();
-        this.connectionHealth.consecutiveErrors++;
-        return null;
+        throw new Error(`Invalid open interest response: code=${data?.code ?? 'N/A'}`);
       }
       const oi = parseFloat(data.data[0].oi);
       this.connectionHealth.successfulRequests++;
@@ -948,6 +1203,11 @@ export class EnhancedOKXDataService extends EventEmitter {
   
   // 预热缓存
   async warmupCache(symbols: string[] = ['ETH-USDT-SWAP', 'BTC-USDT-SWAP']): Promise<void> {
+    // 环境禁用：跳过预热，避免外部HTTP调用
+    if (this.isExternalDisabled()) {
+      console.log('🔥 跳过缓存预热（WEB_DISABLE_EXTERNAL_MARKET=true）');
+      return;
+    }
     console.log('🔥 开始预热缓存...');
     
     const warmupPromises = symbols.map(async (symbol) => {
@@ -1005,6 +1265,11 @@ export class EnhancedOKXDataService extends EventEmitter {
   }
 
 
+  // 新增：是否禁用外部行情请求（CI/本地防网络调用，与 OKXDataService 保持一致）
+  private isExternalDisabled(): boolean {
+    const v = (process.env.WEB_DISABLE_EXTERNAL_MARKET || '').toLowerCase();
+    return v === '1' || v === 'true';
+  }
 }
 
 export const enhancedOKXDataService = new EnhancedOKXDataService();

@@ -111,20 +111,26 @@ async function backdateCreatedAt(id, hoursAgo) {
     // give the tracker a moment to run its immediate check()
     await sleep(3000);
 
-    console.log('[auto-timeout] fetching detail to verify EXPIRED...');
+    console.log('[auto-timeout] fetching detail to verify CLOSED+TIMEOUT...');
     const detail = await get(base, `/recommendations/${id}`);
     if (!detail?.success) throw new Error('get detail failed: ' + JSON.stringify(detail));
     const rec = detail.data;
     console.log('[auto-timeout] detail.status:', rec.status, 'exit_reason:', rec.exit_reason, 'exit_time:', rec.exit_time);
 
-    if (!(rec.status === 'EXPIRED' && rec.exit_reason === 'TIMEOUT' && rec.exit_time)) {
-      throw new Error(`assert failed: expected EXPIRED/TIMEOUT; got status=${rec.status}, reason=${rec.exit_reason}, exit_time=${rec.exit_time}`);
+    if (!(rec.status === 'CLOSED' && rec.exit_reason === 'TIMEOUT' && rec.exit_time)) {
+      throw new Error(`assert failed: expected CLOSED/TIMEOUT; got status=${rec.status}, reason=${rec.exit_reason}, exit_time=${rec.exit_time}`);
     }
 
     console.log('[auto-timeout] verifying it is no longer in active list...');
     const actives = await get(base, '/active-recommendations');
     if (!actives?.success) throw new Error('get active failed: ' + JSON.stringify(actives));
     const list = Array.isArray(actives.data?.recommendations) ? actives.data.recommendations : [];
+    // 新增：如果后端提供 count 字段，校验与列表长度一致
+    if (typeof actives?.data?.count === 'number') {
+      if (actives.data.count !== list.length) {
+        throw new Error(`active count mismatch: count=${actives.data.count}, list.length=${list.length}`);
+      }
+    }
     const found = list.find(x => x.id === id);
     if (found) throw new Error('record still in active list');
 

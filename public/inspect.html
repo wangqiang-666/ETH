@@ -115,6 +115,63 @@
           <summary>Config 原始 JSON</summary>
           <pre id="configRaw" class="mono"></pre>
         </details>
+        <!-- 新增：策略冷却与反向置信度配置编辑区 -->
+        <details style="margin-top:10px">
+          <summary>策略冷却/置信度 配置编辑</summary>
+          <p class="status">说明：冷却时间为非负整数（毫秒）；置信度为 0~1 之间的小数。留空表示不修改。若同时设置全局和分方向置信度，分方向将覆盖对应方向。</p>
+          <div class="kv" style="margin-top:8px">
+            <div>全局最小间隔 globalMinIntervalMs</div>
+            <div><input id="globalMinIntervalMs" type="number" min="0" step="1" placeholder="ms" style="width:160px" /></div>
+
+            <div>同向冷却 sameDir.LONG</div>
+            <div><input id="cdSameLong" type="number" min="0" step="1" placeholder="ms" style="width:160px" /></div>
+            <div>同向冷却 sameDir.SHORT</div>
+            <div><input id="cdSameShort" type="number" min="0" step="1" placeholder="ms" style="width:160px" /></div>
+            
+            <div>反向冷却 opposite.LONG</div>
+            <div><input id="cdOppLong" type="number" min="0" step="1" placeholder="ms" style="width:160px" /></div>
+            <div>反向冷却 opposite.SHORT</div>
+            <div><input id="cdOppShort" type="number" min="0" step="1" placeholder="ms" style="width:160px" /></div>
+            
+            <div>反向最小置信度 oppositeMinConfidence</div>
+            <div><input id="oppMinConf" type="number" min="0" max="1" step="0.01" placeholder="0~1" style="width:160px" /></div>
+
+            <div>反向最小置信度(LONG) byDirection.LONG</div>
+            <div><input id="oppMinConfLong" type="number" min="0" max="1" step="0.01" placeholder="0~1 (可选)" style="width:160px" /></div>
+            <div>反向最小置信度(SHORT) byDirection.SHORT</div>
+            <div><input id="oppMinConfShort" type="number" min="0" max="1" step="0.01" placeholder="0~1 (可选)" style="width:160px" /></div>
+
+            <div>反向并存开关 allowOppositeWhileOpen</div>
+            <div>
+              <input id="allowOppositeWhileOpen" type="checkbox" />
+              <span class="hint">允许在有仓位时开反向</span>
+            </div>
+
+            <div style="margin-top:12px; border-top:1px solid #ddd; padding-top:12px;">
+              <strong>EV阈值配置 evThreshold</strong>
+            </div>
+            <div>默认阈值 default</div>
+            <div><input id="evDef" type="number" step="0.01" placeholder="数值" style="width:160px" /></div>
+            <div style="margin-top:8px;"><em>按波动分类 byVolatility</em></div>
+            <div>高波动 HIGH</div>
+            <div><input id="evVolH" type="number" step="0.01" placeholder="数值" style="width:160px" /></div>
+            <div>中波动 MEDIUM</div>
+            <div><input id="evVolM" type="number" step="0.01" placeholder="数值" style="width:160px" /></div>
+            <div>低波动 LOW</div>
+            <div><input id="evVolL" type="number" step="0.01" placeholder="数值" style="width:160px" /></div>
+            <div style="margin-top:8px;"><em>按市场状态 byRegime</em></div>
+            <div>趋势市场 TREND</div>
+            <div><input id="evRegT" type="number" step="0.01" placeholder="数值" style="width:160px" /></div>
+            <div>震荡市场 RANGE</div>
+            <div><input id="evRegR" type="number" step="0.01" placeholder="数值" style="width:160px" /></div>
+
+            <div></div>
+            <div>
+              <button id="saveStrategyCfg" class="btn">保存</button>
+              <span id="saveCfgStatus" class="status" style="margin-left:8px"></span>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -145,27 +202,37 @@
     let currentLoadCtrl = null; // 新增：每次刷新使用的全局 AbortController
 
     // ===== 通用工具函数（全局可用）=====
-    async function getJson(url, timeoutMs = 5000, retries = 1, opts = {}) {
-      const extSignal = opts && opts.signal; // 外部取消信号（用于刷新时中断上一轮）
-      const maxTimeout = 30000;
-      const doFetch = async (toMs) => {
-        const ctrl = new AbortController();
-        const id = setTimeout(() => ctrl.abort(), Math.min(Math.max(toMs, 3000), maxTimeout));
-        const combined = extSignal ? anySignal(ctrl.signal, extSignal) : ctrl.signal; // 合并信号
-        try {
-          const res = await fetch(url, { signal: combined });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const ct = res.headers.get('content-type') || '';
-          if (ct.includes('application/json')) return await res.json();
-          const text = await res.text();
-          try { return JSON.parse(text); } catch { return { raw: text }; }
-        } finally {
-          clearTimeout(id);
+    function resolveApiUrl(u) {
+      try {
+        if (typeof u === 'string' && u.startsWith('/api')) {
+          // 始终同源访问，避免错误地重写到其他端口（如 3002）导致加载失败
+          return u; // same-origin
         }
-      };
-      let attempt = 0;
-      let curTimeout = timeoutMs;
-      while (true) {
+      } catch (_) {}
+      return u;
+    }
+     async function getJson(url, timeoutMs = 5000, retries = 1, opts = {}) {
+       const extSignal = opts && opts.signal; // 外部取消信号（用于刷新时中断上一轮）
+       const maxTimeout = 30000;
+       const doFetch = async (toMs) => {
+         const ctrl = new AbortController();
+         const id = setTimeout(() => ctrl.abort(), Math.min(Math.max(toMs, 3000), maxTimeout));
+         const combined = extSignal ? anySignal(ctrl.signal, extSignal) : ctrl.signal; // 合并信号
+         try {
+
+          const res = await fetch(resolveApiUrl(url), { signal: combined });
+           if (!res.ok) throw new Error(`HTTP ${res.status}`);
+           const ct = res.headers.get('content-type') || '';
+           if (ct.includes('application/json')) return await res.json();
+           const text = await res.text();
+           try { return JSON.parse(text); } catch { return { raw: text }; }
+         } finally {
+           clearTimeout(id);
+         }
+       };
+       let attempt = 0;
+       let curTimeout = timeoutMs;
+       while (true) {
         try {
           return await doFetch(curTimeout);
         } catch (e) {
@@ -312,124 +379,467 @@
       }, 1000);
     }
 
-    // 新增：Ticker 渲染工具
-    function renderTickerCard(tData, badgeType, badgeText) {
-      const t = tData || {};
-      kv($('tickerKv'), {
-        '现价 Price': money(t.price),
-        '24小时涨跌幅 24h Change': (typeof t.change24h === 'number') ? pctp(t.change24h) : '—',
-        '24h最高 High24h': money(t.high24h),
-        '24h最低 Low24h': money(t.low24h),
-        '成交量(张) Volume (Contracts)': (typeof t.volume === 'number') ? t.volume : '—',
-        '24h成交额(USDT) 24h Turnover (USDT)': (typeof t.volume === 'number' && typeof t.price === 'number') ? formatUSDT(t.volume * t.price * 0.1) : '—',
-        '时间戳 Timestamp': (t.timestamp != null) ? `${fmtTs(t.timestamp)} (${t.timestamp})` : '—'
-      });
-      setBadge('tickerStatus', badgeType, badgeText);
-    }
-
-    // 新增：K线卡片渲染（可接受 ticker 作为估算均量美元的参考价）
-    function renderKlineCard(diag, ticker) {
-      const kl = diag?.klineValidation || {};
-      const issues = (kl.issues || []).length;
-      const metrics = kl.metrics || {};
-      kv($('klineKv'), {
-        '有效 Valid': kl.valid ? 'true' : 'false',
-        '包含错误 HasErrors': kl.hasErrors ? 'true' : 'false',
-        '问题数量 IssuesCount': issues,
-        '条数 Count': metrics.count,
-        '开始时间 Start': (metrics.startTs != null) ? `${fmtTs(metrics.startTs)} (${metrics.startTs})` : '—',
-        '结束时间 End': (metrics.endTs != null) ? `${fmtTs(metrics.endTs)} (${metrics.endTs})` : '—',
-        '缺口 Gaps': metrics.gaps,
-        '重复 Duplicates': metrics.duplicates,
-        '异常值 Outliers': metrics.outliers,
-        '均价 AvgPrice': (typeof metrics.avgPrice === 'number') ? money(metrics.avgPrice) : '—',
-        '均量 AvgVolume': (function(){
-          if (typeof metrics.avgVol !== 'number') return '—';
-          const base = metrics.avgVol.toFixed(2) + ' 张';
-          const px = (typeof metrics.avgPrice === 'number') ? metrics.avgPrice
-            : (typeof (ticker?.data?.price) === 'number' ? ticker.data.price
-            : (typeof (diag?.crossChecks?.tickerPrice) === 'number' ? diag.crossChecks.tickerPrice : null));
-          if (typeof px === 'number' && isFinite(px)) {
-            const usd = metrics.avgVol * px * 0.1;
-            return `${base} (≈ ${formatUSDT(usd)})`;
-          }
-          return base;
-        })()
-      });
-      setBadge('klineStatus', diag?.error ? 'err' : (kl.valid === false ? 'warn' : 'ok'), diag?.error ? `错误：${String(diag.error).slice(0,80)}` : (kl.valid === false ? '校验未通过' : '已更新'));
-    }
-
-    // 新增：交叉核验与指标卡片渲染（可在缺少 ticker/k24 的情况下部分渲染）
-    function renderIndCard(diag, ticker, k24) {
-      const cc = diag?.crossChecks || {};
-      const ind = diag?.indicators || {};
-      const cur = ind.current || {};
-
-      // 计算基于 1H K线的 24h 涨跌幅
-      let computed24hPct = null; // 小数
+    // 渲染函数（占位实现，确保页面可运行）
+    function renderTickerCard(data, type = 'ok', text = '') {
       try {
-        const arr = Array.isArray(k24?.data) ? k24.data : (Array.isArray(k24) ? k24 : []);
-        if (Array.isArray(arr) && arr.length >= 2) {
-          const closeAt = (bar) => (typeof bar?.close === 'number') ? bar.close : (Array.isArray(bar) ? Number(bar[4]) : NaN);
-          const first = closeAt(arr[0]);
-          const last = closeAt(arr[arr.length - 1]);
-          if (isFinite(first) && isFinite(last) && first > 0) {
-            computed24hPct = (last - first) / first;
+        const d = data || {};
+        // 新增：按张折算的 USDT 成交额计算（兼容数值/字符串）
+        const priceNum = Number(typeof d.price === 'number' ? d.price : (d.price ?? d.last ?? (d.data && d.data.price)));
+        const volLots = Number(d.volume);
+        const turnoverUSDT = (Number.isFinite(volLots) && Number.isFinite(priceNum)) ? volLots * priceNum * 0.1 : NaN;
+    
+        setBadge('tickerStatus', type || (d && d.price != null ? 'ok' : 'warn'), text || (d && d.price != null ? '已更新' : '暂无数据'));
+        kv($('tickerKv'), {
+          '最新价 Last Price': (typeof d.price === 'number') ? d.price.toFixed(2) : (d.price ?? '—'),
+          '24h 变动 24h Change': (typeof d.change24h === 'number') ? pctp(d.change24h) : '—',
+          '24h 最高 High 24h': (typeof d.high24h === 'number') ? d.high24h.toFixed(2) : '—',
+          '24h 最低 Low 24h': (typeof d.low24h === 'number') ? d.low24h.toFixed(2) : '—',
+          // 修改：成交量单位标注为“张”
+          '24h 成交量 Volume 24h': (Number.isFinite(volLots)) ? (volLots.toLocaleString() + ' 张') : '—',
+          // 新增：按张折算的 USDT 成交额
+          '24h 成交额(按张折算, USDT) Turnover 24h (Lots)': Number.isFinite(turnoverUSDT) ? formatUSDT(turnoverUSDT) : '—',
+          '开盘价(滚动24h) Open24h Price': (typeof d.open24hPrice === 'number') ? d.open24hPrice.toFixed(2) : '—',
+          '当日开盘价(UTC+8) SodUtc8 Price': (typeof d.sodUtc8Price === 'number') ? d.sodUtc8Price.toFixed(2) : '—',
+          '相对当日开盘变动 Change From SOD(UTC+8)': (typeof d.changeFromSodUtc8 === 'number') ? pctp(d.changeFromSodUtc8) : '—',
+          '时间 Timestamp': (d.timestamp != null) ? `${fmtTs(d.timestamp)} (${d.timestamp})` : '—'
+        });
+        if ($('tickerRaw')) $('tickerRaw').textContent = safeStringify(d, 2);
+      } catch (_) {}
+    }
+
+    function renderKlineCard(diag, ticker, k24) {
+      try {
+        const cc = diag?.crossChecks || {};
+        const v = diag?.validation || {};
+    
+        // 解析24h K线窗口（limit=25，取最近24根已收盘K线进行统计）
+        let k24High = null, k24Low = null, k24Vol = null, k24Open = null, k24Change = null;
+        try {
+          const kd = Array.isArray(k24) ? k24 : (k24 && Array.isArray(k24.data) ? k24.data : null);
+          if (Array.isArray(kd) && kd.length >= 2) {
+            const arr = kd.slice(-24);
+            const highs = arr.map(k => Number(k.high)).filter(n => Number.isFinite(n));
+            const lows = arr.map(k => Number(k.low)).filter(n => Number.isFinite(n));
+            const vols = arr.map(k => Number(k.volume)).filter(n => Number.isFinite(n));
+            const opens = arr.map(k => Number(k.open)).filter(n => Number.isFinite(n));
+            const closes = arr.map(k => Number(k.close)).filter(n => Number.isFinite(n));
+            if (highs.length > 0 && lows.length > 0 && closes.length > 0) {
+              k24High = Math.max(...highs);
+              k24Low = Math.min(...lows);
+              k24Vol = vols.reduce((a, b) => a + b, 0);
+              const turnover = arr.reduce((acc, k) => {
+                const v = Number(k.volume); const c = Number(k.close);
+                return (Number.isFinite(v) && Number.isFinite(c)) ? acc + v * c * 0.1 : acc;
+              }, 0);
+              k24TurnoverUSDT = Number.isFinite(turnover) ? turnover : null;
+              k24Open = opens[0];
+              const lastClose = closes[closes.length - 1];
+              if (Number.isFinite(k24Open) && Number.isFinite(lastClose) && k24Open > 0) {
+                k24Change = ((lastClose - k24Open) / k24Open) * 100; // 百分比
+              }
+            }
+          }
+        } catch (_) {}
+
+        // 新增：兼容后端字段名差异的回退逻辑
+        const vAlt = diag?.klineValidation || {};
+        const vOk = (typeof v?.ok === 'boolean') ? v.ok : (typeof vAlt?.valid === 'boolean' ? vAlt.valid : undefined);
+        const meanVolVal = (typeof cc.meanVolume === 'number') ? cc.meanVolume : (typeof vAlt?.metrics?.avgVol === 'number' ? vAlt.metrics.avgVol : undefined);
+        const dataTs = (diag?.dataTs != null) ? diag.dataTs : (typeof vAlt?.metrics?.endTs === 'number' ? vAlt.metrics.endTs : undefined);
+    
+        kv($('klineKv'), {
+          '最后收盘 Last Close': (typeof cc.lastClose === 'number') ? cc.lastClose.toFixed(2) : '—',
+          '均量 Mean Volume(张)': (typeof meanVolVal === 'number') ? meanVolVal.toLocaleString() : '—',
+          'K线可用 Kline OK': (vOk === true ? 'true' : vOk === false ? 'false' : '—'),
+          '数据时间 Data Time': (dataTs != null) ? `${fmtTs(dataTs)} (${dataTs})` : '—',
+          '24h 高(按K线) High 24h (K)': (typeof k24High === 'number') ? k24High.toFixed(2) : '—',
+          '24h 低(按K线) Low 24h (K)': (typeof k24Low === 'number') ? k24Low.toFixed(2) : '—',
+          '24h 成交量(按K线, 张) Volume 24h (K, Lots)': (k24Vol != null && Number.isFinite(k24Vol)) ? k24Vol.toLocaleString() : '—',
+          '24h 成交额(按K线, USDT) Turnover 24h (K)': (typeof k24TurnoverUSDT === 'number') ? formatUSDT(k24TurnoverUSDT) : '—',
+          '24h 变动(按K线) Change 24h (K)': (typeof k24Change === 'number') ? pctp(k24Change) : '—'
+        });
+        if ($('klineRaw')) $('klineRaw').textContent = safeStringify(diag, 2);
+        setBadge('klineStatus', vOk === false ? 'warn' : 'ok', vOk === false ? '校验警告' : '已更新');
+      } catch (_) {}
+    }
+
+    function renderIndCard(diag, ticker, k24) {
+      try {
+        const src = (diag && diag.indicators) || {};
+        const ind = (src && typeof src === 'object' && (('current' in src) || ('issues' in src))) ? (src.current || {}) : src;
+        const macd = ind.macd || {};
+        const bb = ind.bollinger || {};
+        const kdj = ind.kdj || {};
+        const obv = ind.obv || {};
+        const vwap = ind.vwap || {};
+        const kelt = ind.keltner || {};
+        const vol = ind.volume || {};
+
+        // 24h 对比：基于 k24 与 ticker
+        let k24High = null, k24Low = null, distHigh = null, distLow = null, amp = null;
+        try {
+          const kd = Array.isArray(k24) ? k24 : (k24 && Array.isArray(k24.data) ? k24.data : null);
+          if (Array.isArray(kd) && kd.length >= 2) {
+            const arr = kd.slice(-24);
+            const highs = arr.map(k => Number(k.high)).filter(n => Number.isFinite(n));
+            const lows = arr.map(k => Number(k.low)).filter(n => Number.isFinite(n));
+            if (highs.length > 0 && lows.length > 0) {
+              k24High = Math.max(...highs);
+              k24Low = Math.min(...lows);
+            }
+          }
+        } catch (_) {}
+        const price = (ticker && typeof ticker === 'object')
+          ? (typeof ticker.price === 'number' ? ticker.price
+            : (ticker.data && typeof ticker.data.price === 'number' ? ticker.data.price : null))
+          : null;
+        if (price != null) {
+          if (typeof k24High === 'number' && k24High > 0) distHigh = (price - k24High) / k24High;
+          if (typeof k24Low === 'number' && k24Low > 0) distLow = (price - k24Low) / k24Low;
+          if (typeof k24High === 'number' && typeof k24Low === 'number' && (price > 0 || (k24High + k24Low) > 0)) {
+            const base = price > 0 ? price : ((k24High + k24Low) / 2);
+            amp = (k24High - k24Low) / base;
           }
         }
+        const volUSDTCurrent = (typeof vol.current === 'number' && typeof price === 'number') ? vol.current * price * 0.1 : NaN;
+        const volUSDTAvg = (typeof vol.average === 'number' && typeof price === 'number') ? vol.average * price * 0.1 : NaN;
+
+        kv($('indKv'), {
+          'RSI': (typeof ind.rsi === 'number') ? ind.rsi.toFixed(2) : '—',
+          'MACD': (typeof macd.macd === 'number') ? macd.macd.toFixed(4) : '—',
+          'Signal': (typeof macd.signal === 'number') ? macd.signal.toFixed(4) : '—',
+          'Hist': (typeof macd.histogram === 'number') ? macd.histogram.toFixed(4) : '—',
+          '布林上轨 BB Upper': (typeof bb.upper === 'number') ? bb.upper.toFixed(2) : '—',
+          '布林中轨 BB Middle': (typeof bb.middle === 'number') ? bb.middle.toFixed(2) : '—',
+          '布林下轨 BB Lower': (typeof bb.lower === 'number') ? bb.lower.toFixed(2) : '—',
+          'KDJ-K': (typeof kdj.k === 'number') ? kdj.k.toFixed(2) : '—',
+          'KDJ-D': (typeof kdj.d === 'number') ? kdj.d.toFixed(2) : '—',
+          'KDJ-J': (typeof kdj.j === 'number') ? kdj.j.toFixed(2) : '—',
+          'OBV': (typeof obv.current === 'number') ? obv.current.toLocaleString() : '—',
+          '成交量(张) Volume': (typeof vol.current === 'number') ? (vol.current.toLocaleString() + ' 张') : '—',
+          '均量(张) Avg Volume': (typeof vol.average === 'number') ? (vol.average.toLocaleString() + ' 张') : '—',
+          '量比 Volume Ratio': (typeof vol.ratio === 'number') ? vol.ratio.toFixed(2) : '—',
+          '成交额(当前, USDT估算)': Number.isFinite(volUSDTCurrent) ? formatUSDT(volUSDTCurrent) : '—',
+          '成交额(均值, USDT估算)': Number.isFinite(volUSDTAvg) ? formatUSDT(volUSDTAvg) : '—',
+          '距离24h高 Dist to 24h High': (typeof distHigh === 'number') ? pct(distHigh) : '—',
+          '距离24h低 Dist to 24h Low': (typeof distLow === 'number') ? pct(distLow) : '—',
+          '24h 振幅(相对价) 24h Amplitude(Rel)': (typeof amp === 'number') ? pct(amp) : '—'
+        });
+        if ($('indRaw')) $('indRaw').textContent = safeStringify(diag, 2);
+        setBadge('indStatus', 'ok', '已更新');
       } catch (_) {}
-
-      const tickerPctPercent = (typeof ticker?.data?.change24h === 'number') ? ticker.data.change24h : null; // 百分数
-      const computedPctPercent = (typeof computed24hPct === 'number') ? (computed24hPct * 100) : null; // 百分数
-      const diffAbsPercent = (typeof tickerPctPercent === 'number' && typeof computedPctPercent === 'number') ? Math.abs(tickerPctPercent - computedPctPercent) : null;
-      const within2pct = (typeof diffAbsPercent === 'number') ? (diffAbsPercent <= 2) : null;
-
-      kv($('indKv'), {
-        '最新收盘价 LastClose': typeof cc.lastClose === 'number' ? cc.lastClose.toFixed(4) : '—',
-        'Ticker价格 TickerPrice': typeof cc.tickerPrice === 'number' ? cc.tickerPrice.toFixed(4) : '—',
-        'Ticker与收盘相对差 Ticker vs Close Δ%': (typeof cc.tickerVsLastClosePct === 'number') ? pctp(cc.tickerVsLastClosePct) : '—',
-        '是否在2%容差内 Within 2% Tolerance': (cc.within2PctTolerance === true ? 'true' : 'false'),
-        'RSI': typeof cur.rsi === 'number' ? cur.rsi.toFixed(2) : '—',
-        'MACD': cur.macd ? `macd=${cur.macd.macd?.toFixed?.(4)} signal=${cur.macd.signal?.toFixed?.(4)} hist=${cur.macd.histogram?.toFixed?.(4)}` : '—',
-        '布林带 Bollinger': cur.bollinger ? `upper=${cur.bollinger.upper?.toFixed?.(4)} mid=${cur.bollinger.middle?.toFixed?.(4)} lower=${cur.bollinger.lower?.toFixed?.(4)}` : '—',
-        'EMA12': typeof cur.ema12 === 'number' ? cur.ema12.toFixed(4) : '—',
-        'EMA26': typeof cur.ema26 === 'number' ? cur.ema26.toFixed(4) : '—',
-        'ATR': typeof cur.atr === 'number' ? cur.atr.toFixed(4) : '—',
-        'Ticker 24h涨跌幅 Ticker 24h Change': (typeof tickerPctPercent === 'number') ? pctp(tickerPctPercent) : '—',
-        '基于1H计算的24h涨跌幅 24h Change from 1H': (typeof computedPctPercent === 'number') ? pctp(computedPctPercent) : '—',
-        '两者绝对差 Abs Diff': (typeof diffAbsPercent === 'number') ? pctp(diffAbsPercent) : '—',
-        '是否在2%容差内 Within 2% Tolerance': (within2pct === null) ? '—' : (within2pct ? 'true' : 'false')
-      });
-
-      const hasTicker = !!(ticker && ticker.data && !ticker.error);
-      const hasK24 = !!(k24 && !k24.error && (Array.isArray(k24.data) || Array.isArray(k24)));
-      const badgeType = (diag?.error) ? 'err' : (hasTicker && hasK24 ? 'ok' : 'warn');
-      const badgeText = (diag?.error) ? '部分数据错误' : (hasTicker && hasK24 ? '已更新' : '部分已更新');
-      setBadge('indStatus', badgeType, badgeText);
     }
 
-    // 新增：数据服务健康与性能卡片渲染
     function renderSvcCard(diag) {
-      const svc = {
-        health: diag?.health,
-        performance: diag?.performance,
-        cache: diag?.cache,
-      };
-      kv($('svcKv'), {
-        '主链路连通 Primary Connected': svc.health?.current?.primaryConnected ? 'true' : 'false',
-        '备链路连通 Backup Connected': svc.health?.current?.backupConnected ? 'true' : 'false',
-        '错误率 Error Rate': (typeof svc.performance?.current?.errorRate === 'number') ? pct(svc.performance.current.errorRate) : '—',
-        '响应时间 Response Time (ms)': (typeof svc.performance?.current?.responseTime === 'number') ? svc.performance.current.responseTime : '—',
-        '网络延迟 Network Latency (ms)': (typeof svc.performance?.current?.networkLatency === 'number') ? svc.performance.current.networkLatency : '—',
-        '缓存命中率 Cache Hit Rate': (typeof svc.performance?.current?.cacheHitRate === 'number') ? (svc.performance.current.cacheHitRate + '%') : '—',
-        '总请求数 Total Requests': svc.performance?.totalRequests ?? '—',
-        '总错误数 Total Errors': svc.performance?.totalErrors ?? '—'
-      });
-      const svcError = !!diag?.error;
-      setBadge('svcStatus', svcError ? 'err' : 'ok', svcError ? `错误：${String(diag.error).slice(0,80)}` : '已更新');
+      try {
+        const health = diag?.health || {};
+        const perf = diag?.performance || {};
+        const cache = diag?.cache || {};
+        // 新增：兼容后端字段名差异
+        const healthOK = (typeof health.ok === 'boolean')
+          ? health.ok
+          : (typeof health.status === 'string' ? (String(health.status).toLowerCase() === 'connected') : undefined);
+        const latencyMs = (typeof perf.latencyMs === 'number') ? perf.latencyMs
+          : (typeof perf.latency === 'number') ? perf.latency
+          : (typeof perf?.current?.networkLatency === 'number') ? perf.current.networkLatency
+          : (typeof perf?.current?.responseTime === 'number') ? perf.current.responseTime
+          : undefined;
+        // 新增：提取更多性能指标（带兜底）
+        const cur = perf && typeof perf === 'object' ? (perf.current || {}) : {};
+        const avg = perf && typeof perf === 'object' ? (perf.average || {}) : {};
+        const peak = perf && typeof perf === 'object' ? (perf.peak || {}) : {};
+        const throughput = (typeof cur.throughput === 'number') ? cur.throughput : undefined;
+        const errorRate = (typeof cur.errorRate === 'number') ? cur.errorRate : undefined;
+        const cpuUsage = (typeof cur.cpuUsage === 'number') ? cur.cpuUsage : undefined;
+        const memoryUsage = (typeof cur.memoryUsage === 'number') ? cur.memoryUsage : undefined;
+        const activeConnections = (typeof cur.activeConnections === 'number') ? cur.activeConnections : undefined;
+        const queueLength = (typeof cur.queueLength === 'number') ? cur.queueLength : undefined;
+        const avgLatency = (typeof avg.networkLatency === 'number') ? avg.networkLatency : (typeof avg.responseTime === 'number' ? avg.responseTime : undefined);
+        const peakLatency = (typeof peak.networkLatency === 'number') ? peak.networkLatency : (typeof peak.responseTime === 'number' ? peak.responseTime : undefined);
+        function fmtPctAuto(x){ if(typeof x!== 'number' || !isFinite(x)) return undefined; return x>1? `${x.toFixed(2)}%` : `${(x*100).toFixed(2)}%`; }
+        function fmtCacheHitAuto(x){ if(typeof x!== 'number' || !isFinite(x)) return undefined; return x>1? pct(x/100) : pct(x); }
+        const curCacheHit = (typeof cur.cacheHitRate === 'number') ? fmtCacheHitAuto(cur.cacheHitRate) : undefined;
+        const avgErrorRate = (typeof avg.errorRate === 'number') ? fmtPctAuto(avg.errorRate) : undefined;
+        const peakErrorRate = (typeof peak.errorRate === 'number') ? fmtPctAuto(peak.errorRate) : undefined;
+        const avgCacheHit = (typeof avg.cacheHitRate === 'number') ? fmtCacheHitAuto(avg.cacheHitRate) : undefined;
+        const peakCacheHit = (typeof peak.cacheHitRate === 'number') ? fmtCacheHitAuto(peak.cacheHitRate) : undefined;
+
+        kv($('svcKv'), {
+          '服务健康 Service OK': (healthOK === true ? 'true' : healthOK === false ? 'false' : '—'),
+          '最近延迟 Latency(ms)': (typeof latencyMs === 'number') ? latencyMs.toFixed(0) : '—',
+          '吞吐量 Throughput/s': (typeof throughput === 'number') ? throughput.toFixed(2) : '—',
+          '错误率 Error Rate': (typeof errorRate === 'number') ? fmtPctAuto(errorRate) : '—',
+          'CPU 使用 CPU%': (typeof cpuUsage === 'number') ? `${cpuUsage.toFixed(1)}%` : '—',
+          '内存 Memory(MB)': (typeof memoryUsage === 'number') ? `${memoryUsage.toFixed(1)}MB` : '—',
+          '活动连接 Active Conns': (typeof activeConnections === 'number') ? String(activeConnections) : '—',
+          '队列长度 Queue Len': (typeof queueLength === 'number') ? String(queueLength) : '—',
+          '平均延迟 Avg Latency(ms)': (typeof avgLatency === 'number') ? avgLatency.toFixed(0) : '—',
+          '峰值延迟 Peak Latency(ms)': (typeof peakLatency === 'number') ? peakLatency.toFixed(0) : '—',
+          '平均错误率 Avg Error Rate': (avgErrorRate ?? '—'),
+          '峰值错误率 Peak Error Rate': (peakErrorRate ?? '—'),
+          '缓存命中 Cache Hit': (curCacheHit ?? (typeof cache.hitRate === 'number' ? pct(cache.hitRate) : (cache.hits != null && cache.total != null ? `${cache.hits}/${cache.total}` : '—'))),
+          '平均缓存命中 Avg Cache Hit': (avgCacheHit ?? '—'),
+          '峰值缓存命中 Peak Cache Hit': (peakCacheHit ?? '—')
+        });
+        rawPayloads.svc = { health, performance: perf, cache };
+        if ($('svcRaw')) $('svcRaw').textContent = safeStringify(rawPayloads.svc, 2);
+        setBadge('svcStatus', 'ok', '已更新');
+      } catch (_) {}
     }
 
-    // ===== 工具函数结束 =====
+    // 新增：字段校验辅助与样式注入
+    function ensureValidationStyle() {
+      if (document.getElementById('validation-style')) return;
+      const style = document.createElement('style');
+      style.id = 'validation-style';
+      style.textContent = `
+        .invalid { border-color: #e00 !important; box-shadow: inset 0 0 0 2px rgba(255,0,0,0.12); }
+        .hint { color:#666; font-size:12px; }
+      `;
+      document.head.appendChild(style);
+    }
+    function markInvalid(el, msg) {
+      if (!el) return;
+      el.classList.add('invalid');
+      if (msg) el.title = msg; else el.removeAttribute('title');
+    }
+    function clearInvalid(el) {
+      if (!el) return;
+      el.classList.remove('invalid');
+      el.removeAttribute('title');
+    }
+    function isNonNegInt(n) { return Number.isInteger(n) && n >= 0; }
+    function isProb(n) { return typeof n === 'number' && isFinite(n) && n >= 0 && n <= 1; }
+    function isFiniteNum(n) { return typeof n === 'number' && Number.isFinite(n); }
+
+    function numOrEmpty(v) {
+      if (v === null || v === undefined) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : undefined;
+    }
+
+    // 新增：输入实时校验（整数/概率）
+    function attachStrategyInputValidation() {
+      const intIds = ['globalMinIntervalMs','cdSameLong','cdSameShort','cdOppLong','cdOppShort'];
+      const probIds = ['oppMinConf','oppMinConfLong','oppMinConfShort'];
+      intIds.forEach(id => {
+        const el = $(id);
+        if (!el) return;
+        el.addEventListener('input', () => {
+          const v = numOrEmpty(el.value);
+          if (v === undefined || isNonNegInt(v)) clearInvalid(el); else markInvalid(el, '必须为非负整数');
+        });
+      });
+      probIds.forEach(id => {
+        const el = $(id);
+        if (!el) return;
+        el.addEventListener('input', () => {
+          const v = numOrEmpty(el.value);
+          if (v === undefined || isProb(v)) clearInvalid(el); else markInvalid(el, '必须在 [0,1]');
+        });
+      });
+      // 数值类型（EV 阈值）
+      const numIds = ['evDef','evVolH','evVolM','evVolL','evRegT','evRegR'];
+      numIds.forEach(id => {
+        const el = $(id);
+        if (!el) return;
+        el.addEventListener('input', () => {
+          const v = numOrEmpty(el.value);
+          if (v === undefined || isFiniteNum(v)) clearInvalid(el); else markInvalid(el, '必须为数值');
+        });
+      });
+    }
+
+    function fillStrategyEdit(strategy) {
+      try {
+        const s = strategy || {};
+        const cd = (s.cooldown) || {};
+        const same = cd.sameDir || {};
+        const opp = cd.opposite || {};
+        const gms = (typeof s.globalMinIntervalMs === 'number') ? s.globalMinIntervalMs : (typeof cd.globalMinIntervalMs === 'number' ? cd.globalMinIntervalMs : '');
+        if ($('globalMinIntervalMs')) $('globalMinIntervalMs').value = (gms === '' ? '' : String(gms));
+        if ($('cdSameLong')) $('cdSameLong').value = (typeof same.LONG === 'number' ? String(same.LONG) : '');
+        if ($('cdSameShort')) $('cdSameShort').value = (typeof same.SHORT === 'number' ? String(same.SHORT) : '');
+        if ($('cdOppLong')) $('cdOppLong').value = (typeof opp.LONG === 'number' ? String(opp.LONG) : '');
+        if ($('cdOppShort')) $('cdOppShort').value = (typeof opp.SHORT === 'number' ? String(opp.SHORT) : '');
+        if ($('oppMinConf')) $('oppMinConf').value = (typeof s.oppositeMinConfidence === 'number' ? String(s.oppositeMinConfidence) : '');
+        const by = s.oppositeMinConfidenceByDirection || {};
+        if ($('oppMinConfLong')) $('oppMinConfLong').value = (typeof by.LONG === 'number' ? String(by.LONG) : '');
+        if ($('oppMinConfShort')) $('oppMinConfShort').value = (typeof by.SHORT === 'number' ? String(by.SHORT) : '');
+        // 新增：反向并存开关
+        if ($('allowOppositeWhileOpen')) $('allowOppositeWhileOpen').checked = !!s.allowOppositeWhileOpen;
+        // 新增：EV 阈值回填
+        const ev = s.evThreshold || {};
+        const byVol = ev.byVolatility || {};
+        const byReg = ev.byRegime || {};
+        if ($('evDef')) $('evDef').value = (typeof ev.default === 'number' ? String(ev.default) : '');
+        if ($('evVolH')) $('evVolH').value = (typeof byVol.HIGH === 'number' ? String(byVol.HIGH) : '');
+        if ($('evVolM')) $('evVolM').value = (typeof byVol.MEDIUM === 'number' ? String(byVol.MEDIUM) : '');
+        if ($('evVolL')) $('evVolL').value = (typeof byVol.LOW === 'number' ? String(byVol.LOW) : '');
+        if ($('evRegT')) $('evRegT').value = (typeof byReg.TREND === 'number' ? String(byReg.TREND) : '');
+        if ($('evRegR')) $('evRegR').value = (typeof byReg.RANGE === 'number' ? String(byReg.RANGE) : '');
+        // 清除历史校验态
+        ['globalMinIntervalMs','cdSameLong','cdSameShort','cdOppLong','cdOppShort','oppMinConf','oppMinConfLong','oppMinConfShort','evDef','evVolH','evVolM','evVolL','evRegT','evRegR']
+          .forEach(id => clearInvalid($(id)));
+      } catch (_) {}
+    }
+
+    async function onSaveStrategyCfg() {
+      ensureValidationStyle();
+      const statusEl = $('saveCfgStatus');
+      const btn = $('saveStrategyCfg');
+      if (statusEl) { statusEl.textContent = '保存中...'; statusEl.removeAttribute('title'); }
+      if (btn) btn.disabled = true;
+      try {
+        // 元素引用
+        const eGms = $('globalMinIntervalMs');
+        const eSL = $('cdSameLong');
+        const eSS = $('cdSameShort');
+        const eOL = $('cdOppLong');
+        const eOS = $('cdOppShort');
+        const eOC = $('oppMinConf');
+        const eBLong = $('oppMinConfLong');
+        const eBShort = $('oppMinConfShort');
+        const eAllowOpp = $('allowOppositeWhileOpen');
+        const eEvDef = $('evDef');
+        const eEvVolH = $('evVolH');
+        const eEvVolM = $('evVolM');
+        const eEvVolL = $('evVolL');
+        const eEvRegT = $('evRegT');
+        const eEvRegR = $('evRegR');
+        
+        // 先清除历史校验态
+        [eGms,eSL,eSS,eOL,eOS,eOC,eBLong,eBShort,eEvDef,eEvVolH,eEvVolM,eEvVolL,eEvRegT,eEvRegR].forEach(clearInvalid);
+        
+        // 读取开关状态
+        const allowOpp = eAllowOpp ? eAllowOpp.checked : false;
+        
+        // 读取输入
+        const gms = numOrEmpty(eGms?.value);
+        const sameLong = numOrEmpty(eSL?.value);
+        const sameShort = numOrEmpty(eSS?.value);
+        const oppLong = numOrEmpty(eOL?.value);
+        const oppShort = numOrEmpty(eOS?.value);
+        const oppConf = numOrEmpty(eOC?.value);
+        const byLong = numOrEmpty(eBLong?.value);
+        const byShort = numOrEmpty(eBShort?.value);
+        const evDef = numOrEmpty(eEvDef?.value);
+        const evVolH = numOrEmpty(eEvVolH?.value);
+        const evVolM = numOrEmpty(eEvVolM?.value);
+        const evVolL = numOrEmpty(eEvVolL?.value);
+        const evRegT = numOrEmpty(eEvRegT?.value);
+        const evRegR = numOrEmpty(eEvRegR?.value);
+
+        const payload = {};
+        const warnings = [];
+        let invalids = 0; // 新增：无效输入计数
+
+        // 冷却对象
+        const cooldown = {};
+        if (gms !== undefined) {
+          if (isNonNegInt(gms)) { cooldown.globalMinIntervalMs = gms; }
+          else { warnings.push('globalMinIntervalMs 必须为非负整数'); markInvalid(eGms, '必须为非负整数'); invalids++; }
+        }
+        const same = {};
+        if (sameLong !== undefined) {
+          if (isNonNegInt(sameLong)) same.LONG = sameLong; else { warnings.push('sameDir.LONG 必须为非负整数'); markInvalid(eSL, '必须为非负整数'); invalids++; }
+        }
+        if (sameShort !== undefined) {
+          if (isNonNegInt(sameShort)) same.SHORT = sameShort; else { warnings.push('sameDir.SHORT 必须为非负整数'); markInvalid(eSS, '必须为非负整数'); invalids++; }
+        }
+        if (Object.keys(same).length) cooldown.sameDir = same;
+
+        const opp = {};
+        if (oppLong !== undefined) {
+          if (isNonNegInt(oppLong)) opp.LONG = oppLong; else { warnings.push('opposite.LONG 必须为非负整数'); markInvalid(eOL, '必须为非负整数'); invalids++; }
+        }
+        if (oppShort !== undefined) {
+          if (isNonNegInt(oppShort)) opp.SHORT = oppShort; else { warnings.push('opposite.SHORT 必须为非负整数'); markInvalid(eOS, '必须为非负整数'); invalids++; }
+        }
+        if (Object.keys(opp).length) cooldown.opposite = opp;
+
+        if (Object.keys(cooldown).length) payload.cooldown = cooldown;
+
+        // 反向置信度
+        if (oppConf !== undefined) {
+          if (isProb(oppConf)) payload.oppositeMinConfidence = oppConf; else { warnings.push('oppositeMinConfidence 必须在 0~1 区间'); markInvalid(eOC, '必须在 [0,1]'); invalids++; }
+        }
+        const by = {};
+        if (byLong !== undefined) {
+          if (isProb(byLong)) by.LONG = byLong; else { warnings.push('byDirection.LONG 必须在 0~1 区间'); markInvalid(eBLong, '必须在 [0,1]'); invalids++; }
+        }
+        if (byShort !== undefined) {
+          if (isProb(byShort)) by.SHORT = byShort; else { warnings.push('byDirection.SHORT 必须在 0~1 区间'); markInvalid(eBShort, '必须在 [0,1]'); invalids++; }
+        }
+        if (Object.keys(by).length) payload.oppositeMinConfidenceByDirection = by;
+
+        // 反向并存开关：始终下发（后端做布尔解析）
+        if (eAllowOpp) payload.allowOppositeWhileOpen = allowOpp;
+
+        // evThreshold
+        const evObj = {};
+        if (evDef !== undefined) { if (isFiniteNum(evDef)) evObj.default = evDef; else { warnings.push('evThreshold.default 必须为数值'); markInvalid(eEvDef, '必须为数值'); invalids++; } }
+        const bv = {};
+        if (evVolH !== undefined) { if (isFiniteNum(evVolH)) bv.HIGH = evVolH; else { warnings.push('evThreshold.byVolatility.HIGH 必须为数值'); markInvalid(eEvVolH, '必须为数值'); invalids++; } }
+        if (evVolM !== undefined) { if (isFiniteNum(evVolM)) bv.MEDIUM = evVolM; else { warnings.push('evThreshold.byVolatility.MEDIUM 必须为数值'); markInvalid(eEvVolM, '必须为数值'); invalids++; } }
+        if (evVolL !== undefined) { if (isFiniteNum(evVolL)) bv.LOW = evVolL; else { warnings.push('evThreshold.byVolatility.LOW 必须为数值'); markInvalid(eEvVolL, '必须为数值'); invalids++; } }
+        if (Object.keys(bv).length) evObj.byVolatility = bv;
+        const br = {};
+        if (evRegT !== undefined) { if (isFiniteNum(evRegT)) br.TREND = evRegT; else { warnings.push('evThreshold.byRegime.TREND 必须为数值'); markInvalid(eEvRegT, '必须为数值'); invalids++; } }
+        if (evRegR !== undefined) { if (isFiniteNum(evRegR)) br.RANGE = evRegR; else { warnings.push('evThreshold.byRegime.RANGE 必须为数值'); markInvalid(eEvRegR, '必须为数值'); invalids++; } }
+        if (Object.keys(br).length) evObj.byRegime = br;
+        if (Object.keys(evObj).length) payload.evThreshold = evObj;
+
+        // 一致性提示：同时设置全局与分方向
+        if (payload.oppositeMinConfidence != null && payload.oppositeMinConfidenceByDirection != null) {
+          warnings.push('提示：已同时设置全局和分方向置信度，分方向将覆盖对应方向');
+        }
+
+        // 若存在无效输入，阻止提交
+        if (invalids > 0) {
+          if (statusEl) {
+            statusEl.textContent = `存在无效输入 ${invalids} 处，已高亮，请修正后再保存`;
+            statusEl.title = warnings.join('\n');
+          }
+          return;
+        }
+
+        // 如果没有有效字段
+        if (!Object.keys(payload).length) {
+          if (statusEl) { statusEl.textContent = '没有可保存的改动'; statusEl.removeAttribute('title'); }
+          return;
+        }
+
+        // 发送
+        const resp = await fetch(resolveApiUrl('/api/config'), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        const json = await resp.json().catch(() => ({}));
+        const ok = !!json?.success || resp.ok;
+        let msg = ok ? '已保存' : `保存失败：${json?.error || resp.status}`;
+        if (Array.isArray(json?.warnings) && json.warnings.length) {
+          msg += `（后端警告 ${json.warnings.length} 条）`;
+        }
+        if (warnings.length) {
+          msg += `（前端警告 ${warnings.length} 条）`;
+          console.warn('local warnings:', warnings);
+        }
+        if (statusEl) { statusEl.textContent = msg; statusEl.title = warnings.concat(json?.warnings||[]).join('\n'); }
+        if (ok) {
+          // 保存成功后，刷新一次以显示最新值
+          try { await load(); } catch (_) {}
+        }
+      } catch (e) {
+        const statusEl = $('saveCfgStatus');
+        if (statusEl) statusEl.textContent = `保存异常：${e?.message || String(e)}`;
+      } finally {
+        const btn = $('saveStrategyCfg');
+        if (btn) btn.disabled = false;
+      }
+    }
+
 
      async function load() {
       if (loading) return; // 防重入
@@ -462,10 +872,22 @@
         rawPayloads.indicators = diag?.indicators;
         rawPayloads.svc = { health: diag?.health, performance: diag?.performance, cache: diag?.cache };
 
+        // 新增：指标兜底（当样本不足或计算失败导致无 current 时，尝试从 /api/indicators/latest 获取）
+        try {
+          if (!diag?.indicators || !diag.indicators.current) {
+            const latest = await getJson(`/api/indicators/latest?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${Math.max(120, limit)}`, 15000, 1, { signal: extSignal });
+            const latestData = latest?.data;
+            if (latestData && typeof latestData === 'object') {
+              diag.indicators = { issues: (diag?.indicators?.issues || []), current: latestData };
+              rawPayloads.indicators = diag.indicators;
+            }
+          }
+        } catch (_) { /* 忽略兜底失败，不影响后续渲染 */ }
+
         // 先用 diag 渲染 K线与服务卡片，指标卡片先做部分渲染
         let ticker = null;
         let k24 = null;
-        renderKlineCard(diag, ticker);
+        renderKlineCard(diag, ticker, k24);
         renderIndCard(diag, ticker, k24);
         renderSvcCard(diag);
 
@@ -534,16 +956,20 @@
             rawPayloads.cfg = res;
             const c = res?.data || {};
             kv($('configKv'), {
-              '交易标的 Symbol': c?.trading?.symbol || '—',
+              '交易标的 Symbol': c?.trading?.defaultSymbol || '—',
               '最大杠杆 Max Leverage': c?.trading?.maxLeverage ?? '—',
-              '单日亏损限制 Daily Loss Limit': (typeof c?.trading?.dailyLossLimit === 'number') ? pct(c.trading.dailyLossLimit) : '—',
-              '止损 Stop Loss': (typeof c?.trading?.stopLoss === 'number') ? pct(c.trading.stopLoss) : '—',
-              '止盈 Take Profit': (typeof c?.trading?.takeProfit === 'number') ? pct(c.trading.takeProfit) : '—',
-              '信号阈值 Signal Threshold': c?.trading?.signalThreshold ?? '—',
+              '单日亏损限制 Daily Loss Limit': (typeof c?.risk?.maxDailyLoss === 'number') ? pct(c.risk.maxDailyLoss) : '—',
+              '止损 Stop Loss': (typeof c?.risk?.stopLossPercent === 'number') ? pct(c.risk.stopLossPercent) : '—',
+              '止盈 Take Profit': (typeof c?.risk?.takeProfitPercent === 'number') ? pct(c.risk.takeProfitPercent) : '—',
+              '信号阈值 Signal Threshold': (typeof c?.strategy?.signalThreshold === 'number') ? c.strategy.signalThreshold : '—',
+              '手续费 Commission': (typeof c?.commission === 'number') ? pct(c.commission) : '—',
+              '滑点 Slippage': (typeof c?.slippage === 'number') ? pct(c.slippage) : '—',
               'Web端口 Web Port': c?.webServer?.port ?? '—',
               '代理地址 Proxy URL': c?.proxy?.url || '—',
               '已启用代理 Proxy Enabled': c?.proxy?.enabled ? 'true' : 'false'
             });
+            // 新增：将获取到的策略冷却/置信度填入编辑框
+            try { fillStrategyEdit(c?.strategy || {}); } catch (_) {}
             setBadge('configStatus', 'ok', '已更新');
           } catch (err) {
             rawPayloads.cfg = { error: err?.message || String(err || 'unknown error') };
@@ -560,7 +986,7 @@
             if (res && res.data) {
               renderTickerCard(res.data, 'ok', '已更新');
               // K线卡片中均量的美元估算可能依赖价格，得到后再刷新一次
-              renderKlineCard(diag, ticker);
+              renderKlineCard(diag, ticker, k24);
               // 指标卡片补全 24h 对比
               renderIndCard(diag, ticker, k24);
             }
@@ -572,6 +998,11 @@
             const fallback = { price: fallbackPrice, change24h: undefined, timestamp: Date.now() };
             rawPayloads.tickerFallback = { reason: err?.message || 'unavailable', used: fallback };
             renderTickerCard(fallback, 'warn', '使用备用价格');
+            // 新增：使用回退价格刷新 K线卡片与指标卡片，补全依赖价格的估算项
+            try {
+              renderKlineCard(diag, fallback, k24);
+              renderIndCard(diag, fallback, k24);
+            } catch (_) {}
           }
         })();
 
@@ -584,6 +1015,8 @@
             rawPayloads.svc = { ...(rawPayloads.svc||{}), kline24h: res };
             // 指标卡片补全 24h 对比
             renderIndCard(diag, ticker, k24);
+            // 新增：获取k24后刷新K线卡片
+            renderKlineCard(diag, ticker, k24);
           } catch (err) {
             // 标记但不中断整体流程
             rawPayloads.svc = { ...(rawPayloads.svc||{}), kline24h: { error: err?.message || String(err||'unknown error') } };
@@ -650,11 +1083,18 @@
       bindLazyForPre('perfRaw', 'perf');
       bindLazyForPre('configRaw', 'cfg');
       bindLazyForPre('svcRaw', 'svc');
+
+      // 新增：绑定保存按钮
+      const btn = document.getElementById('saveStrategyCfg');
+      if (btn) {
+        btn.onclick = onSaveStrategyCfg;
+      }
+      // 新增：绑定输入实时校验
+      try { attachStrategyInputValidation(); } catch (_) {}
     
       load();
       timer = setInterval(load, autoIntervalMs);
       startCountdown(autoIntervalMs);
-    };
-  </script>
+    };  </script>
 </body>
 </html>

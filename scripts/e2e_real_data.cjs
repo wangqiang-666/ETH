@@ -104,8 +104,11 @@ function synthesizeSignalFromTicker(ticker, direction = 'BUY') {
 
 function buildSignalsFromAnalysis(analysis, klines) {
   // analysis may be null; when present it should include { signal: SmartSignalResult }
-  const desired = Math.min(64, Math.max(12, Math.floor((klines?.length || 0) / 1000))); // ~1 signal per ~1000 bars
-  const slots = desired; // increase spaced signals to improve sample size on long windows
+  const bars = klines?.length || 0;
+  // Ensure enough return observations (>=30) for ADEQUATE sampleQuality by emitting >=31 signals
+  // Use a spaced distribution across the window and cap to avoid over-dense sampling
+  const desired = Math.min(96, Math.max(32, Math.floor(bars / 200))); // e.g. 1500 bars -> 32 signals
+  const slots = desired;
   const idx = (i) => Math.max(0, Math.min(klines.length - 1, Math.floor((i / (slots + 1)) * klines.length)));
   const timestamps = Array.from({ length: slots }, (_, i) => klines[idx(i + 1)]?.timestamp || Date.now());
 
