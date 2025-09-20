@@ -55,7 +55,7 @@
 
 ```mermaid
 flowchart TD
-  A[策略/分析层 (多因子+ML)] --> B[集成服务]
+  A[策略分析层 多因子与ML] --> B[集成服务]
   B --> C[(SQLite recommendations.db)]
   B --> D[跟踪器]
   D --> E[ACTIVE 进行中]
@@ -64,10 +64,10 @@ flowchart TD
   F --> H[样本回灌 标签回填]
   H --> I[模型训练与评估]
   I --> A
-  P[PENDING 瞬时态] -.合并到.-> E
-  X[EXPIRED 仅徽标] -.不参与过滤统计.-> G
+  P[PENDING 瞬时态] -. 合并到 .-> E
+  X[EXPIRED 仅徽标] -. 不参与过滤统计 .-> G
   D --> J[API/前端 筛选 全部/进行中/已平仓]
-  J -.进行中=ACTIVE+PENDING.-> K[用户视图]
+  J -. 进行中=ACTIVE+PENDING .-> K[用户视图]
 ```
 
 
@@ -596,7 +596,7 @@ flowchart LR
 
   subgraph External
     OKX[OKX API]
-    KRONOS[Kronos Inference Service\n(optional)]
+    KRONOS[Kronos Inference Service (optional)]
   end
 
   DS -->|HTTPS| OKX
