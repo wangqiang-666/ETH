@@ -38,7 +38,11 @@
     "e2e:mtf:axios": "cross-env WEB_PORT=3001 node scripts/e2e_mtf_consistency_axios.cjs",
     "e2e:stats:axios": "cross-env WEB_PORT=3001 node scripts/e2e_stats_ev_axios.cjs",
     "e2e:ev-monitor:axios": "cross-env WEB_PORT=3001 node scripts/e2e_ev_monitoring_axios.cjs",
-    "start:e2e": "cross-env WEB_DISABLE_EXTERNAL_MARKET=1 DISABLE_EXTERNAL_MARKET_ON_CREATE=1 WEB_DISABLE_RECO_INIT=1 WEB_DISABLE_REALTIME=1 WEB_PORT=3031 CONFIG_PLAYBACK_PATH=./config-best.json tsx src/index.ts"
+    "start:e2e": "cross-env WEB_DISABLE_EXTERNAL_MARKET=1 DISABLE_EXTERNAL_MARKET_ON_CREATE=1 WEB_DISABLE_RECO_INIT=1 WEB_DISABLE_REALTIME=1 WEB_PORT=3031 CONFIG_PLAYBACK_PATH=./config-best.json tsx src/index.ts",
+      "start:playback": "cross-env WEB_PORT=3031 CONFIG_PLAYBACK_PATH=./config-best.json tsx src/index.ts",
+      "web:playback": "cross-env WEB_PORT=3031 CONFIG_PLAYBACK_PATH=./config-best.json tsx src/server/web-server.ts",
+      "config:snapshot": "node scripts/compare-config.cjs",
+      "config:save": "node scripts/compare-config.cjs && node -e \"const fs=require('fs'); const src='./config.current.json'; const dst='./config-best.json'; if(fs.existsSync(src)){ fs.copyFileSync(src,dst); console.log('config-best.json updated from config.current.json'); } else { console.log('No config.current.json found; run npm run config:snapshot first.'); }\""
   },
   "keywords": [
     "ethereum",
