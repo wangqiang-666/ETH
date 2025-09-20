@@ -1,0 +1,1 @@
+{  updates: [ { path: testing.allowFGIOverride, value: true }, { path: testing.fgiOverrideDefaultTtlMs, value: 60000 }, { path: testing.allowFundingOverride, value: true }, { path: testing.fundingOverrideDefaultTtlMs, value: 60000 }, { path: testing.allowPriceOverride, value: true }, { path: testing.priceOverrideDefaultTtlMs, value: 60000 } ] }

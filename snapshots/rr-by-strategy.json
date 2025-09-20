@@ -1,0 +1,42 @@
+﻿[
+    {
+        "strategy_type":  "AUTO",
+        "count":  3,
+        "mean":  1.5859224379222656,
+        "min":  1.3380402403971736,
+        "max":  2.0103328690717857,
+        "near_1p4_pm_0p02":  1
+    },
+    {
+        "strategy_type":  "ETH_STRATEGY_ENGINE",
+        "count":  8,
+        "mean":  1.7750000000000044,
+        "min":  1.3999999999999981,
+        "max":  2.00000000000001,
+        "near_1p4_pm_0p02":  3
+    },
+    {
+        "strategy_type":  "MANUAL_TEST_RR14",
+        "count":  10,
+        "mean":  1.4000000000000001,
+        "min":  1.4,
+        "max":  1.4000000000000001,
+        "near_1p4_pm_0p02":  10
+    },
+    {
+        "strategy_type":  "MANUAL_TEST",
+        "count":  8,
+        "mean":  1.35,
+        "min":  1,
+        "max":  1.4,
+        "near_1p4_pm_0p02":  7
+    },
+    {
+        "strategy_type":  "TEST_RR",
+        "count":  1,
+        "mean":  1.4,
+        "min":  1.4,
+        "max":  1.4,
+        "near_1p4_pm_0p02":  1
+    }
+]

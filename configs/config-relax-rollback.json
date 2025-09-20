@@ -1,0 +1,5 @@
+{
+  "allowOppositeWhileOpen": false,
+  "oppositeMinConfidence": 0.7,
+  "allowAutoOnHighRisk": false
+}

@@ -1,0 +1,47 @@
+﻿{
+    "success":  true,
+    "data":  {
+                 "message":  "Configuration updated successfully",
+                 "strategy":  {
+                                  "signalThreshold":  0,
+                                  "minWinRate":  0,
+                                  "useMLAnalysis":  true,
+                                  "analysisInterval":  30000,
+                                  "signalCooldownMs":  0,
+                                  "oppositeCooldownMs":  0,
+                                  "maxManualTriggersPerMin":  999,
+                                  "evThreshold":  -99999,
+                                  "marketRegime":  {
+                                                       "avoidExtremeSentiment":  false,
+                                                       "extremeSentimentLow":  10,
+                                                       "extremeSentimentHigh":  90,
+                                                       "avoidHighFunding":  false,
+                                                       "highFundingAbs":  0.03
+                                                   },
+                                  "entryFilters":  {
+                                                       "minCombinedStrengthLong":  0,
+                                                       "minCombinedStrengthShort":  0,
+                                                       "allowHighVolatilityEntries":  true
+                                                   },
+                                  "kronos":  {
+                                                 "enabled":  true,
+                                                 "baseUrl":  "http://localhost:8001",
+                                                 "timeoutMs":  1200,
+                                                 "interval":  "1H",
+                                                 "lookback":  240,
+                                                 "longThreshold":  0.5,
+                                                 "shortThreshold":  0.5,
+                                                 "minConfidence":  0.4
+                                             }
+                              },
+                 "risk":  {
+                              "maxPositionSize":  0.2,
+                              "stopLossPercent":  0.02,
+                              "maxSameDirectionActives":  1
+                          },
+                 "warnings":  [
+
+                              ]
+             },
+    "timestamp":  1757740498670
+}

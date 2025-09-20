@@ -1,0 +1,45 @@
+{
+  "strategy": {
+    "signalThreshold": 0.5,
+    "minWinRate": 55,
+    "allowOppositeWhileOpen": false,
+    "oppositeMinConfidence": 0.7,
+    "entryFilters": {
+      "minCombinedStrengthLong": 55,
+      "minCombinedStrengthShort": 55,
+      "allowHighVolatilityEntries": false,
+      "requireMTFAgreement": false,
+      "minMTFAgreement": 0.6,
+      "require5m15mAlignment": false,
+      "require1hWith5mTrend": false
+    },
+    "kronos": {
+      "enabled": true,
+      "baseUrl": "http://127.0.0.1:8001",
+      "timeoutMs": 2000,
+      "interval": "5m",
+      "lookback": 288,
+      "longThreshold": 0.6,
+      "shortThreshold": 0.6,
+      "minConfidence": 0.65
+    },
+    "signalCooldownMs": 1800000,
+    "oppositeCooldownMs": 300000,
+    "analysisInterval": 15000,
+    "duplicateWindowMinutes": 15,
+    "duplicatePriceBps": 25
+  },
+  "risk": {
+    "maxPositionSize": 0.2,
+    "stopLossPercent": 0.02,
+    "maxSameDirectionActives": 2,
+    "netExposureCaps": { "total": 0, "perDirection": { "LONG": 0, "SHORT": 0 } },
+    "hourlyOrderCaps": { "total": 0, "perDirection": { "LONG": 0, "SHORT": 0 } }
+  },
+  "recommendation": {
+    "maxHoldingHours": 168,
+    "concurrencyCountAgeHours": 24
+  },
+  "commission": 0.001,
+  "slippage": 0.0005
+}

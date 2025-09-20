@@ -1,0 +1,20 @@
+{
+  "strategy": {
+    "signalThreshold": 0.1,
+    "minWinRate": 45,
+    "useMLAnalysis": true,
+    "analysisInterval": 30000,
+    "signalCooldownMs": 1800000,
+    "oppositeCooldownMs": 300000,
+    "maxManualTriggersPerMin": 5,
+    "evThreshold": 0,
+    "entryFilters": {
+      "minCombinedStrengthLong": 25,
+      "minCombinedStrengthShort": 25,
+      "allowHighVolatilityEntries": true
+    },
+    "kronos": {
+      "enabled": true
+    }
+  }
+}

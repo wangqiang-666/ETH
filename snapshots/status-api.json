@@ -1,0 +1,33 @@
+﻿{
+    "success":  true,
+    "data":  {
+                 "tracker":  {
+                                 "is_running":  true,
+                                 "active_recommendations":  11,
+                                 "total_recommendations":  11,
+                                 "win_rate":  0
+                             },
+                 "price_monitor":  {
+                                       "cached_symbols":  [
+
+                                                          ],
+                                       "cache_size":  5
+                                   },
+                 "statistics_cache":  {
+                                          "cached_strategies":  0,
+                                          "cache_age_minutes":  1,
+                                          "has_overall_cache":  true
+                                      },
+                 "database":  {
+                                  "connected":  true
+                              },
+                 "uptime":  3434.6776844,
+                 "memory_usage":  {
+                                      "rss":  102248448,
+                                      "heapTotal":  43405312,
+                                      "heapUsed":  30789728,
+                                      "external":  4661700,
+                                      "arrayBuffers":  118521
+                                  }
+             }
+}
