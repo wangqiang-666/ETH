@@ -104,3 +104,9 @@ test-*.cjs
 # Backup files
 *.backup
 *.bak
+# Ignore SQLite DB and artifacts
+/data/recommendations.db
+/data/recommendations.db-shm
+/data/recommendations.db-wal
+/data/backups/
+
