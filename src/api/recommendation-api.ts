@@ -783,6 +783,7 @@ export class RecommendationAPI {
         to: req.query.to ? String(req.query.to) : undefined,
         min_size: req.query.min_size ? Number(req.query.min_size) : undefined,
         max_size: req.query.max_size ? Number(req.query.max_size) : undefined,
+        ab_group: req.query.ab_group ? String(req.query.ab_group) : undefined,
       };
       const { items, count } = await this.database.listExecutions(filters, limit, offset);
       res.status(200).json({ items, count });

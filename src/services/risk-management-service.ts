@@ -243,6 +243,73 @@ export class RiskManagementService {
   }
 
   /**
+   * 自适应仓位与杠杆计算
+   * - Kelly 上限：最大不超过 0.25
+   * - 置信度分段加成：≥0.64 → x1.5，≥0.7 → x2
+   * - 同时受每日损失与系统上限约束
+   */
+  public computeAdaptiveSizing(
+    signalLike: any,
+    marketData?: any,
+    currentPositions: Position[] = []
+  ): { positionSize: number; leverage: number; kelly: number; confidence: number } {
+    try {
+      const confidenceRaw = Number(
+        signalLike?.confidence ??
+        signalLike?.strength?.confidence ??
+        signalLike?.signal?.strength?.confidence ??
+        0.5
+      );
+      const confidence = Math.max(0, Math.min(1, confidenceRaw));
+      const basePosFromSignal = Number(signalLike?.positionSize ?? 0.02);
+
+      const fakeSignalForRisk: SmartSignalResult = {
+        signal: (signalLike?.signal ?? 'BUY') as any,
+        positionSize: Math.max(0.01, basePosFromSignal),
+        strength: { confidence },
+        riskReward: Number(signalLike?.riskReward ?? 2),
+        metadata: {
+          volatility: Number((marketData as any)?.volatility ?? 0.1),
+          volume: (signalLike?.metadata?.volume ?? 'NORMAL') as any
+        } as any
+      } as any;
+
+      const md: MarketData = {
+        price: Number((marketData as any)?.price ?? (marketData as any)?.currentPrice ?? 0),
+        fundingRate: Number((marketData as any)?.fundingRate ?? 0)
+      } as any;
+
+      const ra = this.assessSignalRisk(fakeSignalForRisk, md, currentPositions);
+
+      // Kelly 候选，上限 25%
+      const kelly = Math.max(0, 2 * confidence - 1) * 0.25;
+
+      const positionSize = Math.max(
+        0.01,
+        Math.min(
+          fakeSignalForRisk.positionSize,
+          ra.maxAllowedPosition,
+          this.riskConfig.maxPositionSize,
+          kelly
+        )
+      );
+
+      const maxLev = Math.min(20, this.riskConfig.maxLeverage);
+      const baseLev = Math.max(1, Number(ra.recommendedLeverage ?? 2));
+      const tier = confidence >= 0.7 ? 2 : (confidence >= 0.64 ? 1.5 : 1);
+      const leverage = Math.max(1, Math.min(maxLev, Math.floor(baseLev * tier)));
+
+      return { positionSize, leverage, kelly, confidence };
+    } catch (e) {
+      const confidence = Math.max(0, Math.min(1, Number(signalLike?.confidence ?? 0.5)));
+      const kelly = Math.max(0, 2 * confidence - 1) * 0.25;
+      const positionSize = Math.max(0.01, Math.min(this.riskConfig.maxPositionSize, kelly));
+      const leverage = 2;
+      return { positionSize, leverage, kelly, confidence };
+    }
+  }
+
+  /**
    * 分析单个持仓的风险
    */
   analyzePositionRisk(position: Position, currentPrice: number): PositionRisk {

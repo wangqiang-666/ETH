@@ -833,28 +833,14 @@ export class ETHStrategyEngine extends EventEmitter {
 
     const finalPositionSize = Math.max(0.01, adjustedPositionSize * sentimentAdj);
 
-    // 杠杆调整（置信度分段放大 + 情绪/波动降杠杆）
-    const maxLevCap = Number(((config as any).trading?.maxLeverage) ?? 20);
+    // 杠杆调整
     let leverage = recommendedLeverage;
-
-    // 置信度分段放大：>=0.64 -> 1.5x，>=0.70 -> 2x
-    const conf = Number(signalResult?.strength?.confidence ?? 0);
-    if (conf >= 0.7) {
-      leverage = Math.floor(leverage * 2);
-    } else if (conf >= 0.64) {
-      leverage = Math.floor(leverage * 1.5);
-    }
-
-    // 情绪/带宽降杠杆（保留原逻辑）
     if (typeof fgi === 'number' && (fgi <= 20 || fgi >= 80)) {
       leverage = Math.max(2, Math.floor(leverage * 0.7)); // 极端情绪下调杠杆，最低2x
     }
     if (typeof bollBandwidth === 'number' && bollBandwidth < 0.02) {
       leverage = Math.max(2, Math.floor(leverage * 0.8)); // 窄带震荡降低杠杆，最低2x
     }
-
-    // 钳制到全局最大杠杆
-    leverage = Math.max(1, Math.min(maxLevCap, leverage));
 
     // 新增：Kelly 缩放（可选，默认关闭）
     const kellyCfg = (((config as any).strategy?.kelly) || {});
@@ -874,56 +860,6 @@ export class ETHStrategyEngine extends EventEmitter {
     } catch {
       // 安全兜底：忽略 Kelly 计算异常
     }
-
-    // 净敞口上限钳制（基于配置 risk.netExposureCaps），确保 positionSize * leverage 不超过剩余额度
-    try {
-      // 推断意图方向
-      let intendedSide: 'LONG' | 'SHORT' | null = null;
-      const sig = String((signalResult as any)?.signal || '').toUpperCase();
-      if (sig.includes('BUY')) intendedSide = 'LONG';
-      else if (sig.includes('SELL')) intendedSide = 'SHORT';
-
-      if (intendedSide) {
-        const caps = ((config as any)?.risk?.netExposureCaps) || {};
-        const totalCap = Number((caps as any).total ?? 0);
-        const perDir = ((caps as any).perDirection || {}) as any;
-        const dirCap = Number(perDir?.[intendedSide] ?? 0);
-
-        const currTotal = this.currentPosition ? (this.currentPosition.size * this.currentPosition.leverage) : 0;
-        const currDir = (this.currentPosition && this.currentPosition.side === intendedSide)
-          ? (this.currentPosition.size * this.currentPosition.leverage)
-          : 0;
-
-        let allowed = Number.POSITIVE_INFINITY;
-        if (Number.isFinite(totalCap) && totalCap > 0) {
-          allowed = Math.min(allowed, Math.max(0, totalCap - currTotal));
-        }
-        if (Number.isFinite(dirCap) && dirCap > 0) {
-          allowed = Math.min(allowed, Math.max(0, dirCap - currDir));
-        }
-
-        const candidate = positionSize * leverage;
-        if (Number.isFinite(allowed) && candidate > allowed + 1e-8) {
-          if (allowed <= 0) {
-            // 无剩余额度：设置最小杠杆并清零仓位，后续开仓前检查会拒绝开仓
-            leverage = Math.max(1, Math.min(leverage, 1));
-            positionSize = 0;
-          } else {
-            // 缩放：优先按比例降低杠杆（取整），随后必要时缩小仓位
-            const ratio = Math.max(0, allowed) / Math.max(1e-12, candidate);
-            const levScaled = Math.max(1, Math.floor(leverage * ratio));
-            let newLev = Math.min(leverage, levScaled);
-            if (!Number.isFinite(newLev) || newLev < 1) newLev = 1;
-            let newSize = positionSize;
-            if (newLev * newSize > allowed + 1e-8) {
-              newSize = Math.max(0, Math.min(positionSize, allowed / newLev));
-            }
-            leverage = newLev;
-            positionSize = newSize;
-          }
-        }
-      }
-    } catch {}
 
     const maxLoss = positionSize * config.risk.stopLossPercent;
     
@@ -1136,33 +1072,6 @@ export class ETHStrategyEngine extends EventEmitter {
 
     const marketData = await this.getMarketData();
     if (!marketData) return;
-
-    // 开仓前净敞口上限检查（total + perDirection），如超限则拒绝开仓
-    try {
-      const caps = ((config as any)?.risk?.netExposureCaps) || {};
-      const totalCap = Number((caps as any).total ?? 0);
-      const perDir = ((caps as any).perDirection || {}) as any;
-      const dirCap = Number(perDir?.[side] ?? 0);
-
-      const currTotal = this.currentPosition ? (this.currentPosition.size * this.currentPosition.leverage) : 0;
-      const currDir = (this.currentPosition && this.currentPosition.side === side)
-        ? (this.currentPosition.size * this.currentPosition.leverage)
-        : 0;
-
-      let allowed = Number.POSITIVE_INFINITY;
-      if (Number.isFinite(totalCap) && totalCap > 0) {
-        allowed = Math.min(allowed, Math.max(0, totalCap - currTotal));
-      }
-      if (Number.isFinite(dirCap) && dirCap > 0) {
-        allowed = Math.min(allowed, Math.max(0, dirCap - currDir));
-      }
-
-      const candidateExposure = Number(riskManagement.positionSize) * Number(riskManagement.leverage);
-      if (Number.isFinite(allowed) && (Number.isFinite(candidateExposure) && candidateExposure > allowed + 1e-8)) {
-        console.log(`🚫 开仓被净敞口上限拒绝: candidate=${candidateExposure.toFixed(4)} > allowed=${allowed.toFixed(4)} (totalCap=${totalCap}, dirCap=${dirCap})`);
-        return;
-      }
-    } catch {}
 
     // 计算分批止盈目标（基于初始TP距离）
     const sign = side === 'LONG' ? 1 : -1;

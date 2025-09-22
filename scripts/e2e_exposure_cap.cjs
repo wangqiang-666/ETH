@@ -80,6 +80,9 @@ async function main() {
     signalCooldownMs: 0,
     oppositeCooldownMs: 0,
     globalMinIntervalMs: 0,
+    // 禁用重复窗口与价格阈值，避免在本用例中触发重复拦截
+    duplicateWindowMinutes: 0,
+    duplicatePriceBps: 0,
     maxSameDirectionActives: 1000,
     netExposureCaps: { total: 1.5, perDirection: { LONG: 2.0, SHORT: 2.0 } }
   });

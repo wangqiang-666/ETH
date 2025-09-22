@@ -48,6 +48,19 @@ function get(base, route) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// 新增：在开始前等待 API 可达，避免 ECONNRESET
+async function waitForAPI(base, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const st = await get(base, '/status');
+      if (st && (st.success === true || st.data)) return true;
+    } catch (_) {}
+    await sleep(300);
+  }
+  throw new Error('web-server not reachable within ' + timeoutMs + 'ms');
+}
+
 async function waitForTracker(base, expectRunning, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -79,9 +92,31 @@ async function backdateCreatedAt(id, hoursAgo) {
 (async () => {
   const base = 'http://localhost:' + (process.env.WEB_PORT || 3001) + '/api';
   try {
+    console.log('[auto-timeout] waiting for API to be reachable ...');
+    await waitForAPI(base, 20000);
+    console.log('[auto-timeout] API is reachable');
+
     console.log('[auto-timeout] stopping tracker...');
     try { await post(base, '/tracker/stop', {}); } catch (e) { console.warn('stop tracker warn:', e.message); }
-    await waitForTracker(base, false, 8000);
+    await waitForTracker(base, false, 12000);
+
+    // 更新运行时配置：确保超时阈值为 24 小时、最小持仓为 0 分钟，同时放宽并发/曝光限制，避免测试被风控拦截
+    console.log('[auto-timeout] updating config: recommendation.maxHoldingHours=24, minHoldingMinutes=0, risk.maxSameDirectionActives=99 ...');
+    try {
+      const cfgResp = await post(base, '/config', {
+        recommendation: { maxHoldingHours: 24, minHoldingMinutes: 0, concurrencyCountAgeHours: 0 },
+        // 注意：服务端 /api/config 期望 maxSameDirectionActives 为顶层字段，而不是 risk 下
+        maxSameDirectionActives: 99,
+        // 如果服务端支持净敞口/小时限单，可一起放宽；服务端会忽略未知字段
+        netExposureCaps: { total: 0, perDirection: { LONG: 0, SHORT: 0 } },
+        hourlyOrderCaps: { total: 0, perDirection: { LONG: 0, SHORT: 0 } }
+      });
+      if (!cfgResp?.success) {
+        console.warn('[auto-timeout] /config response not success:', cfgResp);
+      }
+    } catch (e) {
+      console.warn('[auto-timeout] failed to update config (will proceed):', e.message);
+    }
 
     const symbol = 'TEST-SYMBOL-' + Date.now();
     const createPayload = {
@@ -106,7 +141,7 @@ async function backdateCreatedAt(id, hoursAgo) {
 
     console.log('[auto-timeout] starting tracker...');
     await post(base, '/tracker/start', {});
-    await waitForTracker(base, true, 8000);
+    await waitForTracker(base, true, 12000);
 
     // give the tracker a moment to run its immediate check()
     await sleep(3000);

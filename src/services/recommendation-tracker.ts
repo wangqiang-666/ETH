@@ -1,76 +1,96 @@
-import { config } from '../config';
 import { enhancedOKXDataService } from './enhanced-okx-data-service';
 import { recommendationDatabase } from './recommendation-database';
+import { riskManagementService } from './risk-management-service';
+import { config } from '../config';
 
-// 推荐记录类型（供数据库与各服务共享）
+// 推荐记录类型（供数据库与跟踪器共用）
 export interface RecommendationRecord {
   id: string;
-  symbol: string;
-  direction: 'LONG' | 'SHORT';
-  strategy_type?: string;
-  entry_price: number;
-  leverage?: number;
-  position_size?: number;
   created_at: Date;
   updated_at: Date;
+  symbol: string;
+  direction: 'LONG' | 'SHORT';
+  entry_price: number;
+  current_price: number;
+  // 止损止盈相关
+  stop_loss_price?: number | null;
+  take_profit_price?: number | null;
+  stop_loss_percent?: number | null;
+  take_profit_percent?: number | null;
+  liquidation_price?: number | null;
+  // 账户/保证金相关（数据库同名列）
+  margin_ratio?: number | null;
+  maintenance_margin?: number | null;
+   // 杠杆与仓位
+  leverage: number;
+  position_size?: number | null;
+  // 策略与状态
+  strategy_type?: string;
+  algorithm_name?: string | null;
+  signal_strength?: number | null;
+  confidence_score?: number | null;
+  quality_score?: number | null;
+  // 新增：风险等级，来源于 riskAssessment
+  risk_level?: string | number | null;
   status: 'PENDING' | 'ACTIVE' | 'CLOSED' | 'EXPIRED';
-  current_price?: number;
-  volume_24h?: number;
-  price_change_24h?: number;
-  dedupe_key?: string;
-  exit_price?: number;
-  exit_time?: Date;
-  exit_reason?: string;
-  exit_label?: 'TIMEOUT' | 'BREAKEVEN' | 'DYNAMIC_TAKE_PROFIT' | 'DYNAMIC_STOP_LOSS' | string;
-  pnl_amount?: number;
-  pnl_percent?: number;
-  // 以下为其他模块使用到的可选字段，确保类型完整
-  result?: 'WIN' | 'LOSS' | 'BREAKEVEN';
-  take_profit_price?: number;
-  stop_loss_price?: number;
-  take_profit_percent?: number;
-  stop_loss_percent?: number;
-  trailing_stop_enabled?: boolean;
-  trailing_stop_distance?: number;
-  lock_in_no_loss?: boolean;
-  liquidation_price?: number;
-  holding_duration?: number;
-  expected_return?: number;
-  ev?: number;
-  ev_threshold?: number;
-  ev_ok?: boolean;
-  ab_group?: string;
-  margin_ratio?: number;
-  maintenance_margin?: number;
-  risk_level?: string;
-  algorithm_name?: string;
-  signal_strength?: number;
-  confidence_score?: number;
-  quality_score?: number;
-  market_volatility?: number;
-  source?: string;
-  is_strategy_generated?: boolean;
-  strategy_confidence_level?: string;
-  exclude_from_ml?: boolean;
-  notes?: string;
+  result?: 'WIN' | 'LOSS' | 'BREAKEVEN' | null;
+  exit_price?: number | null;
+  exit_time?: Date | null;
+  exit_reason?: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TIMEOUT' | 'LIQUIDATION' | 'MANUAL' | 'BREAKEVEN' | null;
+  exit_label?: 'DYNAMIC_TAKE_PROFIT' | 'DYNAMIC_STOP_LOSS' | 'TIMEOUT' | 'BREAKEVEN' | null;
+  // 统计
+  pnl_amount?: number | null;
+  pnl_percent?: number | null;
+  holding_duration?: number | null;
+  // 市场环境
+  market_volatility?: number | null;
+  volume_24h?: number | null;
+  price_change_24h?: number | null;
+  // 元数据
+  source?: string | null;
+  is_strategy_generated?: boolean | null;
+  strategy_confidence_level?: string | null;
+  exclude_from_ml?: boolean | null;
+  notes?: string | null;
+  extra_json?: string | null;
+  // EV 相关
+  expected_return?: number | null;
+  ev?: number | null;
+  ev_threshold?: number | null;
+  ev_ok?: boolean | null; // 统一布尔；DB 层做 0/1 转换
+  ab_group?: string | null;
+  // 去重键
+  dedupe_key?: string | null;
 }
 
-// 新增：价格检查结果类型
-interface PriceCheckResult {
+// 价格检查结果类型
+type PriceCheckResult = {
   currentPrice: number;
   triggered: boolean;
   triggerType?: 'TAKE_PROFIT' | 'STOP_LOSS' | 'LIQUIDATION';
   pnlAmount: number;
   pnlPercent: number;
-}
+};
+
 
 export class RecommendationTracker {
   private activeRecommendations: Map<string, RecommendationRecord> = new Map();
+  
+  // 对外读取活跃推荐列表
+  public getActiveRecommendations(): RecommendationRecord[] {
+    return Array.from(this.activeRecommendations.values());
+  }
+  
+  // 透传统计查询到数据库层
+  public async getStatistics(strategyType?: string) {
+    return recommendationDatabase.getStatistics(strategyType);
+  }
+  
   // 新增：追踪止损状态缓存
   private trailingStates = new Map<string, { high?: number; low?: number; lastStop?: number; activated?: boolean }>();
   // 新增：全局最小间隔冷却追踪（进程内）
   private lastCreateMs: number = 0;
-
+  
   // 新增：可配置参数（从 config.strategy 读取）
   private MIN_HOLDING_MINUTES: number;
   private MAX_HOLDING_HOURS: number;
@@ -92,9 +112,15 @@ export class RecommendationTracker {
     const gating: any = strat.gating || {};
     const trailing: any = strat.trailing || {};
     const flex: any = strat.trailingFlex || {};
+    const recCfg: any = (config as any)?.recommendation || {};
 
-    this.MIN_HOLDING_MINUTES = Number(gating.minHoldingMinutes ?? 0);
-    this.MAX_HOLDING_HOURS = Number(gating.maxHoldingHours ?? 0);
+    // 优先使用 config.recommendation 下的配置，其次回退到 strategy.gating 或环境变量
+    this.MIN_HOLDING_MINUTES = Number(
+      recCfg.minHoldingMinutes ?? gating.minHoldingMinutes ?? process.env.RECOMMENDATION_MIN_HOLDING_MINUTES ?? 0
+    );
+    this.MAX_HOLDING_HOURS = Number(
+      recCfg.maxHoldingHours ?? gating.maxHoldingHours ?? process.env.RECOMMENDATION_MAX_HOLDING_HOURS ?? 0
+    );
 
     this.TRAIL_ENABLED = Boolean(trailing.enabled ?? false);
     this.TRAIL_PERCENT = Number(trailing.percent ?? 2);
@@ -242,14 +268,90 @@ export class RecommendationTracker {
       throw e;
     }
 
+    // 新增：自适应仓位与杠杆（当未显式给出时自动计算；受净敞口/日风控约束）
+    try {
+      const needSize = !(Number.isFinite(Number((record as any).position_size)) && Number((record as any).position_size) > 0);
+      const needLev = !(Number.isFinite(Number(record.leverage)) && Number(record.leverage) > 0);
+      if (needSize || needLev) {
+        const px = Number((record as any).current_price ?? record.entry_price);
+        const isLong = (record.direction === 'LONG');
+        const sl = Number((record as any).stop_loss_price);
+        const tp = Number((record as any).take_profit_price);
+        let rr = Number(recommendation?.risk_reward ?? recommendation?.riskReward ?? 0);
+        if ((!Number.isFinite(rr) || rr <= 0) && Number.isFinite(px) && px > 0 && Number.isFinite(sl) && Number.isFinite(tp)) {
+          const risk = Math.abs(px - sl);
+          const reward = Math.abs(tp - px);
+          if (risk > 0) rr = reward / risk;
+        }
+        if (!Number.isFinite(rr) || rr <= 0) rr = 2; // 兜底
+
+        const confidence = Number(
+          recommendation?.confidence_score ??
+          (recommendation as any)?.confidence ??
+          (recommendation as any)?.strategy_confidence_level ??
+          (recommendation as any)?.signal_strength?.confidence ??
+          0.5
+        );
+
+        const actives: RecommendationRecord[] = this.getActiveRecommendations();
+        const sameSymbol = symbol;
+        const currentPositions = actives
+          .filter(r => r.status === 'ACTIVE' && this.normalizeSymbol(r.symbol) === sameSymbol)
+          .map(r => ({
+            symbol: r.symbol,
+            side: r.direction,
+            size: Number((r as any).position_size || 0),
+            entryPrice: Number(r.entry_price || px),
+            currentPrice: Number(r.current_price || r.entry_price || px),
+            unrealizedPnl: 0,
+            unrealizedPnlPercent: 0,
+            leverage: Math.max(1, Number((r as any).leverage || 1)),
+            stopLoss: Number((r as any).stop_loss_price || 0),
+            takeProfit: Number((r as any).take_profit_price || 0),
+            timestamp: r.created_at?.getTime?.() ? r.created_at.getTime() : Date.now(),
+            strategyId: String(r.strategy_type || 'UNKNOWN'),
+            positionId: r.id
+          }));
+
+        const signalLike: any = {
+          confidence,
+          positionSize: Number((recommendation as any)?.position_size ?? 0.02),
+          riskReward: rr,
+          signal: isLong ? 'BUY' : 'SELL',
+          metadata: { volatility: Number((recommendation as any)?.market_volatility ?? 0.1) }
+        };
+        const md: any = { price: px, fundingRate: Number((recommendation as any)?.funding_rate ?? 0) };
+
+        const sizing = riskManagementService.computeAdaptiveSizing(signalLike, md, currentPositions as any);
+        if (needSize && Number.isFinite(sizing.positionSize)) {
+          (record as any).position_size = Number(Math.max(0.0001, sizing.positionSize));
+          (record as any).position_size = Number((record as any).position_size.toFixed(4));
+        }
+        if (needLev && Number.isFinite(sizing.leverage)) {
+          record.leverage = Math.max(1, Math.floor(Number(sizing.leverage)));
+        }
+        console.log('[RecommendationTracker] adaptive sizing applied:', {
+          id,
+          symbol: record.symbol,
+          direction: record.direction,
+          position_size: (record as any).position_size,
+          leverage: record.leverage,
+          kelly: sizing.kelly,
+          confidence: sizing.confidence
+        });
+      }
+    } catch (e) {
+      console.warn('[RecommendationTracker] adaptive sizing failed, fallback to provided values:', (e as any)?.message || e);
+    }
+
     // 风控：净名义敞口上限与同方向数量上限校验（仅当提供了 position_size 时启用名义敞口校验）
     try {
       const riskCfg = (config as any)?.risk || {};
       // 1) 同方向活跃数量上限（使用 ExposureLimitError）
       const maxSame: number = Number(riskCfg.maxSameDirectionActives ?? 0);
       if (Number.isFinite(maxSame) && maxSame > 0) {
-        const actives = this.getActiveRecommendations ? this.getActiveRecommendations() : Array.from(this.activeRecommendations.values());
-        const sameCount = actives.filter(r => r.status === 'ACTIVE' && r.direction === record.direction).length;
+        const actives: RecommendationRecord[] = this.getActiveRecommendations();
+        const sameCount = actives.filter((r: RecommendationRecord) => r.status === 'ACTIVE' && r.direction === record.direction).length;
         if (sameCount >= maxSame) {
           const err = new ExposureLimitError(`Too many active ${record.direction} recommendations: ${sameCount} >= ${maxSame}`) as any;
           err.direction = record.direction;
@@ -273,9 +375,9 @@ export class RecommendationTracker {
       const candidateExposure = (Number.isFinite(size) && size > 0 ? size : 0) * lev2;
 
       if (candidateExposure > 0 && ( (Number.isFinite(totalCap) && totalCap > 0) || (Number.isFinite(dirCap) && dirCap > 0) )) {
-        const actives = this.getActiveRecommendations ? this.getActiveRecommendations() : Array.from(this.activeRecommendations.values());
+        const actives: RecommendationRecord[] = this.getActiveRecommendations();
         const mySymbol = symbol; // 按相同symbol统计净敞口
-        const sumExposure = (filterDir?: 'LONG' | 'SHORT') => actives.reduce((sum, r) => {
+        const sumExposure = (filterDir?: 'LONG' | 'SHORT') => actives.reduce((sum: number, r: RecommendationRecord) => {
           if (r.status !== 'ACTIVE') return sum;
           if (this.normalizeSymbol(r.symbol) !== mySymbol) return sum;
           const s = Number((r as any).position_size ?? 0);
@@ -487,264 +589,11 @@ export class RecommendationTracker {
     // 添加到内存缓存
     this.activeRecommendations.set(id, record);
 
-    // 保存到数据库
-    await this.saveToDatabase(record);
-
-    // 更新全局最小间隔计时
+    // 持久化到数据库并返回 ID
+    try { await this.saveToDatabase(record); } catch (e) { console.error('Failed to persist recommendation on create:', (e as any)?.message || String(e)); }
     this.lastCreateMs = Date.now();
-
-    console.log(`Added recommendation ${id} for tracking: ${record.symbol} ${record.direction} @ ${record.entry_price}`);
     return id;
   }
-
-  /**
-   * 获取活跃推荐列表
-   */
-  getActiveRecommendations(): RecommendationRecord[] {
-  // 仅返回状态为 ACTIVE 的推荐，避免短暂处于 EXPIRED/CLOSED 但尚未从缓存移除的记录被暴露
-  return Array.from(this.activeRecommendations.values()).filter(r => r.status === 'ACTIVE');
-  }
-
-  /**
-   * 从活跃缓存中移除指定推荐
-   */
-  removeFromActiveCache(id: string): boolean {
-  return this.activeRecommendations.delete(id);
-  }
-
-  /**
-   * 获取推荐统计信息
-   */
-  async getStatistics(strategyType?: string): Promise<{
-  total: number;
-  active: number;
-  wins: number;
-  losses: number;
-  breakeven: number;
-  winRate: number;
-  avgPnl: number;
-  totalPnl: number;
-  avgHoldingDuration: number;
-  }> {
-  try {
-  // TODO: 从数据库获取完整统计
-  const all = Array.from(this.activeRecommendations.values());
-  const closed = all.filter(r => r.status === 'CLOSED');
-
-  const wins = closed.filter(r => r.result === 'WIN').length;
-  const losses = closed.filter(r => r.result === 'LOSS').length;
-  const breakeven = closed.filter(r => r.result === 'BREAKEVEN').length;
-
-  const winRate = closed.length > 0 ? (wins / closed.length) * 100 : 0;
-  const avgPnl = closed.length > 0 
-    ? closed.reduce((sum, r) => sum + (r.pnl_percent || 0), 0) / closed.length 
-    : 0;
-  const totalPnl = closed.reduce((sum, r) => sum + (r.pnl_percent || 0), 0);
-  const avgHoldingDuration = closed.length > 0
-    ? closed.reduce((sum, r) => sum + (r.holding_duration || 0), 0) / closed.length
-    : 0;
-
-  return {
-  total: all.length,
-  active: all.filter(r => r.status === 'ACTIVE').length,
-  wins,
-  losses,
-  breakeven,
-  winRate,
-  avgPnl,
-  totalPnl,
-  avgHoldingDuration
-  };
-  } catch (error) {
-  console.error('Failed to get statistics:', error);
-  return {
-  total: this.activeRecommendations.size,
-  active: this.activeRecommendations.size,
-  wins: 0,
-  losses: 0,
-  breakeven: 0,
-  winRate: 0,
-  avgPnl: 0,
-  totalPnl: 0,
-  avgHoldingDuration: 0
-  };
-  }
-  }
-
-  /**
-   * 定时检查所有活跃推荐
-   */
-  private async checkRecommendations(): Promise<void> {
-  try {
-  const activeRecs = Array.from(this.activeRecommendations.values())
-    .filter(r => r.status === 'ACTIVE');
-
-  if (activeRecs.length === 0) {
-  return;
-  }
-
-console.log(`Checking ${activeRecs.length} active recommendations...`);
-
-const now = new Date();
-const toClose: string[] = [];
-
-// 第一阶段：优先处理超时单，不依赖任何外部价格请求，避免被网络阻塞
-const remaining: RecommendationRecord[] = [];
-for (const rec of activeRecs) {
-const holdingHours = (now.getTime() - rec.created_at.getTime()) / (1000 * 60 * 60);
-// 支持关闭自动过期：当 maxHoldingHours <= 0 时，不进行过期判断
-if (this.MAX_HOLDING_HOURS > 0 && holdingHours >= this.MAX_HOLDING_HOURS) {
-const exitPrice = rec.current_price ?? rec.entry_price;
-await this.closeRecommendation(rec, 'TIMEOUT', exitPrice);
-toClose.push(rec.id);
-// 立刻从活跃缓存移除，避免在同一次轮询中仍被返回到API
-this.activeRecommendations.delete(rec.id);
-} else {
-remaining.push(rec);
-}
-}
-
-// 第二阶段：仅对未超时的推荐进行价格检查与触发判断
-for (const rec of remaining) {
-try {
-await this.checkSingleRecommendation(rec);
-
-// 检查是否需要从活跃列表移除（已关闭，含历史记录）
-if (rec.status === 'CLOSED' || rec.status === 'EXPIRED') {
-toClose.push(rec.id);
-}
-} catch (error) {
-console.error(`Error checking recommendation ${rec.id}:`, error);
-}
-}
-
-// 从活跃列表中移除已关闭/过期的推荐
-toClose.forEach(id => this.activeRecommendations.delete(id));
-
-if (toClose.length > 0) {
-console.log(`Closed/Expired ${toClose.length} recommendations`);
-}
-
-} catch (error) {
-console.error('Error checking recommendations:', error);
-}
-}
-
-/**
- * 检查单个推荐的状态
- */
-private async checkSingleRecommendation(rec: RecommendationRecord): Promise<void> {
-try {
-// 检查是否超时
-const holdingMinutes = (Date.now() - rec.created_at.getTime()) / (1000 * 60);
-if (this.MAX_HOLDING_HOURS > 0 && holdingMinutes > this.MAX_HOLDING_HOURS * 60) {
-const exitPrice = rec.current_price ?? rec.entry_price;
-await this.closeRecommendation(rec, 'TIMEOUT', exitPrice);
-return;
-}
-
-// 获取当前价格
-const priceResult = await this.getCurrentPrice(rec.symbol);
-if (!priceResult) {
-console.warn(`Failed to get current price for ${rec.symbol}`);
-return;
-}
-
-// 新增：尝试按配置更新追踪止损（先于触发判断）
-await this.maybeUpdateTrailing(rec, priceResult.currentPrice);
-
-// 检查触发条件
-const checkResult = this.checkTriggerConditions(rec, priceResult.currentPrice);
-
-// 新增：写入监控快照
-try {
-    const actives = this.getActiveRecommendations ? this.getActiveRecommendations() : [];
-    const exposure = {
-      total: actives.length,
-      long: actives.filter(r => r.direction === 'LONG').length,
-      short: actives.filter(r => r.direction === 'SHORT').length
-    };
-    const tstate = this.trailingStates.get(rec.id) || {};
-    const strat = (config as any)?.strategy || {};
-    const risk = (config as any)?.risk || {};
-    const extraPayload = {
-      gating: {
-        minHoldingMinutes: this.MIN_HOLDING_MINUTES,
-        maxHoldingHours: this.MAX_HOLDING_HOURS,
-        risk: {
-          maxSameDirectionActives: risk.maxSameDirectionActives
-        }
-      },
-      cooldown: {
-        signalCooldownMs: strat.signalCooldownMs,
-        oppositeCooldownMs: strat.oppositeCooldownMs,
-        allowOppositeWhileOpen: strat.allowOppositeWhileOpen,
-        oppositeMinConfidence: strat.oppositeMinConfidence
-      },
-      trailing: {
-        enabled: this.TRAIL_ENABLED,
-        percent: this.TRAIL_PERCENT,
-        minStep: this.TRAIL_MIN_STEP,
-        onBreakeven: this.TRAIL_ON_BREAKEVEN,
-        activateProfitPct: this.TRAIL_ACTIVATE_PROFIT_PCT,
-        flex: this.FLEX,
-        state: tstate
-      },
-      exposure,
-      triggerCheck: {
-        currentPrice: checkResult.currentPrice,
-        triggered: checkResult.triggered,
-        triggerType: checkResult.triggerType,
-        pnlAmount: checkResult.pnlAmount,
-        pnlPercent: checkResult.pnlPercent,
-        stop_loss_price: rec.stop_loss_price,
-        take_profit_price: rec.take_profit_price
-      }
-    };
-  
-  await recommendationDatabase.saveMonitoringSnapshot({
-    recommendation_id: rec.id,
-    check_time: new Date().toISOString(),
-    current_price: checkResult.currentPrice,
-    unrealized_pnl: checkResult.pnlAmount,
-    unrealized_pnl_percent: checkResult.pnlPercent,
-    is_stop_loss_triggered: checkResult.triggered && checkResult.triggerType === 'STOP_LOSS',
-    is_take_profit_triggered: checkResult.triggered && checkResult.triggerType === 'TAKE_PROFIT',
-    extra_json: JSON.stringify(extraPayload)
-  });
-} catch (e) {
-  console.warn('saveMonitoringSnapshot failed:', e);
-}
-
-// 新增：最小持仓时间限制，仅拦截“止盈”触发（SL/LIQ 不受限；手动/超时也不受限）
-if (checkResult.triggered && checkResult.triggerType === 'TAKE_PROFIT') {
-  const heldMinutes = Math.floor((Date.now() - rec.created_at.getTime()) / (60 * 1000));
-  if (this.MIN_HOLDING_MINUTES > 0 && heldMinutes < this.MIN_HOLDING_MINUTES) {
-    // 仅更新当前价格与时间，不触发平仓
-    rec.current_price = checkResult.currentPrice;
-    rec.updated_at = new Date();
-    return;
-  }
-}
-
-if (checkResult.triggered) {
-  await this.closeRecommendation(
-    rec, 
-    checkResult.triggerType!, 
-    checkResult.currentPrice,
-    checkResult.pnlAmount,
-    checkResult.pnlPercent
-  );
-} else {
-  // 更新当前价格
-  rec.current_price = checkResult.currentPrice;
-  rec.updated_at = new Date();
-}
-
-} catch (error) {
-console.error(`Error checking recommendation ${rec.id}:`, error);
-}
-}
 
 /**
  * 获取当前市场价格
@@ -1286,6 +1135,121 @@ console.warn('[RecommendationTracker] maybeUpdateTrailing error:', (e as any)?.m
                   }
                 }
 
+                /**
+                 * 检查所有活跃推荐：更新追踪止损、保存监控快照、根据条件触发平仓
+                 */
+                private async checkRecommendations(): Promise<void> {
+                  try {
+                    const actives = Array.from(this.activeRecommendations.values());
+                    for (const rec of actives) {
+                      if (!rec || rec.status !== 'ACTIVE') continue;
+                      try {
+                        // 自动超时检查：即使无法获取行情也应当生效（使用入场价兜底）
+                        {
+                          const maxHours = Number(this.MAX_HOLDING_HOURS || 0);
+                          if (maxHours > 0) {
+                            const maxHoldingMs = maxHours * 3600 * 1000;
+                            const heldMs = Date.now() - rec.created_at.getTime();
+                            if (heldMs >= maxHoldingMs) {
+                              await this.expireRecommendation(rec, 'TIMEOUT');
+                              continue; // 已关闭，处理下一个
+                            }
+                          }
+                        }
+
+                        // 获取当前价格
+                        const priceResult = await this.getCurrentPrice(rec.symbol);
+                        if (!priceResult || !isFinite(priceResult.currentPrice)) {
+                          continue;
+                        }
+                        const currentPrice = priceResult.currentPrice;
+                        // （自动超时检查已前移到行情获取之前）
+             
+                        // 先尝试更新追踪止损（基于当前价）
+                        try { await this.maybeUpdateTrailing(rec, currentPrice); } catch (e) { /* best-effort */ }
+            
+                        // 更新后的止损参与触发检查
+                        const checkResult = this.checkTriggerConditions(rec, currentPrice);
+            
+                        // 构建 extra_json 监控载荷
+                        try {
+                          const tstate = this.trailingStates.get(rec.id) || {};
+                          const trailingCfg = {
+                            enabled: this.TRAIL_ENABLED,
+                            percent: this.TRAIL_PERCENT,
+                            minStep: this.TRAIL_MIN_STEP,
+                            onBreakeven: this.TRAIL_ON_BREAKEVEN,
+                            activateProfitPct: this.TRAIL_ACTIVATE_PROFIT_PCT,
+                            flex: this.FLEX,
+                            state: tstate
+                          } as any;
+                          const lev = Math.max(1, Number(rec.leverage) || 1);
+                          const size = Number((rec as any).position_size || 0);
+                          const exposure = {
+                            positionSize: size,
+                            leverage: lev,
+                            nominal: Number((size * lev).toFixed(4)),
+                            direction: rec.direction,
+                            entry_price: rec.entry_price
+                          };
+                          const triggerCheck = {
+                            currentPrice: checkResult.currentPrice,
+                            triggered: checkResult.triggered,
+                            triggerType: checkResult.triggerType,
+                            pnlAmount: checkResult.pnlAmount,
+                            pnlPercent: checkResult.pnlPercent,
+                            stop_loss_price: rec.stop_loss_price,
+                            take_profit_price: rec.take_profit_price
+                          };
+                          const extraPayload = { trailingCfg, exposure, triggerCheck };
+            
+                          try { await recommendationDatabase.initialize(); } catch {}
+                          await recommendationDatabase.saveMonitoringSnapshot({
+                            recommendation_id: rec.id,
+                            check_time: new Date().toISOString(),
+                            current_price: checkResult.currentPrice,
+                            unrealized_pnl: checkResult.pnlAmount,
+                            unrealized_pnl_percent: checkResult.pnlPercent,
+                            is_stop_loss_triggered: checkResult.triggered && checkResult.triggerType === 'STOP_LOSS',
+                            is_take_profit_triggered: checkResult.triggered && checkResult.triggerType === 'TAKE_PROFIT',
+                            extra_json: JSON.stringify(extraPayload)
+                          });
+                        } catch (e) {
+                          console.warn('saveMonitoringSnapshot failed:', (e as any)?.message || String(e));
+                        }
+            
+                        // 最小持仓时间限制：仅拦截“止盈”触发
+                        if (checkResult.triggered && checkResult.triggerType === 'TAKE_PROFIT') {
+                          const heldMinutes = Math.floor((Date.now() - rec.created_at.getTime()) / (60 * 1000));
+                          if (this.MIN_HOLDING_MINUTES > 0 && heldMinutes < this.MIN_HOLDING_MINUTES) {
+                            rec.current_price = currentPrice;
+                            rec.updated_at = new Date();
+                            continue;
+                          }
+                        }
+            
+                        // 根据触发结果处理
+                        if (checkResult.triggered) {
+                          await this.closeRecommendation(
+                            rec,
+                            checkResult.triggerType!,
+                            checkResult.currentPrice,
+                            checkResult.pnlAmount,
+                            checkResult.pnlPercent
+                          );
+                        } else {
+                          rec.current_price = currentPrice;
+                          rec.updated_at = new Date();
+                        }
+                      } catch (error) {
+                        console.error(`Error checking recommendation ${rec.id}:`, error);
+                      }
+                    }
+                  } catch (e) {
+                    console.error('[RecommendationTracker] checkRecommendations() failed:', (e as any)?.message || String(e));
+                  }
+                }
+
                 // 启动跟踪器：加载活跃推荐并根据配置开始定时检查
                 async start(): Promise<void> {
                   try {
@@ -1294,6 +1258,26 @@ console.warn('[RecommendationTracker] maybeUpdateTrailing error:', (e as any)?.m
                     }
                     // 先从数据库加载活跃推荐
                     try { await this.loadActiveRecommendations(); } catch {}
+
+                    // 在启动时刷新关键运行时配置，使得 /api/config 的更新能立即生效
+                    try {
+                      const recCfg: any = (config as any)?.recommendation || {};
+                      const gatingCfg: any = (config as any)?.strategy?.gating || {};
+                      const envMaxH = Number(process.env.RECOMMENDATION_MAX_HOLDING_HOURS ?? process.env.MAX_HOLDING_HOURS ?? NaN);
+                      const envMinM = Number(process.env.RECOMMENDATION_MIN_HOLDING_MINUTES ?? process.env.MIN_HOLDING_MINUTES ?? NaN);
+                      const pickNum = (v: any) => Number.isFinite(Number(v)) ? Number(v) : NaN;
+
+                      const nextMaxH = [pickNum(recCfg.maxHoldingHours), pickNum(gatingCfg.maxHoldingHours), envMaxH].find(n => Number.isFinite(n) && n >= 0);
+                      if (Number.isFinite(nextMaxH as number)) {
+                        this.MAX_HOLDING_HOURS = nextMaxH as number;
+                      }
+                      const nextMinM = [pickNum(recCfg.minHoldingMinutes), pickNum(gatingCfg.minHoldingMinutes), envMinM].find(n => Number.isFinite(n) && n >= 0);
+                      if (Number.isFinite(nextMinM as number)) {
+                        this.MIN_HOLDING_MINUTES = nextMinM as number;
+                      }
+                    } catch (e) {
+                      console.warn('[RecommendationTracker] refresh config on start failed:', (e as any)?.message || String(e));
+                    }
 
                     // 读取轮询间隔：优先使用 strategy.analysisInterval，其次使用 strategy.globalMinIntervalMs，最后默认 15000ms
                     const strat: any = (config as any)?.strategy || {};

@@ -56,6 +56,8 @@ export interface ExecutionRecord {
   fee_amount?: number | null; // 名义价值 * 手续费率（单边）
   pnl_amount?: number | null; // 平仓/减仓时才有
   pnl_percent?: number | null; // 平仓/减仓时才有
+  // 来自 recommendations 的 AB 分组（查询结果派生字段）
+  ab_group?: string | undefined;
   extra_json?: string | null; // 额外上下文（如 reason/reductionRatio 等）
 }
 
@@ -201,6 +203,9 @@ export class RecommendationDatabase {
         strategy_confidence_level TEXT,
         exclude_from_ml BOOLEAN DEFAULT FALSE,
         notes TEXT,
+
+        -- 额外上下文（JSON 字符串）
+        extra_json TEXT,
 
         -- EV相关字段
         expected_return REAL,
@@ -442,9 +447,9 @@ export class RecommendationDatabase {
         quality_score, status, market_volatility, volume_24h, price_change_24h,
         source, is_strategy_generated, strategy_confidence_level, exclude_from_ml, notes,
         expected_return, ev, ev_threshold, ev_ok, ab_group,
-        exit_label, dedupe_key
+        exit_label, dedupe_key, extra_json
       ) VALUES (
-        ${new Array(38).fill('?').join(', ')}
+        ${new Array(39).fill('?').join(', ')}
       )
     `;
     
@@ -463,7 +468,8 @@ export class RecommendationDatabase {
       typeof (rec as any).ev_ok === 'boolean' ? ((rec as any).ev_ok ? 1 : 0) : (typeof (rec as any).ev_ok === 'number' ? ((rec as any).ev_ok ? 1 : 0) : null),
       (rec as any).ab_group ?? null,
       rec.exit_label || null,
-      rec.dedupe_key || null
+      rec.dedupe_key || null,
+      (rec as any).extra_json ?? null
     ];
     
     return new Promise((resolve, reject) => {
@@ -1105,7 +1111,9 @@ export class RecommendationDatabase {
       })(),
       ab_group: row.ab_group || undefined,
       // 新增：dedupe_key 回传
-      dedupe_key: row.dedupe_key || undefined
+      dedupe_key: row.dedupe_key || undefined,
+      // 新增：extra_json 回传
+      extra_json: row.extra_json || undefined
     };
   }
 
@@ -1220,6 +1228,7 @@ export class RecommendationDatabase {
       fee_amount: row.fee_amount ?? null,
       pnl_amount: row.pnl_amount ?? null,
       pnl_percent: row.pnl_percent ?? null,
+      ab_group: row.ab_group || undefined,
       extra_json: row.extra_json ?? null
     };
   }
@@ -1335,6 +1344,7 @@ export class RecommendationDatabase {
       to?: string;   // ISO 日期字符串，按 created_at 过滤结束
       min_size?: number;
       max_size?: number;
+      ab_group?: string;
     } = {},
     limit: number = 50,
     offset: number = 0
@@ -1343,50 +1353,66 @@ export class RecommendationDatabase {
       throw new Error('Database not initialized');
     }
 
-    const where: string[] = [];
+    const whereAliased: string[] = [];
+    const wherePlain: string[] = [];
     const args: any[] = [];
 
     if (filters.symbol) {
-      where.push('symbol = ?');
+      whereAliased.push('e.symbol = ?');
+      wherePlain.push('symbol = ?');
       args.push(filters.symbol);
     }
     if (filters.event_type) {
-      where.push('event_type = ?');
+      whereAliased.push('e.event_type = ?');
+      wherePlain.push('event_type = ?');
       args.push(filters.event_type);
     }
     if (filters.direction) {
-      where.push('direction = ?');
+      whereAliased.push('e.direction = ?');
+      wherePlain.push('direction = ?');
       args.push(filters.direction);
     }
     if (filters.recommendation_id) {
-      where.push('recommendation_id = ?');
+      whereAliased.push('e.recommendation_id = ?');
+      wherePlain.push('recommendation_id = ?');
       args.push(filters.recommendation_id);
     }
     if (filters.position_id) {
-      where.push('position_id = ?');
+      whereAliased.push('e.position_id = ?');
+      wherePlain.push('position_id = ?');
       args.push(filters.position_id);
     }
     if (filters.from) {
-      where.push('created_at >= ?');
+      whereAliased.push('e.created_at >= ?');
+      wherePlain.push('created_at >= ?');
       args.push(filters.from);
     }
     if (filters.to) {
-      where.push('created_at <= ?');
+      whereAliased.push('e.created_at <= ?');
+      wherePlain.push('created_at <= ?');
       args.push(filters.to);
     }
     if (typeof filters.min_size === 'number') {
-      where.push('size >= ?');
+      whereAliased.push('e.size >= ?');
+      wherePlain.push('size >= ?');
       args.push(filters.min_size);
     }
     if (typeof filters.max_size === 'number') {
-      where.push('size <= ?');
+      whereAliased.push('e.size <= ?');
+      wherePlain.push('size <= ?');
       args.push(filters.max_size);
     }
+    if (filters.ab_group) {
+      whereAliased.push('r.ab_group = ?');
+      // plain 模式下无 ab_group 列，保持不加条件
+      args.push(filters.ab_group);
+    }
 
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const whereSqlAliased = whereAliased.length ? `WHERE ${whereAliased.join(' AND ')}` : '';
+    const whereSqlPlain = wherePlain.length ? `WHERE ${wherePlain.join(' AND ')}` : '';
 
-    const countSql = `SELECT COUNT(*) as cnt FROM executions ${whereSql}`;
-    const listSql = `SELECT * FROM executions ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    const countSql = `SELECT COUNT(*) as cnt FROM executions e LEFT JOIN recommendations r ON r.id = e.recommendation_id ${whereSqlAliased || whereSqlPlain}`;
+    const listSql = `SELECT e.*, r.ab_group AS ab_group FROM executions e LEFT JOIN recommendations r ON r.id = e.recommendation_id ${whereSqlAliased} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`;
 
     const count = await new Promise<number>((resolve, reject) => {
       this.db!.get(countSql, args, (err, row: any) => {
@@ -1622,12 +1648,14 @@ export class RecommendationDatabase {
                     const hasEvTh = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ev_threshold');
                     const hasEvOk = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ev_ok');
                     const hasAB = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ab_group');
+                    const hasExtraJson = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'extra_json');
                     const alters: string[] = [];
                     if (!hasExpected) alters.push("ALTER TABLE recommendations ADD COLUMN expected_return REAL");
                     if (!hasEv) alters.push("ALTER TABLE recommendations ADD COLUMN ev REAL");
                     if (!hasEvTh) alters.push("ALTER TABLE recommendations ADD COLUMN ev_threshold REAL");
                     if (!hasEvOk) alters.push("ALTER TABLE recommendations ADD COLUMN ev_ok INTEGER");
                     if (!hasAB) alters.push("ALTER TABLE recommendations ADD COLUMN ab_group TEXT");
+                    if (!hasExtraJson) alters.push("ALTER TABLE recommendations ADD COLUMN extra_json TEXT");
                     if (alters.length === 0) return resolve();
                     const runNext = (i: number) => {
                       if (i >= alters.length) return resolve();
@@ -1676,8 +1704,7 @@ export class RecommendationDatabase {
           if (!hasDedupeKey) {
             this.db!.run("ALTER TABLE recommendations ADD COLUMN dedupe_key TEXT", (alterErr3: Error | null) => {
               if (alterErr3) {
-                console.error('Error migrating recommendations schema (add dedupe_key):', alterErr3);
-                // 不中断，可能已经存在或 SQLite 版本不支持部分场景
+                console.error('Error migrating recommendations schema (add dedupe_key):', alterErr3);                // 不中断，可能已经存在或 SQLite 版本不支持部分场景
               }
               ensureUniqueIndex();
             });
