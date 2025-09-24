@@ -1,7 +1,7 @@
-import { MultiFactorAnalyzer, MultiFactorAnalysisResult } from '../analyzers/multi-factor-analyzer';
-import { SmartSignalResult, SmartSignalType } from '../analyzers/smart-signal-analyzer';
-import { MarketData } from '../ml/ml-analyzer';
-import { config } from '../config';
+import { MultiFactorAnalyzer, MultiFactorAnalysisResult } from '../analyzers/multi-factor-analyzer.js';
+import { SmartSignalResult, SmartSignalType } from '../analyzers/smart-signal-analyzer.js';
+import { MarketData } from '../ml/ml-analyzer.js';
+import { config } from '../config.js';
 
 // 高胜率交易信号
 export interface HighWinrateSignal {
@@ -235,30 +235,39 @@ export class HighWinrateAlgorithm {
     
     // 1. 因子一致性评分 (40分)
     const factors = Object.values(multiFactorResult.factors);
-    const bullishFactors = factors.filter(f => f.trend === 'BULLISH').length;
-    const bearishFactors = factors.filter(f => f.trend === 'BEARISH').length;
-    const neutralFactors = factors.filter(f => f.trend === 'NEUTRAL').length;
+    
+    // 定义因子分析接口
+    interface FactorWithTrend {
+      trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+      score: number;
+      confidence: number;
+    }
+    
+    const bullishFactors = factors.filter((f: FactorWithTrend) => f.trend === 'BULLISH').length;
+    const bearishFactors = factors.filter((f: FactorWithTrend) => f.trend === 'BEARISH').length;
+    const neutralFactors = factors.filter((f: FactorWithTrend) => f.trend === 'NEUTRAL').length;
     
     const maxTrendFactors = Math.max(bullishFactors, bearishFactors);
     consistencyScore = (maxTrendFactors / factors.length) * 40;
     qualityScore += consistencyScore;
     
     // 2. 信号强度评分 (30分)
-    const avgStrength = factors.reduce((sum, f) => sum + Math.abs(f.score), 0) / factors.length;
+    const avgStrength = factors.reduce((sum: number, f: FactorWithTrend) => sum + Math.abs(f.score), 0) / factors.length;
     strengthScore = Math.min(30, (avgStrength / 100) * 30);
     qualityScore += strengthScore;
     
     // 3. 置信度评分 (20分)
-    const avgConfidence = factors.reduce((sum, f) => sum + f.confidence, 0) / factors.length;
+    const avgConfidence = factors.reduce((sum: number, f: FactorWithTrend) => sum + f.confidence, 0) / factors.length;
     qualityScore += avgConfidence * 20;
     
     // 4. 风险评估加分 (10分)
-    const riskBonus = {
+    const riskBonusMap = {
       'LOW': 10,
       'MEDIUM': 5,
       'HIGH': 0,
       'EXTREME': -10
-    }[multiFactorResult.riskAssessment.level] || 0;
+    };
+    const riskBonus = riskBonusMap[multiFactorResult.riskAssessment.level as keyof typeof riskBonusMap] || 0;
     qualityScore += riskBonus;
     
     // 计算胜率估计
@@ -288,7 +297,12 @@ export class HighWinrateAlgorithm {
    * 高胜率过滤器
    */
   private passesHighWinrateFilter(
-    qualityAssessment: any,
+    qualityAssessment: {
+      qualityScore: number;
+      winrateEstimate: number;
+      strengthScore: number;
+      consistencyScore: number;
+    },
     multiFactorResult: MultiFactorAnalysisResult
   ): boolean {
     
@@ -425,7 +439,7 @@ export class HighWinrateAlgorithm {
     const marketContext: string[] = [];
     
     // 分析主要因子
-    Object.entries(multiFactorResult.factors).forEach(([key, factor]) => {
+    Object.entries(multiFactorResult.factors).forEach(([key, factor]: [string, any]) => {
       if (factor.strength === 'STRONG') {
         primaryFactors.push(`${key}因子显示${factor.trend}信号 (评分: ${factor.score.toFixed(1)})`);
       }

@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>决策链路透明化监控面板</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+
+        .header p {
+            opacity: 0.9;
+            margin-top: 0.5rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+
+        .metric-card h3 {
+            color: #4a5568;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-change {
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .metric-change.positive {
+            color: #38a169;
+        }
+
+        .metric-change.negative {
+            color: #e53e3e;
+        }
+
+        .metric-change.neutral {
+            color: #718096;
+        }
+
+        .decision-chain-section {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+
+        .chain-filters {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .filter-group label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: #4a5568;
+        }
+
+        .filter-input {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: border-color 0.2s ease;
+        }
+
+        .filter-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .chain-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .chain-item {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .chain-item:hover {
+            border-color: #cbd5e0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .chain-header {
+            background: #f7fafc;
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chain-header:hover {
+            background: #edf2f7;
+        }
+
+        .chain-info {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .chain-id {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            color: #4a5568;
+            background: #e2e8f0;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        .chain-status {
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .chain-status.approved {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .chain-status.rejected {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .chain-status.pending {
+            background: #fef5e7;
+            color: #744210;
+        }
+
+        .chain-details {
+            padding: 1.5rem;
+            border-top: 1px solid #e2e8f0;
+            display: none;
+        }
+
+        .chain-details.expanded {
+            display: block;
+        }
+
+        .decision-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .decision-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid #e2e8f0;
+        }
+
+        .decision-step.approved {
+            background: #f0fff4;
+            border-left-color: #38a169;
+        }
+
+        .decision-step.rejected {
+            background: #fffaf0;
+            border-left-color: #e53e3e;
+        }
+
+        .decision-step.pending {
+            background: #fffbf0;
+            border-left-color: #d69e2e;
+        }
+
+        .step-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .step-icon.approved {
+            background: #38a169;
+        }
+
+        .step-icon.rejected {
+            background: #e53e3e;
+        }
+
+        .step-icon.pending {
+            background: #d69e2e;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-stage {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 0.25rem;
+        }
+
+        .step-reason {
+            color: #4a5568;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-details {
+            background: #f7fafc;
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #4a5568;
+        }
+
+        .step-timestamp {
+            font-size: 0.8rem;
+            color: #718096;
+            margin-top: 0.5rem;
+        }
+
+        .rejection-analysis {
+            background: #fff5f5;
+            border: 1px solid #fed7d7;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+
+        .rejection-analysis h4 {
+            color: #742a2a;
+            margin-bottom: 0.5rem;
+        }
+
+        .rejection-reasons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .rejection-tag {
+            background: #e53e3e;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #718096;
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #742a2a;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-left: auto;
+        }
+
+        .auto-refresh input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .chain-filters {
+                flex-direction: column;
+            }
+
+            .chain-info {
+                flex-direction: column;
+                gap: 0.5rem;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>决策链路透明化监控面板</h1>
+        <p>实时监控推荐系统决策过程，精准定位交易拒绝的门控层级</p>
+    </div>
+
+    <div class="container">
+        <!-- 关键指标 -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <h3>总决策数</h3>
+                <div class="metric-value" id="totalDecisions">-</div>
+                <div class="metric-change neutral" id="totalDecisionsChange">-</div>
+            </div>
+            <div class="metric-card">
+                <h3>成功率</h3>
+                <div class="metric-value" id="successRate">-</div>
+                <div class="metric-change neutral" id="successRateChange">-</div>
+            </div>
+            <div class="metric-card">
+                <h3>门控拒绝率</h3>
+                <div class="metric-value" id="gatingRate">-</div>
+                <div class="metric-change neutral" id="gatingRateChange">-</div>
+            </div>
+            <div class="metric-card">
+                <h3>平均响应时间</h3>
+                <div class="metric-value" id="avgResponseTime">-</div>
+                <div class="metric-change neutral" id="avgResponseTimeChange">-</div>
+            </div>
+        </div>
+
+        <!-- 决策链路列表 -->
+        <div class="decision-chain-section">
+            <div class="section-title">
+                决策链路详情
+                <div class="auto-refresh">
+                    <input type="checkbox" id="autoRefresh" checked>
+                    <label for="autoRefresh">自动刷新</label>
+                    <button class="refresh-btn" onclick="loadDecisionChains()">刷新</button>
+                </div>
+            </div>
+
+            <div class="chain-filters">
+                <div class="filter-group">
+                    <label>交易对</label>
+                    <input type="text" class="filter-input" id="symbolFilter" placeholder="ETH-USDT-SWAP">
+                </div>
+                <div class="filter-group">
+                    <label>方向</label>
+                    <select class="filter-input" id="directionFilter">
+                        <option value="">全部</option>
+                        <option value="LONG">做多</option>
+                        <option value="SHORT">做空</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>决策结果</label>
+                    <select class="filter-input" id="decisionFilter">
+                        <option value="">全部</option>
+                        <option value="APPROVED">通过</option>
+                        <option value="REJECTED">拒绝</option>
+                        <option value="PENDING">待定</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>来源</label>
+                    <select class="filter-input" id="sourceFilter">
+                        <option value="">全部</option>
+                        <option value="API_RECOMMENDATION">API推荐</option>
+                        <option value="STRATEGY_ENGINE">策略引擎</option>
+                        <option value="AUTO_RECOMMENDATION">自动推荐</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="chainList" class="chain-list">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval;
+        let lastMetrics = {};
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDecisionChains();
+            loadMetrics();
+            
+            // 设置自动刷新
+            const autoRefreshCheckbox = document.getElementById('autoRefresh');
+            autoRefreshCheckbox.addEventListener('change', function() {
+                if (this.checked) {
+                    startAutoRefresh();
+                } else {
+                    stopAutoRefresh();
+                }
+            });
+            
+            // 初始启动自动刷新
+            if (autoRefreshCheckbox.checked) {
+                startAutoRefresh();
+            }
+
+            // 添加过滤器事件监听
+            ['symbolFilter', 'directionFilter', 'decisionFilter', 'sourceFilter'].forEach(id => {
+                document.getElementById(id).addEventListener('change', loadDecisionChains);
+            });
+        });
+
+        function startAutoRefresh() {
+            autoRefreshInterval = setInterval(() => {
+                loadDecisionChains();
+                loadMetrics();
+            }, 5000); // 每5秒刷新一次
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+
+        async function loadMetrics() {
+            try {
+                // 加载集成服务指标
+                const integrationResponse = await fetch('/api/system/decision-metrics');
+                const integrationMetrics = await integrationResponse.json();
+                
+                // 加载API指标
+                const apiResponse = await fetch('/api/system/api-decision-metrics');
+                const apiMetrics = await apiResponse.json();
+
+                updateMetricsDisplay(integrationMetrics, apiMetrics);
+            } catch (error) {
+                console.error('Failed to load metrics:', error);
+            }
+        }
+
+        function updateMetricsDisplay(integrationMetrics, apiMetrics) {
+            // 更新总决策数
+            const totalDecisions = integrationMetrics.totalDecisions + apiMetrics.totalRequests;
+            updateMetric('totalDecisions', totalDecisions, lastMetrics.totalDecisions);
+
+            // 更新成功率
+            const successRate = apiMetrics.successRate || '0%';
+            updateMetric('successRate', successRate, lastMetrics.successRate);
+
+            // 更新门控拒绝率
+            const gatingRate = apiMetrics.gatingRate || '0%';
+            updateMetric('gatingRate', gatingRate, lastMetrics.gatingRate);
+
+            // 更新平均响应时间
+            const avgResponseTime = apiMetrics.responseTimeStats?.avg ? 
+                Math.round(apiMetrics.responseTimeStats.avg) + 'ms' : '-';
+            updateMetric('avgResponseTime', avgResponseTime, lastMetrics.avgResponseTime);
+
+            // 保存当前指标用于下次比较
+            lastMetrics = {
+                totalDecisions,
+                successRate,
+                gatingRate,
+                avgResponseTime
+            };
+        }
+
+        function updateMetric(elementId, newValue, oldValue) {
+            const valueElement = document.getElementById(elementId);
+            const changeElement = document.getElementById(elementId + 'Change');
+            
+            valueElement.textContent = newValue;
+            
+            if (oldValue !== undefined && oldValue !== newValue) {
+                if (typeof newValue === 'number' && typeof oldValue === 'number') {
+                    const change = newValue - oldValue;
+                    const changeText = change > 0 ? `+${change}` : change.toString();
+                    changeElement.textContent = changeText;
+                    changeElement.className = `metric-change ${change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral'}`;
+                } else {
+                    changeElement.textContent = '已更新';
+                    changeElement.className = 'metric-change neutral';
+                }
+            } else {
+                changeElement.textContent = '-';
+                changeElement.className = 'metric-change neutral';
+            }
+        }
+
+        async function loadDecisionChains() {
+            const chainList = document.getElementById('chainList');
+            
+            try {
+                // 获取过滤条件
+                const filters = {
+                    symbol: document.getElementById('symbolFilter').value,
+                    direction: document.getElementById('directionFilter').value,
+                    finalDecision: document.getElementById('decisionFilter').value,
+                    source: document.getElementById('sourceFilter').value,
+                    includeSteps: true,
+                    limit: 50
+                };
+
+                // 移除空值
+                Object.keys(filters).forEach(key => {
+                    if (!filters[key]) delete filters[key];
+                });
+
+                const response = await fetch('/api/decision-chains?' + new URLSearchParams(filters));
+                const data = await response.json();
+
+                if (data.success) {
+                    renderDecisionChains(data.chains);
+                } else {
+                    chainList.innerHTML = `<div class="error">加载失败: ${data.error}</div>`;
+                }
+            } catch (error) {
+                console.error('Failed to load decision chains:', error);
+                chainList.innerHTML = `<div class="error">网络错误: ${error.message}</div>`;
+            }
+        }
+
+        function renderDecisionChains(chains) {
+            const chainList = document.getElementById('chainList');
+            
+            if (!chains || chains.length === 0) {
+                chainList.innerHTML = '<div class="loading">暂无决策链路数据</div>';
+                return;
+            }
+
+            const html = chains.map(chain => `
+                <div class="chain-item">
+                    <div class="chain-header" onclick="toggleChainDetails('${chain.chainId}')">
+                        <div class="chain-info">
+                            <div class="chain-id">${chain.chainId}</div>
+                            <div>
+                                <strong>${chain.symbol}</strong>
+                                ${chain.direction ? `<span style="margin-left: 0.5rem; color: ${chain.direction === 'LONG' ? '#38a169' : '#e53e3e'}">${chain.direction}</span>` : ''}
+                            </div>
+                            <div style="font-size: 0.85rem; color: #718096;">
+                                ${chain.source} • ${formatTime(chain.startTime)}
+                            </div>
+                        </div>
+                        <div class="chain-status ${chain.finalDecision.toLowerCase()}">
+                            ${getDecisionText(chain.finalDecision)}
+                        </div>
+                    </div>
+                    <div class="chain-details" id="details-${chain.chainId}">
+                        ${renderDecisionSteps(chain.steps)}
+                        ${chain.finalDecision === 'REJECTED' ? renderRejectionAnalysis(chain) : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            chainList.innerHTML = html;
+        }
+
+        function renderDecisionSteps(steps) {
+            if (!steps || steps.length === 0) {
+                return '<div style="color: #718096;">暂无决策步骤</div>';
+            }
+
+            return `
+                <div class="decision-steps">
+                    ${steps.map(step => `
+                        <div class="decision-step ${step.decision.toLowerCase()}">
+                            <div class="step-icon ${step.decision.toLowerCase()}">
+                                ${getStepIcon(step.decision)}
+                            </div>
+                            <div class="step-content">
+                                <div class="step-stage">${getStageText(step.stage)}</div>
+                                <div class="step-reason">${step.reason || '无原因说明'}</div>
+                                ${step.details ? `
+                                    <div class="step-details">
+                                        <pre>${JSON.stringify(step.details, null, 2)}</pre>
+                                    </div>
+                                ` : ''}
+                                <div class="step-timestamp">${formatTime(step.timestamp)}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderRejectionAnalysis(chain) {
+            const rejectedSteps = chain.steps.filter(step => step.decision === 'REJECTED');
+            const reasons = rejectedSteps.map(step => step.reason).filter(Boolean);
+            
+            if (reasons.length === 0) return '';
+
+            return `
+                <div class="rejection-analysis">
+                    <h4>拒绝原因分析</h4>
+                    <div class="rejection-reasons">
+                        ${reasons.map(reason => `<span class="rejection-tag">${reason}</span>`).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleChainDetails(chainId) {
+            const details = document.getElementById(`details-${chainId}`);
+            details.classList.toggle('expanded');
+        }
+
+        function getDecisionText(decision) {
+            const texts = {
+                'APPROVED': '通过',
+                'REJECTED': '拒绝',
+                'PENDING': '待定'
+            };
+            return texts[decision] || decision;
+        }
+
+        function getStageText(stage) {
+            const texts = {
+                'SIGNAL_COLLECTION': '信号采集',
+                'GATING_CHECK': '门控检查',
+                'COOLDOWN_CHECK': '冷却检查',
+                'RISK_ASSESSMENT': '风险评估',
+                'EXECUTION_DECISION': '执行决策',
+                'POST_EXECUTION': '执行后处理'
+            };
+            return texts[stage] || stage;
+        }
+
+        function getStepIcon(decision) {
+            const icons = {
+                'APPROVED': '✓',
+                'REJECTED': '✗',
+                'PENDING': '?'
+            };
+            return icons[decision] || '•';
+        }
+
+        function formatTime(timestamp) {
+            return new Date(timestamp).toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+    </script>
+</body>
+</html>

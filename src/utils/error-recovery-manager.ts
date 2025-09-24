@@ -124,9 +124,9 @@ export class ErrorRecoveryManager {
         type: ErrorType.RATE_LIMIT_ERROR,
         pattern: /rate limit|429|too many requests/i,
         strategy: RecoveryStrategy.EXPONENTIAL_BACKOFF,
-        maxRetries: 10,
-        baseDelay: 5000,
-        maxDelay: 120000,
+        maxRetries: 15,
+        baseDelay: 10000,
+        maxDelay: 300000,
         priority: 3
       },
       {

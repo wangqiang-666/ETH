@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { BacktestEngine, BacktestConfig } from '../backtest/backtest-engine';
-import { PerformanceAnalyzer } from '../backtest/performance-analyzer';
-import { SmartSignalResult } from '../analyzers/smart-signal-analyzer';
-import type { MarketData } from '../services/okx-data-service';
+import { BacktestEngine, BacktestConfig } from '../backtest/backtest-engine.js';
+import { PerformanceAnalyzer } from '../backtest/performance-analyzer.js';
+import { SmartSignalResult } from '../analyzers/smart-signal-analyzer.js';
+import type { MarketData } from '../services/okx-data-service.js';
 
 const router = Router();
 const performanceAnalyzer = new PerformanceAnalyzer();

@@ -62,7 +62,10 @@ export class DataCompressionService {
 
     // 定期清理过期缓存
     if (this.options.enableCaching) {
-      setInterval(() => this.cleanupCache(), 60000); // 每分钟清理一次
+      // 在测试环境中不启动定时器
+      if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
+        setInterval(() => this.cleanupCache(), 60000); // 每分钟清理一次
+      }
     }
   }
 
@@ -279,11 +282,12 @@ export class DataCompressionService {
     let leastHits = Infinity;
     let oldestTime = Infinity;
 
-    for (const [key, entry] of this.cache.entries()) {
-      if (entry.hits < leastHits || (entry.hits === leastHits && entry.timestamp < oldestTime)) {
+    for (const entry of Array.from(this.cache.entries())) {
+      const [key, cacheEntry] = entry;
+      if (cacheEntry.hits < leastHits || (cacheEntry.hits === leastHits && cacheEntry.timestamp < oldestTime)) {
         leastUsedKey = key;
-        leastHits = entry.hits;
-        oldestTime = entry.timestamp;
+        leastHits = cacheEntry.hits;
+        oldestTime = cacheEntry.timestamp;
       }
     }
 
@@ -302,12 +306,13 @@ export class DataCompressionService {
     let cleanedCount = 0;
     let cleanedSize = 0;
 
-    for (const [key, entry] of this.cache.entries()) {
-      if (now - entry.timestamp > this.options.cacheTTL) {
+    for (const entry of Array.from(this.cache.entries())) {
+      const [key, cacheEntry] = entry;
+      if (now - cacheEntry.timestamp > this.options.cacheTTL) {
         this.cache.delete(key);
-        this.cacheSize -= entry.size;
+        this.cacheSize -= cacheEntry.size;
         cleanedCount++;
-        cleanedSize += entry.size;
+        cleanedSize += cacheEntry.size;
       }
     }
 

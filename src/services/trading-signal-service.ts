@@ -1,9 +1,9 @@
-import { MultiFactorAnalyzer, MultiFactorAnalysisResult } from '../analyzers/multi-factor-analyzer';
-import { HighWinrateAlgorithm, HighWinrateSignal } from '../algorithms/high-winrate-algorithm';
-import { EnhancedOKXDataService, getEffectiveTestingFGIOverride } from './enhanced-okx-data-service';
-import { MarketData } from '../ml/ml-analyzer';
-import { config } from '../config';
-import { riskManagementService } from './risk-management-service';
+import { MultiFactorAnalyzer, MultiFactorAnalysisResult } from '../analyzers/multi-factor-analyzer.js';
+import { HighWinrateAlgorithm, HighWinrateSignal } from '../algorithms/high-winrate-algorithm.js';
+import { EnhancedOKXDataService, getEffectiveTestingFGIOverride } from './enhanced-okx-data-service.js';
+import { MarketData } from '../ml/ml-analyzer.js';
+import { config } from '../config.js';
+import { riskManagementService } from './risk-management-service.js';
 import axios from 'axios';
 
 // 交易信号输出结果

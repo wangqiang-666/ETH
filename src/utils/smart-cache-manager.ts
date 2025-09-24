@@ -74,7 +74,12 @@ export class SmartCacheManager {
       ...config
     };
 
-    this.startCleanupTimer();
+    // 如果在测试环境中，不自动启动清理定时器
+    if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID) {
+      console.log('💾 测试环境：跳过缓存清理定时器启动');
+    } else {
+      this.startCleanupTimer();
+    }
     this.loadFromDisk();
   }
 
@@ -268,7 +273,8 @@ export class SmartCacheManager {
     let leastUsefulScore = Infinity;
     const now = Date.now();
 
-    for (const [key, item] of this.cache.entries()) {
+    for (const entry of Array.from(this.cache.entries())) {
+      const [key, item] = entry;
       // 计算有用性分数（越低越不有用）
       const ageScore = (now - item.lastAccessed) / item.ttl; // 年龄分数
       const accessScore = 1 / (item.accessCount + 1); // 访问频率分数
@@ -300,7 +306,8 @@ export class SmartCacheManager {
     const now = Date.now();
     const keysToDelete: string[] = [];
 
-    for (const [key, item] of this.cache.entries()) {
+    for (const entry of Array.from(this.cache.entries())) {
+      const [key, item] = entry;
       if (now - item.timestamp > item.ttl) {
         keysToDelete.push(key);
       }
@@ -436,7 +443,8 @@ export class SmartCacheManager {
   getCacheDetails(): any {
     const details: any = {};
     
-    for (const [key, item] of this.cache.entries()) {
+    for (const entry of Array.from(this.cache.entries())) {
+      const [key, item] = entry;
       details[key] = {
         size: item.size,
         accessCount: item.accessCount,

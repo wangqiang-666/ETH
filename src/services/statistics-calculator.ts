@@ -1,5 +1,5 @@
-import { RecommendationDatabase } from './recommendation-database';
-import { RecommendationRecord } from './recommendation-tracker';
+import { RecommendationDatabase } from './recommendation-database.js';
+import { RecommendationRecord } from './recommendation-tracker.js';
 
 /**
  * 策略统计信息接口
@@ -192,7 +192,8 @@ export class StatisticsCalculator {
       
       // 计算各策略统计
       const strategyStats: StrategyStatistics[] = [];
-      for (const [strategyType, recs] of strategyGroups) {
+      for (const entry of Array.from(strategyGroups.entries())) {
+        const [strategyType, recs] = entry;
         const stats = this.computeStrategyStatistics(strategyType, recs, 'all_time');
         strategyStats.push(stats);
       }
@@ -255,7 +256,7 @@ export class StatisticsCalculator {
     try {
       // 获取所有不同的策略类型
       const { recommendations } = await this.database.getRecommendationHistory(10000, 0);
-      const strategyTypes = [...new Set(recommendations.map(r => r.strategy_type ?? 'UNKNOWN'))];
+      const strategyTypes = Array.from(new Set(recommendations.map(r => r.strategy_type ?? 'UNKNOWN')));
       
       // 并发计算各策略统计
       const statsPromises = strategyTypes.map(type => 

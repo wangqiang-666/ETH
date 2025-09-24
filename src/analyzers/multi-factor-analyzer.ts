@@ -1,7 +1,7 @@
-import { TechnicalIndicatorAnalyzer, TechnicalIndicatorResult } from '../indicators/technical-indicators';
-import { MLAnalyzer, MLAnalysisResult, MarketData } from '../ml/ml-analyzer';
-import { SmartSignalAnalyzer, SmartSignalResult, SmartSignalType } from './smart-signal-analyzer';
-import { config } from '../config';
+import { TechnicalIndicatorAnalyzer, TechnicalIndicatorResult } from '../indicators/technical-indicators.js';
+import { MLAnalyzer, MLAnalysisResult, MarketData } from '../ml/ml-analyzer.js';
+import { SmartSignalAnalyzer, SmartSignalResult, SmartSignalType } from './smart-signal-analyzer.js';
+import { config } from '../config.js';
 
 // 多因子分析结果
 export interface MultiFactorAnalysisResult {

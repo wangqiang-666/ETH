@@ -1,7 +1,7 @@
-import { config } from '../config';
-import { MarketData } from '../ml/ml-analyzer';
-import { SmartSignalResult } from '../analyzers/smart-signal-analyzer';
-import { Position, TradeRecord } from '../strategy/eth-strategy-engine';
+import { config } from '../config.js';
+import { MarketData } from '../ml/ml-analyzer.js';
+import { SmartSignalResult } from '../analyzers/smart-signal-analyzer.js';
+import { Position, TradeRecord } from '../strategy/eth-strategy-engine.js';
 
 // 风险管理配置接口
 export interface RiskConfig {
@@ -244,16 +244,18 @@ export class RiskManagementService {
 
   /**
    * 自适应仓位与杠杆计算
+   * - Kelly 公式：f* = (bp - q) / b，其中 b=赔率，p=胜率，q=败率
    * - Kelly 上限：最大不超过 0.25
-   * - 置信度分段加成：≥0.64 → x1.5，≥0.7 → x2
-   * - 同时受每日损失与系统上限约束
+   * - 置信度分段杠杆：≥0.64 → 1.5x，≥0.7 → 2x
+   * - 净敞口与日风控约束，总杠杆上限3x
    */
   public computeAdaptiveSizing(
     signalLike: any,
     marketData?: any,
     currentPositions: Position[] = []
-  ): { positionSize: number; leverage: number; kelly: number; confidence: number } {
+  ): { positionSize: number; leverage: number; kelly: number; confidence: number; riskReward: number } {
     try {
+      // 提取置信度
       const confidenceRaw = Number(
         signalLike?.confidence ??
         signalLike?.strength?.confidence ??
@@ -261,13 +263,22 @@ export class RiskManagementService {
         0.5
       );
       const confidence = Math.max(0, Math.min(1, confidenceRaw));
-      const basePosFromSignal = Number(signalLike?.positionSize ?? 0.02);
-
+      
+      // 提取风险收益比
+      const riskRewardRaw = Number(
+        signalLike?.riskReward ??
+        signalLike?.riskRewardRatio ??
+        signalLike?.performance?.riskRewardRatio ??
+        2.0
+      );
+      const riskReward = Math.max(0.1, riskRewardRaw);
+      
+      // 构造风险评估所需的信号对象
       const fakeSignalForRisk: SmartSignalResult = {
         signal: (signalLike?.signal ?? 'BUY') as any,
-        positionSize: Math.max(0.01, basePosFromSignal),
+        positionSize: Math.max(0.01, Number(signalLike?.positionSize ?? 0.02)),
         strength: { confidence },
-        riskReward: Number(signalLike?.riskReward ?? 2),
+        riskReward: riskReward,
         metadata: {
           volatility: Number((marketData as any)?.volatility ?? 0.1),
           volume: (signalLike?.metadata?.volume ?? 'NORMAL') as any
@@ -281,31 +292,62 @@ export class RiskManagementService {
 
       const ra = this.assessSignalRisk(fakeSignalForRisk, md, currentPositions);
 
-      // Kelly 候选，上限 25%
-      const kelly = Math.max(0, 2 * confidence - 1) * 0.25;
+      // Kelly 公式计算：f* = (bp - q) / b
+      // 其中：b = 赔率(风险收益比)，p = 胜率(置信度)，q = 败率(1-置信度)
+      const b = riskReward; // 赔率
+      const p = confidence; // 胜率
+      const q = 1 - p; // 败率
+      
+      let kellyFraction = (b * p - q) / b;
+      
+      // Kelly 公式安全性检查
+      if (kellyFraction <= 0) {
+        kellyFraction = 0.01; // 最小仓位
+      }
+      
+      // Kelly 上限：0.25 (25%)
+      const kelly = Math.min(kellyFraction, 0.25);
 
+      // 计算最终仓位大小，受多重约束
+      const dailyLossRatio = this.dailyLoss / this.riskConfig.maxDailyLoss;
+      const dailyLossAdjustment = Math.max(0.1, 1 - dailyLossRatio * 0.8); // 日损失越大，仓位越小
+      
       const positionSize = Math.max(
-        0.01,
+        0.01, // 最小仓位
         Math.min(
-          fakeSignalForRisk.positionSize,
-          ra.maxAllowedPosition,
-          this.riskConfig.maxPositionSize,
-          kelly
+          kelly * dailyLossAdjustment, // Kelly调整后的仓位
+          ra.maxAllowedPosition, // 风险评估允许的最大仓位
+          this.riskConfig.maxPositionSize // 系统配置的最大仓位
         )
       );
 
-      const maxLev = Math.min(20, this.riskConfig.maxLeverage);
-      const baseLev = Math.max(1, Number(ra.recommendedLeverage ?? 2));
-      const tier = confidence >= 0.7 ? 2 : (confidence >= 0.64 ? 1.5 : 1);
-      const leverage = Math.max(1, Math.min(maxLev, Math.floor(baseLev * tier)));
+      // 置信度分段杠杆计算
+       let leverageMultiplier = 1.0;
+       if (confidence >= 0.7) {
+         leverageMultiplier = 2.0; // 高置信度：2倍杠杆
+       } else if (confidence >= 0.64) {
+         leverageMultiplier = 1.5; // 中等置信度：1.5倍杠杆
+       }
+       
+       // 基础杠杆（来自风险评估），最低3倍起步
+       const baseLeverage = Math.max(3, Number(ra.recommendedLeverage ?? 3));
+       
+       // 应用置信度分段杠杆，杠杆范围3-20倍
+       const maxSystemLeverage = Math.min(20, this.riskConfig.maxLeverage); // 杠杆上限20x
+       const leverage = Math.max(3, Math.min(maxSystemLeverage, Math.floor(baseLeverage * leverageMultiplier)));
 
-      return { positionSize, leverage, kelly, confidence };
+       return { positionSize, leverage, kelly, confidence, riskReward };
     } catch (e) {
+      // 异常情况下的安全兜底
       const confidence = Math.max(0, Math.min(1, Number(signalLike?.confidence ?? 0.5)));
-      const kelly = Math.max(0, 2 * confidence - 1) * 0.25;
-      const positionSize = Math.max(0.01, Math.min(this.riskConfig.maxPositionSize, kelly));
-      const leverage = 2;
-      return { positionSize, leverage, kelly, confidence };
+      const riskReward = Math.max(0.1, Number(signalLike?.riskReward ?? 2.0));
+      
+      // 简化的Kelly计算
+       const kelly = Math.min(Math.max(0.01, 2 * confidence - 1) * 0.25, 0.25);
+       const positionSize = Math.max(0.01, Math.min(this.riskConfig.maxPositionSize, kelly));
+       const leverage = Math.max(3, Math.min(20, confidence >= 0.7 ? 6 : (confidence >= 0.64 ? 4.5 : 3))); // 3-20倍范围
+       
+       return { positionSize, leverage, kelly, confidence, riskReward };
     }
   }
 
@@ -361,42 +403,114 @@ export class RiskManagementService {
   }
 
   /**
-   * 检查是否可以开新仓
+   * 检查是否可以开新仓位（增强版净敞口与风控约束）
+   * - 净敞口限制：总敞口不超过配置上限
+   * - 日风控约束：每日损失不超过限额
+   * - 总杠杆上限：3x
+   * - 同方向仓位数量限制
    */
   canOpenNewPosition(
     signal: SmartSignalResult,
     marketData: MarketData,
     currentPositions: Position[]
   ): { allowed: boolean; reason?: string; maxSize?: number } {
-    // 检查每日损失限制
-    if (this.dailyLoss >= this.riskConfig.maxDailyLoss) {
-      return { allowed: false, reason: '已达到每日最大损失限额' };
+    // 1. 检查每日损失限制
+    const dailyLossRatio = this.dailyLoss / this.riskConfig.maxDailyLoss;
+    if (dailyLossRatio >= 1.0) {
+      return { allowed: false, reason: '已达到每日损失限额' };
+    }
+    if (dailyLossRatio >= 0.9) {
+      return { allowed: false, reason: '接近每日损失限额，暂停开仓' };
     }
 
-    // 检查最大持仓数量
-    if (currentPositions.length >= config.trading.maxPositions) {
-      return { allowed: false, reason: '已达到最大持仓数量' };
+    // 2. 计算当前净敞口
+    const currentNetExposure = this.calculateNetExposure(currentPositions);
+    const maxNetExposure = this.riskConfig.maxPositionSize * 5; // 假设最大净敞口为单仓位限制的5倍
+    
+    if (currentNetExposure >= maxNetExposure) {
+      return { allowed: false, reason: '净敞口已达上限' };
     }
 
-    // 检查总敞口
-    const totalExposure = currentPositions.reduce((sum, pos) => sum + pos.size * pos.leverage, 0);
-    if (totalExposure >= this.riskConfig.maxPositionSize) {
-      return { allowed: false, reason: '总敞口已达上限' };
+    // 3. 检查同方向仓位数量限制
+    const signalDirection = this.getSignalDirection(signal);
+    if (signalDirection) {
+      const sameDirectionCount = currentPositions.filter(pos => pos.side === signalDirection).length;
+      const maxSameDirection = config.risk.maxSameDirectionActives || 2;
+      
+      if (sameDirectionCount >= maxSameDirection) {
+        return { allowed: false, reason: `同方向仓位数量已达上限(${maxSameDirection})` };
+      }
     }
 
-    // 评估信号风险
-    const riskAssessment = this.assessSignalRisk(signal, marketData, currentPositions);
-    if (riskAssessment.riskLevel === 'EXTREME') {
-      return { allowed: false, reason: '风险等级过高' };
-    }
+    // 4. 计算建议的仓位大小
+    const adaptiveSizing = this.computeAdaptiveSizing(signal, marketData, currentPositions);
+    
+    // 5. 检查总杠杆约束
+     const totalLeverage = this.calculateTotalLeverage(currentPositions, adaptiveSizing);
+     if (totalLeverage > 20) { // 调整为20倍上限
+       return { 
+         allowed: false, 
+         reason: `总杠杆超过20x限制 (当前: ${totalLeverage.toFixed(2)}x)` 
+       };
+     }
 
-    // 计算最大允许仓位
-    const maxSize = Math.min(
-      riskAssessment.maxAllowedPosition,
-      this.riskConfig.maxPositionSize - totalExposure
+    // 6. 检查剩余可用敞口
+    const remainingExposure = maxNetExposure - currentNetExposure;
+    const maxAllowedSize = Math.min(
+      adaptiveSizing.positionSize,
+      remainingExposure / adaptiveSizing.leverage,
+      this.riskConfig.maxPositionSize * (1 - dailyLossRatio * 0.5) // 日损失越大，可用仓位越小
     );
 
-    return { allowed: true, maxSize };
+    if (maxAllowedSize < 0.01) {
+      return { allowed: false, reason: '剩余可用仓位不足' };
+    }
+
+    return { 
+      allowed: true, 
+      maxSize: maxAllowedSize 
+    };
+  }
+
+  /**
+   * 计算净敞口
+   */
+  private calculateNetExposure(positions: Position[]): number {
+    return positions.reduce((total, pos) => {
+      const exposure = pos.size * pos.leverage;
+      return total + exposure;
+    }, 0);
+  }
+
+  /**
+   * 获取信号方向
+   */
+  private getSignalDirection(signal: SmartSignalResult): 'LONG' | 'SHORT' | null {
+    const signalType = signal.signal;
+    if (signalType === 'BUY' || signalType === 'STRONG_BUY') {
+      return 'LONG';
+    } else if (signalType === 'SELL' || signalType === 'STRONG_SELL') {
+      return 'SHORT';
+    }
+    return null;
+  }
+
+  /**
+   * 计算总杠杆（包括新仓位）
+   */
+  private calculateTotalLeverage(
+    currentPositions: Position[], 
+    newPositionSizing: { positionSize: number; leverage: number }
+  ): number {
+    const currentTotalExposure = this.calculateNetExposure(currentPositions);
+    const newExposure = newPositionSizing.positionSize * newPositionSizing.leverage;
+    const totalExposure = currentTotalExposure + newExposure;
+    
+    const totalCapital = currentPositions.reduce((total, pos) => {
+      return total + (pos.size * pos.entryPrice) / pos.leverage;
+    }, 0) + (newPositionSizing.positionSize * 1); // 假设新仓位价格为1（相对值）
+    
+    return totalCapital > 0 ? totalExposure / totalCapital : 0;
   }
 
   /**

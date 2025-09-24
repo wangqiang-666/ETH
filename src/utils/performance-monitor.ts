@@ -152,6 +152,12 @@ export class PerformanceMonitor extends EventEmitter {
 
   // 开始监控
   private startMonitoring(): void {
+    // 如果在测试环境中，不自动启动监控
+    if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID) {
+      console.log('📊 测试环境：跳过性能监控启动');
+      return;
+    }
+
     this.metricsInterval = setInterval(() => {
       this.collectMetrics();
     }, this.config.metricsInterval);

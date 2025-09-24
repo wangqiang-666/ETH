@@ -1,17 +1,18 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { config } from '../config';
-import type { MarketData, KlineData, ContractInfo } from './okx-data-service';
+import { config } from '../config.js';
+import type { MarketData, KlineData, ContractInfo } from './okx-data-service.js';
 import { EventEmitter } from 'events';
 import * as dns from 'dns';
 import { promisify } from 'util';
 import * as http from 'http';
 import * as https from 'https';
-import { dataCompressionService, DataCompressionService } from '../utils/data-compression';
-import { SmartCacheManager } from '../utils/smart-cache-manager';
-import { ErrorRecoveryManager } from '../utils/error-recovery-manager';
-import { PerformanceMonitor } from '../utils/performance-monitor';
+import * as os from 'os';
+import { dataCompressionService, DataCompressionService } from '../utils/data-compression.js';
+import { SmartCacheManager } from '../utils/smart-cache-manager.js';
+import { ErrorRecoveryManager } from '../utils/error-recovery-manager.js';
+import { PerformanceMonitor } from '../utils/performance-monitor.js';
 // 新增：引入网络性能分析器
-import { networkPerformanceAnalyzer } from '../utils/network-performance-analyzer';
+import { networkPerformanceAnalyzer } from '../utils/network-performance-analyzer.js';
 
 // 连接状态枚举
 enum ConnectionStatus {
@@ -143,10 +144,10 @@ export class EnhancedOKXDataService extends EventEmitter {
   private connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED;
   private connectionHealth!: ConnectionHealth;
   private requestStats: Map<string, RequestStats> = new Map();
-  private rateLimitDelay = 100;
+  private rateLimitDelay = 500;
   private lastRequestTime = 0;
   // 新增：请求抖动与在途去重
-  private rateLimitJitter = 0.3; // 30% 抖动
+  private rateLimitJitter = 0.5; // 50% 抖动
   private inflightRequests: Map<string, Promise<any>> = new Map();
   private circuitBreakerOpen = false;
   private circuitBreakerOpenTime = 0;
@@ -160,9 +161,9 @@ export class EnhancedOKXDataService extends EventEmitter {
   
   // 重试配置
   private retryConfig: RetryConfig = {
-    maxRetries: 3,
-    baseDelay: 1000,
-    maxDelay: 30000,
+    maxRetries: process.platform === 'darwin' ? 5 : 3, // macOS 增加重试次数
+    baseDelay: process.platform === 'darwin' ? 2000 : 1000, // macOS 增加基础延迟
+    maxDelay: process.platform === 'darwin' ? 45000 : 30000, // macOS 增加最大延迟
     backoffFactor: 2,
     jitter: true
   };
@@ -278,7 +279,22 @@ export class EnhancedOKXDataService extends EventEmitter {
     }
     this.initializeConnectionHealth();
     this.initializeClients();
-    this.startHealthMonitoring();
+    
+    // 如果在测试环境中，不自动启动监控服务
+    if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID) {
+      console.log('🔒 测试环境：跳过健康监控和网络分析启动');
+    } else {
+      this.startHealthMonitoring();
+      
+      // 设置备用端点
+      this.setupFallbackEndpoints();
+      
+      // 设置性能监控事件监听
+      this.setupPerformanceMonitoring();
+
+      // 新增：启动网络性能分析监控
+      this.startNetworkAnalysisMonitoring();
+    }
     
     // 初始化hosts覆盖，解决DNS问题
     this.hostsOverride.set('www.okx.com', '104.18.43.174');
@@ -289,15 +305,6 @@ export class EnhancedOKXDataService extends EventEmitter {
     console.log(`💾 智能缓存: 已启用 (最大大小: 150MB, 最大项目: 15000)`);
      console.log(`🛡️ 错误恢复: 已启用 (最大重试: 5次, 熔断器阈值: 5次)`);
      console.log(`📊 性能监控: 已启用 (监控间隔: 10秒, 历史记录: 500条)`);
-     
-     // 设置备用端点
-     this.setupFallbackEndpoints();
-     
-     // 设置性能监控事件监听
-     this.setupPerformanceMonitoring();
-
-     // 新增：启动网络性能分析监控
-     this.startNetworkAnalysisMonitoring();
   }
 
   // 初始化连接健康状态
@@ -346,29 +353,84 @@ export class EnhancedOKXDataService extends EventEmitter {
     });
   }
 
+  // VPN环境检测方法
+  private detectVPNEnvironment(): boolean {
+    try {
+      const networkInterfaces = os.networkInterfaces();
+      
+      // 检查是否存在utun接口（macOS VPN接口）
+      const hasUtunInterface = Object.keys(networkInterfaces).some(name => name.startsWith('utun'));
+      
+      // 检查是否存在tun/tap接口（其他VPN接口）
+      const hasTunTapInterface = Object.keys(networkInterfaces).some(name => 
+        name.startsWith('tun') || name.startsWith('tap') || name.startsWith('ppp')
+      );
+      
+      // 检查环境变量中的VPN标识
+      const hasVPNEnvVar = !!(process.env.VPN_ACTIVE || process.env.TUNNEL_ACTIVE);
+      
+      return hasUtunInterface || hasTunTapInterface || hasVPNEnvVar;
+    } catch (error) {
+      console.warn('VPN环境检测失败:', error);
+      return false;
+    }
+  }
+
   // 新增：统一创建 Axios 客户端
   private createAxiosClient(baseURL: string, extraHeaders: Record<string, string> = {}): AxiosInstance {
     const isHttps = baseURL.startsWith('https');
     const pool = config.proxy.pool || { maxSockets: 20, maxFreeSockets: 10, keepAlive: true, keepAliveMsecs: 5000 } as any;
 
+    // macOS 平台优化：检测操作系统并调整连接参数
+    const isMacOS = process.platform === 'darwin';
+    
+    // VPN环境检测：检查是否存在utun接口
+    const isVPNEnvironment = this.detectVPNEnvironment();
+    
+    // macOS 特殊优化：禁用 keep-alive 避免连接复用导致的间歇性失败
     // 在强制代理模式下禁用 keep-alive，避免部分代理对持久连接不稳定导致的 ECONNRESET
-    const keepAliveEnabled = config.proxy.forceOnly ? false : !!pool.keepAlive;
+    // VPN环境下完全禁用keep-alive，避免路由变化导致的连接问题
+    const keepAliveEnabled = false; // macOS 下完全禁用 keep-alive
 
     const httpAgent = new http.Agent({
-      keepAlive: keepAliveEnabled,
-      keepAliveMsecs: pool.keepAliveMsecs ?? 5000,
-      maxSockets: pool.maxTotalSockets ?? pool.maxSockets ?? 20,
-      maxFreeSockets: pool.maxFreeSockets ?? pool.maxFreeSockets ?? 10
+      keepAlive: false, // 完全禁用 keep-alive
+      maxSockets: isMacOS ? 5 : (isVPNEnvironment ? 5 : (pool.maxTotalSockets ?? pool.maxSockets ?? 20)), // macOS 减少并发连接
+      maxFreeSockets: 0, // 不保留空闲连接
+      // macOS 和 VPN 特定优化
+      ...(isMacOS && {
+        timeout: 8000, // 8秒连接超时，更保守
+        family: 4, // 强制使用 IPv4
+      }),
+      // VPN 环境特殊配置
+      ...(isVPNEnvironment && {
+        timeout: 15000, // VPN环境延长超时
+        family: 4, // 强制IPv4，避免IPv6路由问题
+        scheduling: 'fifo' as any, // 使用FIFO调度，提高连接稳定性
+      })
     } as any);
 
     const httpsAgent = new https.Agent({
-      keepAlive: keepAliveEnabled,
-      keepAliveMsecs: pool.keepAliveMsecs ?? 5000,
-      maxSockets: pool.maxTotalSockets ?? pool.maxSockets ?? 20,
-      maxFreeSockets: pool.maxFreeSockets ?? pool.maxFreeSockets ?? 10
+      keepAlive: false, // 完全禁用 keep-alive
+      maxSockets: isMacOS ? 5 : (isVPNEnvironment ? 5 : (pool.maxTotalSockets ?? pool.maxSockets ?? 20)), // macOS 减少并发连接
+      maxFreeSockets: 0, // 不保留空闲连接
+      // macOS 特定优化
+      ...(isMacOS && {
+        timeout: 8000, // 8秒连接超时，更保守
+        family: 4, // 强制使用 IPv4
+        rejectUnauthorized: true, // 严格证书验证
+      }),
+      // VPN 环境特殊配置
+      ...(isVPNEnvironment && {
+        timeout: 15000,
+        family: 4,
+        rejectUnauthorized: true,
+        secureProtocol: 'TLSv1_2_method', // 使用稳定的TLS版本
+        scheduling: 'fifo' as any,
+      })
     } as any);
 
-    const timeout = (this.useProxy ? config.proxy.timeout : config.okx.timeout) || 30000;
+    // VPN环境下延长超时时间，macOS下也适当延长
+    const timeout = isVPNEnvironment ? 25000 : (isMacOS ? 15000 : ((this.useProxy ? config.proxy.timeout : config.okx.timeout) || 30000));
 
     const instance = axios.create({
       baseURL,
@@ -377,11 +439,18 @@ export class EnhancedOKXDataService extends EventEmitter {
       httpsAgent: isHttps ? httpsAgent : undefined,
       headers: {
         'Content-Type': 'application/json',
-        // 在代理-only 模式下显式关闭连接复用，兼容部分代理
-        'Connection': keepAliveEnabled ? 'keep-alive' : 'close',
-        'Proxy-Connection': keepAliveEnabled ? 'keep-alive' : 'close',
+        // macOS 和 VPN 环境下强制关闭连接复用以提高稳定性
+        'Connection': 'close',
         ...extraHeaders
-      }
+      },
+      // VPN环境下的额外配置
+      ...(isVPNEnvironment && {
+        maxRedirects: 3, // 限制重定向次数
+        validateStatus: (status) => status >= 200 && status < 300, // 严格状态码验证
+        decompress: true, // 启用解压缩
+        maxContentLength: 50 * 1024 * 1024, // 50MB限制
+        maxBodyLength: 50 * 1024 * 1024,
+      })
     });
 
     // 请求拦截：可在此处注入签名/时间戳（如需要）
@@ -706,7 +775,7 @@ export class EnhancedOKXDataService extends EventEmitter {
    }
 
   // 获取错误恢复统计信息
-  getErrorRecoveryStats(): import('../utils/error-recovery-manager').ErrorStats {
+  getErrorRecoveryStats(): import('../utils/error-recovery-manager.js').ErrorStats {
     return this.errorRecoveryManager.getErrorStats();
   }
  
@@ -716,12 +785,12 @@ export class EnhancedOKXDataService extends EventEmitter {
   }
 
   // 获取性能监控统计
-  getPerformanceStats(): import('../utils/performance-monitor').PerformanceStats {
+  getPerformanceStats(): import('../utils/performance-monitor.js').PerformanceStats {
     return this.performanceMonitor.getStats();
   }
 
   // 获取性能监控历史数据
-  getPerformanceHistory(limit?: number): import('../utils/performance-monitor').PerformanceMetrics[] {
+  getPerformanceHistory(limit?: number): import('../utils/performance-monitor.js').PerformanceMetrics[] {
     return this.performanceMonitor.getHistoryMetrics(limit);
   }
 
@@ -731,7 +800,7 @@ export class EnhancedOKXDataService extends EventEmitter {
   }
 
   // 添加性能报警规则
-  addPerformanceAlertRule(rule: import('../utils/performance-monitor').AlertRule): void {
+  addPerformanceAlertRule(rule: import('../utils/performance-monitor.js').AlertRule): void {
     this.performanceMonitor.addAlertRule(rule);
   }
 
@@ -1249,6 +1318,18 @@ await this.waitForRateLimit();
   async shutdown(): Promise<void> {
     console.log('🔄 关闭增强OKX数据服务...');
     this.connectionStatus = ConnectionStatus.DISCONNECTED;
+    
+    // 关闭健康监控定时器
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = undefined;
+    }
+    
+    // 关闭网络分析定时器
+    if (this.analyzerTimer) {
+      clearInterval(this.analyzerTimer);
+      this.analyzerTimer = undefined;
+    }
     
     // 关闭缓存管理器
      this.cacheManager.destroy();

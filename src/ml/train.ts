@@ -1,5 +1,5 @@
-import { config } from '../config';
-import { recommendationDatabase, type MLSampleRecord } from '../services/recommendation-database';
+import { config } from '../config.js';
+import { recommendationDatabase, type MLSampleRecord } from '../services/recommendation-database.js';
 import fs from 'fs/promises';
 import path from 'path';
 

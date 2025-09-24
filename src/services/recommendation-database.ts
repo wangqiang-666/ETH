@@ -1,7 +1,7 @@
 import sqlite3 from 'sqlite3';
-import path from 'path';
-import fs from 'fs';
-import { RecommendationRecord } from './recommendation-tracker';
+import * as path from 'path';
+import * as fs from 'fs';
+import { RecommendationRecord } from './recommendation-tracker.js';
 
 // 新增：ML 样本记录类型
 export interface MLSampleRecord {
@@ -56,9 +56,94 @@ export interface ExecutionRecord {
   fee_amount?: number | null; // 名义价值 * 手续费率（单边）
   pnl_amount?: number | null; // 平仓/减仓时才有
   pnl_percent?: number | null; // 平仓/减仓时才有
-  // 来自 recommendations 的 AB 分组（查询结果派生字段）
-  ab_group?: string | undefined;
+  // 来自 recommendations 的 AB 分组（查询结果派生字段)
+  ab_group?: string | null;
+  
+  // 新增：A/B测试变体标识
+  variant?: string | null;
+  // 新增：实验ID（来源 recommendations.experiment_id）
+  experiment_id?: string | null;
+  
   extra_json?: string | null; // 额外上下文（如 reason/reductionRatio 等）
+}
+
+// 新增：滑点分析记录类型
+export interface SlippageAnalysisRecord {
+  id?: number;
+  created_at?: Date;
+  updated_at?: Date;
+  recommendation_id: string;
+  symbol: string;
+  direction: 'LONG' | 'SHORT';
+  
+  // 价格差异追踪
+  expected_price: number; // 预计成交价
+  actual_price: number; // 实际成交价
+  price_difference: number; // 实际 - 预计
+  price_difference_bps: number; // 价格差异（基点）
+  
+  // 交易执行指标
+  execution_latency_ms: number; // 执行延迟（毫秒）
+  order_book_depth?: number; // 订单簿深度
+  market_volatility?: number; // 市场波动率
+  
+  // 滑点详细分析
+  slippage_bps: number; // 滑点（基点）
+  slippage_category: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME'; // 滑点等级
+  slippage_reason?: string; // 滑点原因分析
+  
+  // 交易费用
+  fee_rate_bps: number; // 费率（基点）
+  fee_amount: number; // 费用金额
+  total_cost_bps: number; // 总成本（基点，含滑点+费用）
+  
+  // 阈值调整相关
+  original_threshold: number; // 原始阈值
+  adjusted_threshold?: number; // 调整后阈值
+  threshold_adjustment_reason?: string; // 阈值调整原因
+  
+  // 市场环境
+  market_session?: string; // 交易时段
+  liquidity_score?: number; // 流动性评分
+  spread_bps?: number; // 买卖价差
+  
+  // 额外信息
+  extra_json?: string | null;
+}
+
+// 新增：滑点统计聚合类型
+export interface SlippageStatistics {
+  symbol: string;
+  direction?: 'LONG' | 'SHORT';
+  period: string; // '1h', '4h', '1d', '7d', '30d'
+  
+  // 基础统计
+  total_executions: number;
+  avg_slippage_bps: number;
+  median_slippage_bps: number;
+  max_slippage_bps: number;
+  min_slippage_bps: number;
+  
+  // 滑点分布
+  low_slippage_count: number; // < 5bps
+  medium_slippage_count: number; // 5-15bps
+  high_slippage_count: number; // 15-30bps
+  extreme_slippage_count: number; // > 30bps
+  
+  // 成本分析
+  avg_total_cost_bps: number; // 总成本（滑点+费用）
+  avg_fee_bps: number;
+  
+  // 执行质量
+  avg_latency_ms: number;
+  avg_price_difference_bps: number;
+  
+  // 阈值建议
+  suggested_threshold_adjustment: number; // 建议阈值调整（基点）
+  confidence_score: number; // 置信度（0-1）
+  
+  // 统计时间
+  calculated_at: Date;
 }
 
 // 新增：监控快照记录类型
@@ -80,7 +165,7 @@ export interface MonitoringSnapshot {
  * 负责推荐记录的持久化存储和查询
  */
 export class RecommendationDatabase {
-  private db: sqlite3.Database | null = null;
+  private db: any | null = null;
   private dbPath: string;
   private isInitialized = false;
   
@@ -106,11 +191,15 @@ export class RecommendationDatabase {
     try {
       console.log(`Initializing recommendation database: ${this.dbPath}`);
       
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) {
-          console.error('Error opening database:', err);
-          throw err;
-        }
+      await new Promise<void>((resolve, reject) => {
+        this.db = new (sqlite3.verbose() as any).Database(this.dbPath, (err: Error | null) => {
+          if (err) {
+            console.error('Error opening database:', err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
       });
       
       // 增加 busyTimeout 与 WAL，以提升并发读能力，避免读训练时被写阻塞
@@ -121,10 +210,10 @@ export class RecommendationDatabase {
         console.warn('Warn: set busyTimeout failed (ignored):', e);
       }
       await new Promise<void>((resolve, reject) => {
-        this.db!.run('PRAGMA journal_mode=WAL;', [], (err) => err ? reject(err) : resolve());
+        this.db!.run('PRAGMA journal_mode=WAL;', [], (err: Error | null) => err ? reject(err) : resolve());
       });
       await new Promise<void>((resolve, reject) => {
-        this.db!.run('PRAGMA synchronous=NORMAL;', [], (err) => err ? reject(err) : resolve());
+        this.db!.run('PRAGMA synchronous=NORMAL;', [], (err: Error | null) => err ? reject(err) : resolve());
       });
       
       // 创建表结构
@@ -165,6 +254,19 @@ export class RecommendationDatabase {
         liquidation_price REAL,
         margin_ratio REAL,
         maintenance_margin REAL,
+        
+        -- ATR动态止损相关
+        atr_value REAL,
+        atr_period INTEGER,
+        atr_sl_multiplier REAL,
+        atr_tp_multiplier REAL,
+        
+        -- 分批止盈状态
+        tp1_hit INTEGER DEFAULT 0,
+        tp2_hit INTEGER DEFAULT 0,
+        tp3_hit INTEGER DEFAULT 0,
+        reduction_count INTEGER DEFAULT 0,
+        reduction_ratio REAL,
         
         -- 杠杆和仓位
         leverage INTEGER NOT NULL,
@@ -213,6 +315,12 @@ export class RecommendationDatabase {
         ev_threshold REAL,
         ev_ok INTEGER,
         ab_group TEXT,
+
+        -- 新增：A/B测试变体标识
+        variant TEXT DEFAULT 'control',
+
+        -- 新增：实验ID
+        experiment_id TEXT,
 
         -- 新增：并发幂等去重键（唯一索引）
         dedupe_key TEXT
@@ -321,6 +429,16 @@ export class RecommendationDatabase {
         
         pnl_amount REAL,
         pnl_percent REAL,
+        
+        -- 新增：A/B测试变体标识
+        variant TEXT DEFAULT 'control',
+
+        -- 实验分组信息
+        ab_group TEXT,
+
+        -- 实验ID
+        experiment_id TEXT,
+        
         extra_json TEXT
       )
     `;
@@ -338,6 +456,136 @@ export class RecommendationDatabase {
         is_stop_loss_triggered INTEGER DEFAULT 0,
         is_take_profit_triggered INTEGER DEFAULT 0,
         extra_json TEXT
+      )
+    `;
+
+    // 新增：滑点分析表（记录详细滑点分析数据）
+    const createSlippageAnalysisTable = `
+      CREATE TABLE IF NOT EXISTS slippage_analysis (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        
+        recommendation_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('LONG','SHORT')),
+        
+        -- 价格差异追踪
+        expected_price REAL NOT NULL,
+        actual_price REAL NOT NULL,
+        price_difference REAL NOT NULL,
+        price_difference_bps REAL NOT NULL,
+        
+        -- 交易执行指标
+        execution_latency_ms INTEGER NOT NULL,
+        order_book_depth REAL,
+        market_volatility REAL,
+        
+        -- 滑点详细分析
+        slippage_bps REAL NOT NULL,
+        slippage_category TEXT NOT NULL CHECK (slippage_category IN ('LOW','MEDIUM','HIGH','EXTREME')),
+        slippage_reason TEXT,
+        
+        -- 交易费用
+        fee_rate_bps REAL NOT NULL,
+        fee_amount REAL NOT NULL,
+        total_cost_bps REAL NOT NULL,
+        
+        -- 阈值调整相关
+        original_threshold REAL NOT NULL,
+        adjusted_threshold REAL,
+        threshold_adjustment_reason TEXT,
+        
+        -- 市场环境
+        market_session TEXT,
+        liquidity_score REAL,
+        spread_bps REAL,
+        
+        -- 额外信息
+        extra_json TEXT,
+        
+        -- 索引优化
+        FOREIGN KEY (recommendation_id) REFERENCES recommendations(id)
+      )
+    `;
+
+    // 新增：滑点统计聚合表（按时间段和交易对聚合）
+    const createSlippageStatisticsTable = `
+      CREATE TABLE IF NOT EXISTS slippage_statistics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        
+        symbol TEXT NOT NULL,
+        direction TEXT CHECK (direction IN ('LONG','SHORT')),
+        period TEXT NOT NULL, -- '1h', '4h', '1d', '7d', '30d'
+        
+        -- 基础统计
+        total_executions INTEGER NOT NULL DEFAULT 0,
+        avg_slippage_bps REAL NOT NULL DEFAULT 0,
+        median_slippage_bps REAL NOT NULL DEFAULT 0,
+        max_slippage_bps REAL NOT NULL DEFAULT 0,
+        min_slippage_bps REAL NOT NULL DEFAULT 0,
+        
+        -- 滑点分布
+        low_slippage_count INTEGER NOT NULL DEFAULT 0, -- < 5bps
+        medium_slippage_count INTEGER NOT NULL DEFAULT 0, -- 5-15bps
+        high_slippage_count INTEGER NOT NULL DEFAULT 0, -- 15-30bps
+        extreme_slippage_count INTEGER NOT NULL DEFAULT 0, -- > 30bps
+        
+        -- 成本分析
+        avg_total_cost_bps REAL NOT NULL DEFAULT 0,
+        avg_fee_bps REAL NOT NULL DEFAULT 0,
+        
+        -- 执行质量
+        avg_latency_ms REAL NOT NULL DEFAULT 0,
+        avg_price_difference_bps REAL NOT NULL DEFAULT 0,
+        
+        -- 阈值建议
+        suggested_threshold_adjustment REAL NOT NULL DEFAULT 0,
+        confidence_score REAL NOT NULL DEFAULT 0,
+        
+        -- 统计时间
+        calculated_at DATETIME NOT NULL,
+        
+        -- 唯一约束
+        UNIQUE(symbol, direction, period)
+      )
+    `;
+
+    // 新增：滑点阈值管理表
+    const createSlippageThresholdsTable = `
+      CREATE TABLE IF NOT EXISTS slippage_thresholds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('LONG','SHORT')),
+        threshold REAL NOT NULL DEFAULT 0.01, -- 阈值百分比 (如 0.01 = 1%)
+        last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        
+        -- 唯一约束
+        UNIQUE(symbol, timeframe, direction)
+      )
+    `;
+
+    // 新增：高滑点预警表（记录异常检测结果）
+    const createSlippageAlertsTable = `
+      CREATE TABLE IF NOT EXISTS slippage_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        
+        symbol TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('LONG','SHORT')),
+        severity TEXT NOT NULL CHECK (severity IN ('LOW','MEDIUM','HIGH','CRITICAL')),
+        avg_slippage_bps REAL NOT NULL,
+        median_slippage_bps REAL NOT NULL,
+        sample_count INTEGER NOT NULL,
+        suggested_action TEXT,
+        triggered_by TEXT
       )
     `;
     
@@ -361,13 +609,34 @@ export class RecommendationDatabase {
       'CREATE INDEX IF NOT EXISTS idx_executions_event_time ON executions(event_type, fill_timestamp)',
       'CREATE INDEX IF NOT EXISTS idx_executions_symbol_time ON executions(symbol, fill_timestamp)',
       // 新增：monitoring 索引
-      'CREATE INDEX IF NOT EXISTS idx_monitoring_rec_time ON recommendation_monitoring(recommendation_id, check_time)'
+      'CREATE INDEX IF NOT EXISTS idx_monitoring_rec_time ON recommendation_monitoring(recommendation_id, check_time)',
+      // 新增：滑点分析表索引
+      'CREATE INDEX IF NOT EXISTS idx_slippage_analysis_rec ON slippage_analysis(recommendation_id)',
+      'CREATE INDEX IF NOT EXISTS idx_slippage_analysis_symbol_time ON slippage_analysis(symbol, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_slippage_analysis_category ON slippage_analysis(slippage_category)',
+      'CREATE INDEX IF NOT EXISTS idx_slippage_analysis_slippage ON slippage_analysis(slippage_bps)',
+      // 新增：滑点统计表索引
+      'CREATE INDEX IF NOT EXISTS idx_slippage_stats_symbol_period ON slippage_statistics(symbol, period)',
+      'CREATE INDEX IF NOT EXISTS idx_slippage_stats_updated ON slippage_statistics(updated_at)',
+      // 新增：滑点阈值表索引
+      'CREATE INDEX IF NOT EXISTS idx_slippage_thresholds_symbol ON slippage_thresholds(symbol)',
+      'CREATE INDEX IF NOT EXISTS idx_slippage_thresholds_timeframe ON slippage_thresholds(timeframe)',
+      'CREATE INDEX IF NOT EXISTS idx_slippage_thresholds_updated ON slippage_thresholds(last_updated)',
+      // 新增：滑点预警表索引
+      'CREATE INDEX IF NOT EXISTS idx_slippage_alerts_symbol_time ON slippage_alerts(symbol, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_slippage_alerts_severity ON slippage_alerts(severity)',
+      'CREATE INDEX IF NOT EXISTS idx_slippage_alerts_triggered_by ON slippage_alerts(triggered_by)',
+      // 新增：决策链表索引
+      'CREATE INDEX IF NOT EXISTS idx_decision_chains_symbol ON decision_chains(symbol)',
+      'CREATE INDEX IF NOT EXISTS idx_decision_chains_status ON decision_chains(status)',
+      'CREATE INDEX IF NOT EXISTS idx_decision_chains_time ON decision_chains(start_time)',
+      'CREATE INDEX IF NOT EXISTS idx_decision_chains_rejection ON decision_chains(rejection_stage, rejection_reason)'
     ];
     
     return new Promise((resolve, reject) => {
       this.db!.serialize(() => {
         // 创建主表
-        this.db!.run(createRecommendationsTable, (err) => {
+        this.db!.run(createRecommendationsTable, (err: Error | null) => {
           if (err) {
             console.error('Error creating recommendations table:', err);
             reject(err);
@@ -376,7 +645,7 @@ export class RecommendationDatabase {
         });
         
         // 创建统计表
-        this.db!.run(createStatisticsTable, (err) => {
+        this.db!.run(createStatisticsTable, (err: Error | null) => {
           if (err) {
             console.error('Error creating statistics table:', err);
             reject(err);
@@ -385,7 +654,7 @@ export class RecommendationDatabase {
         });
 
         // 创建 ML 样本表
-        this.db!.run(createMLSamplesTable, (err) => {
+        this.db!.run(createMLSamplesTable, (err: Error | null) => {
           if (err) {
             console.error('Error creating ml_samples table:', err);
             reject(err);
@@ -394,7 +663,7 @@ export class RecommendationDatabase {
         });
 
         // 创建 executions 表
-        this.db!.run(createExecutionsTable, (err) => {
+        this.db!.run(createExecutionsTable, (err: Error | null) => {
           if (err) {
             console.error('Error creating executions table:', err);
             reject(err);
@@ -403,9 +672,70 @@ export class RecommendationDatabase {
         });
 
         // 创建 monitoring 表
-        this.db!.run(createMonitoringTable, (err) => {
+        this.db!.run(createMonitoringTable, (err: Error | null) => {
           if (err) {
             console.error('Error creating recommendation_monitoring table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        // 创建滑点分析表
+        this.db!.run(createSlippageAnalysisTable, (err: Error | null) => {
+          if (err) {
+            console.error('Error creating slippage_analysis table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        // 创建滑点统计聚合表
+        this.db!.run(createSlippageStatisticsTable, (err: Error | null) => {
+          if (err) {
+            console.error('Error creating slippage_statistics table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        // 创建滑点阈值管理表
+        this.db!.run(createSlippageThresholdsTable, (err: Error | null) => {
+          if (err) {
+            console.error('Error creating slippage_thresholds table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        // 创建滑点预警表
+        this.db!.run(createSlippageAlertsTable, (err: Error | null) => {
+          if (err) {
+            console.error('Error creating slippage_alerts table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        // 创建决策链表
+        this.db!.run(`
+          CREATE TABLE IF NOT EXISTS decision_chains (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chain_id TEXT UNIQUE NOT NULL,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            status TEXT NOT NULL,
+            start_time INTEGER NOT NULL,
+            end_time INTEGER,
+            final_decision TEXT,
+            rejection_reason TEXT,
+            rejection_stage TEXT,
+            steps_json TEXT NOT NULL,
+            metrics_json TEXT,
+            created_at INTEGER DEFAULT (strftime('%s', 'now'))
+          )
+        `, (err: Error | null) => {
+          if (err) {
+            console.error('Error creating decision_chains table:', err);
             reject(err);
             return;
           }
@@ -414,7 +744,7 @@ export class RecommendationDatabase {
         // 创建索引
         let indexCount = 0;
         createIndexes.forEach(indexSql => {
-          this.db!.run(indexSql, (err) => {
+          this.db!.run(indexSql, (err: Error | null) => {
             if (err) {
               console.error('Error creating index:', err);
               reject(err);
@@ -446,10 +776,12 @@ export class RecommendationDatabase {
         risk_level, strategy_type, algorithm_name, signal_strength, confidence_score,
         quality_score, status, market_volatility, volume_24h, price_change_24h,
         source, is_strategy_generated, strategy_confidence_level, exclude_from_ml, notes,
-        expected_return, ev, ev_threshold, ev_ok, ab_group,
-        exit_label, dedupe_key, extra_json
+        expected_return, ev, ev_threshold, ev_ok, ab_group, variant, experiment_id,
+        exit_label, dedupe_key, extra_json,
+        atr_value, atr_period, atr_sl_multiplier, atr_tp_multiplier,
+        tp1_hit, tp2_hit, tp3_hit, reduction_count, reduction_ratio
       ) VALUES (
-        ${new Array(39).fill('?').join(', ')}
+        ${new Array(50).fill('?').join(', ')}
       )
     `;
     
@@ -467,13 +799,24 @@ export class RecommendationDatabase {
       (rec as any).ev_threshold ?? null,
       typeof (rec as any).ev_ok === 'boolean' ? ((rec as any).ev_ok ? 1 : 0) : (typeof (rec as any).ev_ok === 'number' ? ((rec as any).ev_ok ? 1 : 0) : null),
       (rec as any).ab_group ?? null,
+      (rec as any).variant ?? 'control',
+      (rec as any).experiment_id ?? null,
       rec.exit_label || null,
       rec.dedupe_key || null,
-      (rec as any).extra_json ?? null
+      (rec as any).extra_json ?? null,
+      rec.atr_value ?? null,
+      rec.atr_period ?? null,
+      rec.atr_sl_multiplier ?? null,
+      rec.atr_tp_multiplier ?? null,
+      rec.tp1_hit ? 1 : 0,
+      rec.tp2_hit ? 1 : 0,
+      rec.tp3_hit ? 1 : 0,
+      rec.reduction_count ?? 0,
+      rec.reduction_ratio ?? null
     ];
     
     return new Promise((resolve, reject) => {
-      this.db!.run(sql, params, function(err) {
+      this.db!.run(sql, params, function(err: Error | null) {
         if (err) {
           // 统一将唯一约束映射成可识别的错误码
           if (/UNIQUE constraint failed: recommendations\.dedupe_key/i.test(err.message || '')) {
@@ -508,7 +851,19 @@ export class RecommendationDatabase {
         exit_label = ?,
         pnl_amount = ?,
         pnl_percent = ?,
-        holding_duration = ?
+        holding_duration = ?,
+        extra_json = COALESCE(?, extra_json),
+        atr_value = COALESCE(?, atr_value),
+        atr_period = COALESCE(?, atr_period),
+        atr_sl_multiplier = COALESCE(?, atr_sl_multiplier),
+        atr_tp_multiplier = COALESCE(?, atr_tp_multiplier),
+        tp1_hit = COALESCE(?, tp1_hit),
+        tp2_hit = COALESCE(?, tp2_hit),
+        tp3_hit = COALESCE(?, tp3_hit),
+        reduction_count = COALESCE(?, reduction_count),
+        reduction_ratio = COALESCE(?, reduction_ratio),
+        variant = COALESCE(?, variant),
+        experiment_id = COALESCE(?, experiment_id)
       WHERE id = ?
     `;
     
@@ -524,11 +879,23 @@ export class RecommendationDatabase {
       rec.pnl_amount,
       rec.pnl_percent,
       rec.holding_duration,
+      (rec as any).extra_json ?? null,
+      rec.atr_value ?? null,
+      rec.atr_period ?? null,
+      rec.atr_sl_multiplier ?? null,
+      rec.atr_tp_multiplier ?? null,
+      rec.tp1_hit ? 1 : 0,
+      rec.tp2_hit ? 1 : 0,
+      rec.tp3_hit ? 1 : 0,
+      rec.reduction_count ?? null,
+      rec.reduction_ratio ?? null,
+      (rec as any).variant ?? null,
+      (rec as any).experiment_id ?? null,
       rec.id
     ];
     
     return new Promise((resolve, reject) => {
-      this.db!.run(sql, params, function(err) {
+      this.db!.run(sql, params, function(err: Error | null) {
         if (err) {
           console.error('Error updating recommendation:', err);
           reject(err);
@@ -548,7 +915,7 @@ export class RecommendationDatabase {
     }
     const sql = `SELECT * FROM recommendations WHERE id = ? LIMIT 1`;
     return new Promise((resolve, reject) => {
-      this.db!.get(sql, [id], (err, row: any) => {
+      this.db!.get(sql, [id], (err: Error | null, row: any) => {
         if (err) {
           console.error('Error querying recommendation by id:', err);
           reject(err);
@@ -570,7 +937,7 @@ export class RecommendationDatabase {
     }
     const sql = `SELECT * FROM recommendations WHERE status = 'ACTIVE' ORDER BY created_at DESC`;
     return new Promise((resolve, reject) => {
-      this.db!.all(sql, [], (err, rows: any[]) => {
+      this.db!.all(sql, [], (err: Error | null, rows: any[]) => {
         if (err) {
           reject(err);
         } else {
@@ -597,7 +964,7 @@ export class RecommendationDatabase {
     const placeholders = symList.map(() => '?').join(',');
     const sql = `SELECT * FROM recommendations WHERE symbol IN (${placeholders}) ORDER BY datetime(created_at) DESC LIMIT 1`;
     return new Promise<RecommendationRecord | null>((resolve, reject) => {
-      this.db!.get(sql, symList, (err, row: any) => {
+      this.db!.get(sql, symList, (err: Error | null, row: any) => {
         if (err) return reject(err);
         resolve(row ? this.rowToRecommendation(row) : null);
       });
@@ -620,7 +987,7 @@ export class RecommendationDatabase {
     const sql = `SELECT * FROM recommendations WHERE symbol IN (${placeholders}) AND direction = ? ORDER BY datetime(created_at) DESC LIMIT 1`;
     const params = [...symList, direction];
     return new Promise<RecommendationRecord | null>((resolve, reject) => {
-      this.db!.get(sql, params, (err, row: any) => {
+      this.db!.get(sql, params, (err: Error | null, row: any) => {
         if (err) return reject(err);
         resolve(row ? this.rowToRecommendation(row) : null);
       });
@@ -643,7 +1010,7 @@ export class RecommendationDatabase {
     const sql = `SELECT * FROM recommendations WHERE symbol IN (${placeholders}) AND direction = ? AND status = 'ACTIVE' ORDER BY datetime(created_at) DESC LIMIT 1`;
     const params = [...symList, direction];
     return new Promise<RecommendationRecord | null>((resolve, reject) => {
-      this.db!.get(sql, params, (err, row: any) => {
+      this.db!.get(sql, params, (err: Error | null, row: any) => {
         if (err) return reject(err);
         resolve(row ? this.rowToRecommendation(row) : null);
       });
@@ -656,7 +1023,7 @@ export class RecommendationDatabase {
   async deleteRecommendation(id: string): Promise<boolean> {
     return new Promise<boolean>((resolve, reject) => {
       const sql = `DELETE FROM recommendations WHERE id = ?`;
-      this.db!.run(sql, [id], function (this: any, err: any) {
+      this.db!.run(sql, [id], function (this: any, err: Error | null) {
         if (err) {
           reject(err);
         } else {
@@ -675,7 +1042,7 @@ export class RecommendationDatabase {
 
     // 统计总数
     const total = await new Promise<number>((resolve, reject) => {
-      this.db!.get('SELECT COUNT(*) as total FROM recommendations', [], (err, row: any) => {
+      this.db!.get('SELECT COUNT(*) as total FROM recommendations', [], (err: Error | null, row: any) => {
         if (err) return reject(err);
         resolve(row?.total ?? 0);
       });
@@ -692,7 +1059,7 @@ export class RecommendationDatabase {
           LIMIT ?
         )`;
       deleted = await new Promise<number>((resolve, reject) => {
-        this.db!.run(deleteSql, [safeKeep], function (this: any, err: any) {
+        this.db!.run(deleteSql, [safeKeep], function (this: any, err: Error | null) {
           if (err) return reject(err);
           resolve(this?.changes ?? 0);
         });
@@ -700,8 +1067,8 @@ export class RecommendationDatabase {
 
       // 回收空间
       await new Promise<void>((resolve, reject) => {
-        this.db!.exec('VACUUM', (err) => (err ? reject(err) : resolve()));
-      });
+      this.db!.exec('VACUUM', (err: Error | null) => (err ? reject(err) : resolve()));
+    });
     }
 
     return { deleted, kept: Math.min(safeKeep, total), total };
@@ -760,7 +1127,7 @@ export class RecommendationDatabase {
     // 查询总数
     const countSql = `SELECT COUNT(*) as total FROM recommendations ${whereClause}`;
     const total = await new Promise<number>((resolve, reject) => {
-      this.db!.get(countSql, params, (err, row: any) => {
+      this.db!.get(countSql, params, (err: Error | null, row: any) => {
         if (err) {
           reject(err);
         } else {
@@ -778,7 +1145,7 @@ export class RecommendationDatabase {
     `;
     
     const recommendations = await new Promise<RecommendationRecord[]>((resolve, reject) => {
-      this.db!.all(dataSql, [...params, limit, offset], (err, rows: any[]) => {
+      this.db!.all(dataSql, [...params, limit, offset], (err: Error | null, rows: any[]) => {
         if (err) {
           reject(err);
         } else {
@@ -807,7 +1174,7 @@ export class RecommendationDatabase {
     }
     const sql = `SELECT COUNT(*) as total, MIN(datetime(created_at)) as oldest FROM recommendations ${where}`;
     return new Promise((resolve, reject) => {
-      this.db!.get(sql, params, (err: any, row: any) => {
+      this.db!.get(sql, params, (err: Error | null, row: any) => {
         if (err) return reject(err);
         const cnt = Number(row?.total ?? 0);
         const oldest = row?.oldest ? new Date(row.oldest) : null;
@@ -856,7 +1223,7 @@ export class RecommendationDatabase {
     `;
     
     return new Promise((resolve, reject) => {
-      this.db!.get(sql, params, (err, row: any) => {
+      this.db!.get(sql, params, (err: Error | null, row: any) => {
         if (err) {
           reject(err);
         } else {
@@ -1005,7 +1372,7 @@ export class RecommendationDatabase {
     `;
 
     return new Promise((resolve, reject) => {
-      this.db!.all(sql, [horizonMinutes, nowMs, limit], (err, rows: any[]) => {
+      this.db!.all(sql, [horizonMinutes, nowMs, limit], (err: Error | null, rows: any[]) => {
         if (err) {
           console.error('Error querying pending label samples:', err);
           reject(err);
@@ -1034,7 +1401,7 @@ export class RecommendationDatabase {
 
     const countSql = `SELECT COUNT(*) as total FROM ml_samples ${where}`;
     const total = await new Promise<number>((resolve, reject) => {
-      this.db!.get(countSql, params, (err, row: any) => {
+      this.db!.get(countSql, params, (err: Error | null, row: any) => {
         if (err) reject(err); else resolve(row?.total ?? 0);
       });
     });
@@ -1047,7 +1414,7 @@ export class RecommendationDatabase {
     `;
 
     const samples = await new Promise<MLSampleRecord[]>((resolve, reject) => {
-      this.db!.all(dataSql, [...params, limit, offset], (err, rows: any[]) => {
+      this.db!.all(dataSql, [...params, limit, offset], (err: Error | null, rows: any[]) => {
         if (err) reject(err); else resolve(rows.map(r => this.rowToMLSample(r)));
       });
     });
@@ -1110,10 +1477,24 @@ export class RecommendationDatabase {
         return undefined;
       })(),
       ab_group: row.ab_group || undefined,
+      // 新增：实验ID与变体
+      experiment_id: row.experiment_id || undefined,
+      variant: row.variant || undefined,
       // 新增：dedupe_key 回传
       dedupe_key: row.dedupe_key || undefined,
       // 新增：extra_json 回传
-      extra_json: row.extra_json || undefined
+      extra_json: row.extra_json || undefined,
+      // ATR动态止损相关字段
+      atr_value: typeof row.atr_value === 'number' ? row.atr_value : undefined,
+      atr_period: typeof row.atr_period === 'number' ? row.atr_period : undefined,
+      atr_sl_multiplier: typeof row.atr_sl_multiplier === 'number' ? row.atr_sl_multiplier : undefined,
+      atr_tp_multiplier: typeof row.atr_tp_multiplier === 'number' ? row.atr_tp_multiplier : undefined,
+      // 分批止盈状态字段
+      tp1_hit: Boolean(row.tp1_hit),
+      tp2_hit: Boolean(row.tp2_hit),
+      tp3_hit: Boolean(row.tp3_hit),
+      reduction_count: typeof row.reduction_count === 'number' ? row.reduction_count : 0,
+      reduction_ratio: typeof row.reduction_ratio === 'number' ? row.reduction_ratio : undefined
     };
   }
 
@@ -1160,11 +1541,11 @@ export class RecommendationDatabase {
       INSERT INTO executions (
         created_at, updated_at, recommendation_id, position_id, event_type, symbol, direction, size,
         intended_price, intended_timestamp, fill_price, fill_timestamp, latency_ms,
-        slippage_bps, slippage_amount, fee_bps, fee_amount, pnl_amount, pnl_percent, extra_json
+        slippage_bps, slippage_amount, fee_bps, fee_amount, pnl_amount, pnl_percent, variant, ab_group, experiment_id, extra_json
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
     `;
 
@@ -1189,6 +1570,9 @@ export class RecommendationDatabase {
       exe.fee_amount ?? null,
       exe.pnl_amount ?? null,
       exe.pnl_percent ?? null,
+      exe.variant ?? 'control',
+      exe.ab_group ?? null,
+      exe.experiment_id ?? null,
       exe.extra_json ?? null
     ];
 
@@ -1200,6 +1584,316 @@ export class RecommendationDatabase {
         } else {
           const insertedId = this && typeof this.lastID === 'number' ? this.lastID : 0;
           resolve(insertedId);
+        }
+      });
+    });
+  }
+
+  /**
+   * 保存滑点分析记录
+   */
+  async saveSlippageAnalysis(analysis: SlippageAnalysisRecord): Promise<number> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT INTO slippage_analysis (
+        created_at, updated_at, recommendation_id, symbol, direction,
+        expected_price, actual_price, price_difference, price_difference_bps,
+        execution_latency_ms, order_book_depth, market_volatility,
+        slippage_bps, slippage_category, slippage_reason,
+        fee_rate_bps, fee_amount, total_cost_bps,
+        original_threshold, adjusted_threshold, threshold_adjustment_reason,
+        market_session, liquidity_score, spread_bps, extra_json
+      ) VALUES (
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?
+      )
+    `;
+
+    const nowIso = new Date().toISOString();
+    const params = [
+      analysis.created_at ? analysis.created_at.toISOString() : nowIso,
+      analysis.updated_at ? analysis.updated_at.toISOString() : nowIso,
+      analysis.recommendation_id,
+      analysis.symbol,
+      analysis.direction,
+      analysis.expected_price,
+      analysis.actual_price,
+      analysis.price_difference,
+      analysis.price_difference_bps,
+      analysis.execution_latency_ms,
+      analysis.order_book_depth ?? null,
+      analysis.market_volatility ?? null,
+      analysis.slippage_bps,
+      analysis.slippage_category,
+      analysis.slippage_reason ?? null,
+      analysis.fee_rate_bps,
+      analysis.fee_amount,
+      analysis.total_cost_bps,
+      analysis.original_threshold,
+      analysis.adjusted_threshold ?? null,
+      analysis.threshold_adjustment_reason ?? null,
+      analysis.market_session ?? null,
+      analysis.liquidity_score ?? null,
+      analysis.spread_bps ?? null,
+      analysis.extra_json ?? null
+    ];
+
+    return new Promise<number>((resolve, reject) => {
+      this.db!.run(sql, params, function (this: any, err: Error | null) {
+        if (err) {
+          console.error('Error saving slippage analysis:', err);
+          reject(err);
+        } else {
+          const insertedId = this && typeof this.lastID === 'number' ? this.lastID : 0;
+          resolve(insertedId);
+        }
+      });
+    });
+  }
+
+  /**
+   * 更新滑点统计聚合数据
+   */
+  async updateSlippageStatistics(stats: SlippageStatistics): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT OR REPLACE INTO slippage_statistics (
+        symbol, direction, period,
+        total_executions, avg_slippage_bps, median_slippage_bps, max_slippage_bps, min_slippage_bps,
+        low_slippage_count, medium_slippage_count, high_slippage_count, extreme_slippage_count,
+        avg_total_cost_bps, avg_fee_bps, avg_latency_ms, avg_price_difference_bps,
+        suggested_threshold_adjustment, confidence_score, calculated_at, updated_at
+      ) VALUES (
+        ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?
+      )
+    `;
+
+    const nowIso = new Date().toISOString();
+    const params = [
+      stats.symbol,
+      stats.direction ?? null,
+      stats.period,
+      stats.total_executions,
+      stats.avg_slippage_bps,
+      stats.median_slippage_bps,
+      stats.max_slippage_bps,
+      stats.min_slippage_bps,
+      stats.low_slippage_count,
+      stats.medium_slippage_count,
+      stats.high_slippage_count,
+      stats.extreme_slippage_count,
+      stats.avg_total_cost_bps,
+      stats.avg_fee_bps,
+      stats.avg_latency_ms,
+      stats.avg_price_difference_bps,
+      stats.suggested_threshold_adjustment,
+      stats.confidence_score,
+      stats.calculated_at.toISOString(),
+      nowIso
+    ];
+
+    return new Promise<void>((resolve, reject) => {
+      console.log(`[DEBUG] Updating slippage statistics with params:`, params);
+      this.db!.run(sql, params, function (this: any, err: Error | null) {
+        if (err) {
+          console.error('Error updating slippage statistics:', err);
+          reject(err);
+        } else {
+          console.log(`[DEBUG] Successfully updated slippage statistics, changes: ${this.changes}`);
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * 获取滑点分析记录
+   */
+  async getSlippageAnalysis(filters: {
+    recommendation_id?: string;
+    symbol?: string;
+    direction?: 'LONG' | 'SHORT';
+    slippage_category?: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<SlippageAnalysisRecord[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    let sql = `
+      SELECT id, created_at, updated_at, recommendation_id, symbol, direction,
+             expected_price, actual_price, price_difference, price_difference_bps,
+             execution_latency_ms, order_book_depth, market_volatility,
+             slippage_bps, slippage_category, slippage_reason,
+             fee_rate_bps, fee_amount, total_cost_bps,
+             original_threshold, adjusted_threshold, threshold_adjustment_reason,
+             market_session, liquidity_score, spread_bps, extra_json
+      FROM slippage_analysis
+      WHERE 1=1
+    `;
+    
+    const params: any[] = [];
+
+    if (filters.recommendation_id) {
+      sql += ' AND recommendation_id = ?';
+      params.push(filters.recommendation_id);
+    }
+    if (filters.symbol) {
+      sql += ' AND symbol = ?';
+      params.push(filters.symbol);
+    }
+    if (filters.direction) {
+      sql += ' AND direction = ?';
+      params.push(filters.direction);
+    }
+    if (filters.slippage_category) {
+      sql += ' AND slippage_category = ?';
+      params.push(filters.slippage_category);
+    }
+    if (filters.from) {
+      sql += ' AND created_at >= ?';
+      params.push(filters.from);
+    }
+    if (filters.to) {
+      sql += ' AND created_at <= ?';
+      params.push(filters.to);
+    }
+
+    sql += ' ORDER BY created_at DESC';
+
+    if (filters.limit) {
+      sql += ' LIMIT ?';
+      params.push(filters.limit);
+    }
+    if (filters.offset) {
+      sql += ' OFFSET ?';
+      params.push(filters.offset);
+    }
+
+    return new Promise<SlippageAnalysisRecord[]>((resolve, reject) => {
+      this.db!.all(sql, params, (err: Error | null, rows: any[]) => {
+        if (err) {
+          console.error('Error querying slippage analysis:', err);
+          reject(err);
+        } else {
+          resolve(rows.map(row => ({
+            id: row.id,
+            created_at: row.created_at ? new Date(row.created_at) : undefined,
+            updated_at: row.updated_at ? new Date(row.updated_at) : undefined,
+            recommendation_id: row.recommendation_id,
+            symbol: row.symbol,
+            direction: row.direction,
+            expected_price: row.expected_price,
+            actual_price: row.actual_price,
+            price_difference: row.price_difference,
+            price_difference_bps: row.price_difference_bps,
+            execution_latency_ms: row.execution_latency_ms,
+            order_book_depth: row.order_book_depth,
+            market_volatility: row.market_volatility,
+            slippage_bps: row.slippage_bps,
+            slippage_category: row.slippage_category,
+            slippage_reason: row.slippage_reason,
+            fee_rate_bps: row.fee_rate_bps,
+            fee_amount: row.fee_amount,
+            total_cost_bps: row.total_cost_bps,
+            original_threshold: row.original_threshold,
+            adjusted_threshold: row.adjusted_threshold,
+            threshold_adjustment_reason: row.threshold_adjustment_reason,
+            market_session: row.market_session,
+            liquidity_score: row.liquidity_score,
+            spread_bps: row.spread_bps,
+            extra_json: row.extra_json
+          })));
+        }
+      });
+    });
+  }
+
+  /**
+   * 获取滑点统计聚合数据
+   */
+  async getSlippageStatistics(filters: {
+    symbol?: string;
+    direction?: 'LONG' | 'SHORT';
+    period?: string;
+  } = {}): Promise<SlippageStatistics[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    let sql = `
+      SELECT symbol, direction, period,
+             total_executions, avg_slippage_bps, median_slippage_bps, max_slippage_bps, min_slippage_bps,
+             low_slippage_count, medium_slippage_count, high_slippage_count, extreme_slippage_count,
+             avg_total_cost_bps, avg_fee_bps, avg_latency_ms, avg_price_difference_bps,
+             suggested_threshold_adjustment, confidence_score, calculated_at, updated_at
+      FROM slippage_statistics
+      WHERE 1=1
+    `;
+    
+    const params: any[] = [];
+
+    if (filters.symbol) {
+      sql += ' AND symbol = ?';
+      params.push(filters.symbol);
+    }
+    if (filters.direction) {
+      sql += ' AND direction = ?';
+      params.push(filters.direction);
+    }
+    if (filters.period) {
+      sql += ' AND period = ?';
+      params.push(filters.period);
+    }
+
+    sql += ' ORDER BY updated_at DESC';
+
+    return new Promise<SlippageStatistics[]>((resolve, reject) => {
+      this.db!.all(sql, params, (err: Error | null, rows: any[]) => {
+        if (err) {
+          console.error('Error querying slippage statistics:', err);
+          reject(err);
+        } else {
+          resolve(rows.map(row => ({
+            symbol: row.symbol,
+            direction: row.direction,
+            period: row.period,
+            total_executions: row.total_executions,
+            avg_slippage_bps: row.avg_slippage_bps,
+            median_slippage_bps: row.median_slippage_bps,
+            max_slippage_bps: row.max_slippage_bps,
+            min_slippage_bps: row.min_slippage_bps,
+            low_slippage_count: row.low_slippage_count,
+            medium_slippage_count: row.medium_slippage_count,
+            high_slippage_count: row.high_slippage_count,
+            extreme_slippage_count: row.extreme_slippage_count,
+            avg_total_cost_bps: row.avg_total_cost_bps,
+            avg_fee_bps: row.avg_fee_bps,
+            avg_latency_ms: row.avg_latency_ms,
+            avg_price_difference_bps: row.avg_price_difference_bps,
+            suggested_threshold_adjustment: row.suggested_threshold_adjustment,
+            confidence_score: row.confidence_score,
+            calculated_at: new Date(row.calculated_at),
+            updated_at: new Date(row.updated_at)
+          })));
         }
       });
     });
@@ -1228,9 +1922,26 @@ export class RecommendationDatabase {
       fee_amount: row.fee_amount ?? null,
       pnl_amount: row.pnl_amount ?? null,
       pnl_percent: row.pnl_percent ?? null,
-      ab_group: row.ab_group || undefined,
+      ab_group: row.ab_group ?? null,
+      variant: row.variant ?? null,
+      experiment_id: row.experiment_id ?? null,
       extra_json: row.extra_json ?? null
     };
+  }
+
+  // 新增：按ID获取单条执行记录（包含与推荐的 COALESCE 字段）
+  async getExecutionById(id: number): Promise<ExecutionRecord | null> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    const sql = `SELECT e.*, COALESCE(e.ab_group, r.ab_group) AS ab_group, COALESCE(e.variant, r.variant) AS variant, COALESCE(e.experiment_id, r.experiment_id) AS experiment_id FROM executions e LEFT JOIN recommendations r ON r.id = e.recommendation_id WHERE e.id = ? LIMIT 1`;
+    return new Promise<ExecutionRecord | null>((resolve, reject) => {
+      this.db!.get(sql, [id], (err: Error | null, row: any) => {
+        if (err) return reject(err);
+        if (!row) return resolve(null);
+        resolve(this.rowToExecution(row));
+      });
+    });
   }
   
   /**
@@ -1260,7 +1971,7 @@ export class RecommendationDatabase {
     `;
 
     return new Promise((resolve, reject) => {
-      this.db!.all(sql, [], (err, rows: any[]) => {
+      this.db!.all(sql, [], (err: Error | null, rows: any[]) => {
         if (err) {
           console.error('Error querying recommendations for backfill:', err);
           reject(err);
@@ -1312,12 +2023,446 @@ export class RecommendationDatabase {
   }
 
   /**
+   * 滑点统计自动回灌机制
+   * 定期重新计算滑点统计数据，确保EV计算模型使用最新数据
+   */
+  async backfillSlippageStatistics(options: {
+    symbol?: string;
+    period?: string;
+    force?: boolean;
+    batchSize?: number;
+  } = {}): Promise<{
+    processed: number;
+    updated: number;
+    symbols: string[];
+  }> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const {
+      symbol,
+      period = '7d',
+      force = false,
+      batchSize = 1000
+    } = options;
+
+    // 获取需要回灌的滑点分析数据
+    const analysisFilters: any = {};
+    if (symbol) analysisFilters.symbol = symbol;
+    
+    // 如果是强制回灌，获取所有数据；否则只获取最近period的数据
+    if (!force) {
+      const cutoffDate = new Date();
+      
+      // 根据不同周期设置正确的时间范围
+      switch (period) {
+        case '1h':
+          cutoffDate.setHours(cutoffDate.getHours() - 1);
+          break;
+        case '4h':
+          cutoffDate.setHours(cutoffDate.getHours() - 4);
+          break;
+        case '1d':
+          cutoffDate.setDate(cutoffDate.getDate() - 1);
+          break;
+        case '7d':
+          cutoffDate.setDate(cutoffDate.getDate() - 7);
+          break;
+        case '30d':
+          cutoffDate.setDate(cutoffDate.getDate() - 30);
+          break;
+        default:
+          // 默认使用 1 天
+          cutoffDate.setDate(cutoffDate.getDate() - 1);
+          break;
+      }
+      
+      analysisFilters.from = cutoffDate.toISOString();
+    }
+
+    analysisFilters.limit = batchSize;
+
+    const analysisData = await this.getSlippageAnalysis(analysisFilters);
+    
+    if (analysisData.length === 0) {
+      return { processed: 0, updated: 0, symbols: [] };
+    }
+
+    // 按symbol和direction分组数据
+    const groupedData: { [key: string]: SlippageAnalysisRecord[] } = {};
+    analysisData.forEach(record => {
+      const key = `${record.symbol}_${record.direction}`;
+      if (!groupedData[key]) {
+        groupedData[key] = [];
+      }
+      groupedData[key].push(record);
+    });
+
+    let updatedCount = 0;
+    const processedSymbols: string[] = [];
+
+    // 为每个分组计算统计并更新
+    for (const [key, records] of Object.entries(groupedData)) {
+      const [symbol, direction] = key.split('_');
+      
+      // 计算统计指标
+      const slippages = records.map(r => r.slippage_bps).filter(Boolean) as number[];
+      const totalCosts = records.map(r => r.total_cost_bps).filter(Boolean) as number[];
+      const latencies = records.map(r => r.execution_latency_ms).filter(Boolean) as number[];
+      
+      if (slippages.length === 0) continue;
+
+      // 计算基础统计
+      const avgSlippage = slippages.reduce((sum, s) => sum + s, 0) / slippages.length;
+      const sortedSlippages = [...slippages].sort((a, b) => a - b);
+      const medianSlippage = sortedSlippages[Math.floor(sortedSlippages.length / 2)];
+      const maxSlippage = Math.max(...slippages);
+      const minSlippage = Math.min(...slippages);
+
+      // 计算滑点分布
+      const lowCount = slippages.filter(s => s < 5).length;
+      const mediumCount = slippages.filter(s => s >= 5 && s < 15).length;
+      const highCount = slippages.filter(s => s >= 15 && s < 30).length;
+      const extremeCount = slippages.filter(s => s >= 30).length;
+
+      // 计算成本统计
+      const avgTotalCost = totalCosts.length > 0 ? totalCosts.reduce((sum, c) => sum + c, 0) / totalCosts.length : 0;
+      const avgFee = records.reduce((sum, r) => sum + (r.fee_rate_bps || 0), 0) / records.length;
+      const avgLatency = latencies.length > 0 ? latencies.reduce((sum, l) => sum + l, 0) / latencies.length : 0;
+      const avgPriceDiff = records.reduce((sum, r) => sum + (r.price_difference_bps || 0), 0) / records.length;
+
+      // 构建统计记录
+      const statsRecord: SlippageStatistics = {
+        symbol,
+        direction: direction as 'LONG' | 'SHORT',
+        period,
+        total_executions: records.length,
+        avg_slippage_bps: avgSlippage,
+        median_slippage_bps: medianSlippage,
+        max_slippage_bps: maxSlippage,
+        min_slippage_bps: minSlippage,
+        low_slippage_count: lowCount,
+        medium_slippage_count: mediumCount,
+        high_slippage_count: highCount,
+        extreme_slippage_count: extremeCount,
+        avg_total_cost_bps: avgTotalCost,
+        avg_fee_bps: avgFee,
+        avg_latency_ms: avgLatency,
+        avg_price_difference_bps: avgPriceDiff,
+        suggested_threshold_adjustment: this.calculateThresholdAdjustment(avgSlippage, medianSlippage),
+        confidence_score: this.calculateConfidenceScore(records.length, avgSlippage),
+        calculated_at: new Date()
+      };
+
+      // 添加调试日志
+      console.log(`[DEBUG] Slippage statistics for ${symbol}-${direction}:`, {
+        records_length: records.length,
+        total_executions: statsRecord.total_executions,
+        avg_slippage_bps: statsRecord.avg_slippage_bps,
+        median_slippage_bps: statsRecord.median_slippage_bps
+      });
+
+      // 更新统计
+      await this.updateSlippageStatistics(statsRecord);
+      updatedCount++;
+      
+      if (!processedSymbols.includes(symbol)) {
+        processedSymbols.push(symbol);
+      }
+    }
+
+    return {
+      processed: analysisData.length,
+      updated: updatedCount,
+      symbols: processedSymbols
+    };
+  }
+
+  /**
+   * 计算阈值调整建议
+   */
+  private calculateThresholdAdjustment(avgSlippage: number, medianSlippage: number): number {
+    // 基于平均滑点和中位数滑点计算调整因子
+    const baseAdjustment = (avgSlippage + medianSlippage) / 2;
+    
+    // 滑点越高，建议提高阈值（正值表示提高阈值）
+    if (baseAdjustment > 20) {
+      return 5; // 提高5bps
+    } else if (baseAdjustment > 10) {
+      return 2; // 提高2bps
+    } else if (baseAdjustment < 5) {
+      return -2; // 降低2bps
+    }
+    
+    return 0; // 无需调整
+  }
+
+  /**
+   * 计算置信度分数
+   */
+  private calculateConfidenceScore(sampleSize: number, avgSlippage: number): number {
+    // 基于样本数量和滑点稳定性计算置信度
+    let score = Math.min(1, sampleSize / 50); // 样本越多，置信度越高
+    
+    // 滑点越稳定（标准差小），置信度越高
+    // 这里简化处理，实际应该计算标准差
+    if (avgSlippage < 10) {
+      score *= 0.9; // 低滑点相对稳定
+    } else if (avgSlippage > 25) {
+      score *= 0.7; // 高滑点波动较大
+    }
+    
+    return Math.max(0.1, Math.min(1, score));
+  }
+
+  /**
+   * 检测高滑点异常并生成预警
+   */
+  async detectHighSlippageAnomalies(options: {
+    symbol?: string;
+    period?: string;
+    threshold?: number;
+    minSamples?: number;
+  } = {}): Promise<{
+    anomalies: Array<{
+      symbol: string;
+      direction: 'LONG' | 'SHORT';
+      avg_slippage_bps: number;
+      median_slippage_bps: number;
+      sample_count: number;
+      severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+      suggested_action: string;
+      detected_at: Date;
+    }>;
+    total_checked: number;
+  }> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const {
+      symbol,
+      period = '7d',
+      threshold = 15, // 默认15bps为高滑点阈值
+      minSamples = 10
+    } = options;
+
+    // 获取滑点统计数据
+    const statsFilters: any = {};
+    if (symbol) statsFilters.symbol = symbol;
+    
+    const statistics = await this.getSlippageStatistics(statsFilters);
+    
+    if (statistics.length === 0) {
+      return { anomalies: [], total_checked: 0 };
+    }
+
+    const anomalies: any[] = [];
+    let totalChecked = 0;
+
+    // 检查每个统计记录
+    for (const stat of statistics) {
+      totalChecked++;
+      
+      // 跳过样本数量不足的记录
+      if (stat.total_executions < minSamples) {
+        continue;
+      }
+
+      // 检查是否超过高滑点阈值
+      if (stat.avg_slippage_bps > threshold || stat.median_slippage_bps > threshold) {
+        const severity = this.determineAnomalySeverity(
+          stat.avg_slippage_bps,
+          stat.median_slippage_bps,
+          stat.total_executions
+        );
+
+        anomalies.push({
+          symbol: stat.symbol,
+          direction: stat.direction,
+          avg_slippage_bps: stat.avg_slippage_bps,
+          median_slippage_bps: stat.median_slippage_bps,
+          sample_count: stat.total_executions,
+          severity,
+          suggested_action: this.generateSuggestion(severity, stat.avg_slippage_bps),
+          detected_at: new Date()
+        });
+      }
+    }
+
+    return { anomalies, total_checked: totalChecked };
+  }
+
+  /**
+   * 确定异常严重级别
+   */
+  private determineAnomalySeverity(
+    avgSlippage: number,
+    medianSlippage: number,
+    sampleCount: number
+  ): 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' {
+    const baseSeverity = (avgSlippage + medianSlippage) / 2;
+    
+    if (baseSeverity > 40) {
+      return 'CRITICAL';
+    } else if (baseSeverity > 25) {
+      return 'HIGH';
+    } else if (baseSeverity > 15) {
+      return 'MEDIUM';
+    } else {
+      return 'LOW';
+    }
+  }
+
+  /**
+   * 生成预警建议
+   */
+  private generateSuggestion(severity: string, avgSlippage: number): string {
+    const baseAdjustment = Math.ceil(avgSlippage / 5);
+    
+    switch (severity) {
+      case 'CRITICAL':
+        return `立即暂停交易，提高阈值${baseAdjustment * 2}bps，检查流动性问题`;
+      case 'HIGH':
+        return `提高阈值${baseAdjustment}bps，减少交易频率，监控市场深度`;
+      case 'MEDIUM':
+        return `提高阈值${Math.max(2, baseAdjustment)}bps，优化下单策略`;
+      case 'LOW':
+        return `轻微调整阈值${Math.max(1, baseAdjustment)}bps，继续观察`;
+      default:
+        return '监控滑点情况，必要时调整阈值';
+    }
+  }
+
+  /**
+   * 保存高滑点预警记录
+   */
+  async saveSlippageAlert(alert: {
+    symbol: string;
+    direction: 'LONG' | 'SHORT';
+    severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    avg_slippage_bps: number;
+    median_slippage_bps: number;
+    sample_count: number;
+    suggested_action: string;
+    triggered_by: string;
+  }): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const query = `
+      INSERT INTO slippage_alerts (
+        symbol, direction, severity, avg_slippage_bps, median_slippage_bps,
+        sample_count, suggested_action, triggered_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const now = new Date().toISOString();
+    const values = [
+      alert.symbol,
+      alert.direction,
+      alert.severity,
+      alert.avg_slippage_bps,
+      alert.median_slippage_bps,
+      alert.sample_count,
+      alert.suggested_action,
+      alert.triggered_by,
+      now,
+      now
+    ];
+
+    return new Promise((resolve, reject) => {
+        this.db!.run(query, values, function(err: Error | null) {
+          if (err) {
+            console.error('Error saving slippage alert:', err);
+            reject(err);
+          } else {
+            console.log(`Slippage alert saved for ${alert.symbol} (${alert.direction}): ${alert.severity}`);
+            resolve();
+          }
+        });
+      });
+  }
+
+  /**
+   * 获取高滑点预警历史
+   */
+  async getSlippageAlerts(options: {
+    symbol?: string;
+    severity?: string;
+    limit?: number;
+    offset?: number;
+    start_date?: Date;
+    end_date?: Date;
+  } = {}): Promise<any[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const {
+      symbol,
+      severity,
+      limit = 100,
+      offset = 0,
+      start_date,
+      end_date
+    } = options;
+
+    let conditions: string[] = [];
+    let values: any[] = [];
+
+    if (symbol) {
+      conditions.push('symbol = ?');
+      values.push(symbol);
+    }
+
+    if (severity) {
+      conditions.push('severity = ?');
+      values.push(severity);
+    }
+
+    if (start_date) {
+      conditions.push('created_at >= ?');
+      values.push(start_date.toISOString());
+    }
+
+    if (end_date) {
+      conditions.push('created_at <= ?');
+      values.push(end_date.toISOString());
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const query = `
+      SELECT * FROM slippage_alerts
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    values.push(limit, offset);
+
+    return new Promise((resolve, reject) => {
+      this.db!.all(query, values, (err: Error | null, rows: any[]) => {
+        if (err) {
+          console.error('Error getting slippage alerts:', err);
+          reject(err);
+        } else {
+          resolve(rows || []);
+        }
+      });
+    });
+  }
+
+  /**
    * 关闭数据库连接
    */
   async close(): Promise<void> {
     if (this.db) {
       return new Promise((resolve, reject) => {
-        this.db!.close((err) => {
+        this.db!.close((err: Error | null) => {
           if (err) {
             console.error('Error closing database:', err);
             reject(err);
@@ -1345,6 +2490,8 @@ export class RecommendationDatabase {
       min_size?: number;
       max_size?: number;
       ab_group?: string;
+      variant?: string;
+      experiment_id?: string;
     } = {},
     limit: number = 50,
     offset: number = 0
@@ -1354,75 +2501,72 @@ export class RecommendationDatabase {
     }
 
     const whereAliased: string[] = [];
-    const wherePlain: string[] = [];
     const args: any[] = [];
 
     if (filters.symbol) {
       whereAliased.push('e.symbol = ?');
-      wherePlain.push('symbol = ?');
       args.push(filters.symbol);
     }
     if (filters.event_type) {
       whereAliased.push('e.event_type = ?');
-      wherePlain.push('event_type = ?');
       args.push(filters.event_type);
     }
     if (filters.direction) {
       whereAliased.push('e.direction = ?');
-      wherePlain.push('direction = ?');
       args.push(filters.direction);
     }
     if (filters.recommendation_id) {
       whereAliased.push('e.recommendation_id = ?');
-      wherePlain.push('recommendation_id = ?');
       args.push(filters.recommendation_id);
     }
     if (filters.position_id) {
       whereAliased.push('e.position_id = ?');
-      wherePlain.push('position_id = ?');
       args.push(filters.position_id);
     }
     if (filters.from) {
       whereAliased.push('e.created_at >= ?');
-      wherePlain.push('created_at >= ?');
       args.push(filters.from);
     }
     if (filters.to) {
       whereAliased.push('e.created_at <= ?');
-      wherePlain.push('created_at <= ?');
       args.push(filters.to);
     }
     if (typeof filters.min_size === 'number') {
       whereAliased.push('e.size >= ?');
-      wherePlain.push('size >= ?');
       args.push(filters.min_size);
     }
     if (typeof filters.max_size === 'number') {
       whereAliased.push('e.size <= ?');
-      wherePlain.push('size <= ?');
       args.push(filters.max_size);
     }
     if (filters.ab_group) {
-      whereAliased.push('r.ab_group = ?');
-      // plain 模式下无 ab_group 列，保持不加条件
+      // 在执行与推荐上都支持过滤
+      whereAliased.push('COALESCE(e.ab_group, r.ab_group) = ?');
       args.push(filters.ab_group);
+    }
+    if (filters.variant) {
+      whereAliased.push('COALESCE(e.variant, r.variant) = ?');
+      args.push(filters.variant);
+    }
+    if (filters.experiment_id) {
+      whereAliased.push('COALESCE(e.experiment_id, r.experiment_id) = ?');
+      args.push(filters.experiment_id);
     }
 
     const whereSqlAliased = whereAliased.length ? `WHERE ${whereAliased.join(' AND ')}` : '';
-    const whereSqlPlain = wherePlain.length ? `WHERE ${wherePlain.join(' AND ')}` : '';
 
-    const countSql = `SELECT COUNT(*) as cnt FROM executions e LEFT JOIN recommendations r ON r.id = e.recommendation_id ${whereSqlAliased || whereSqlPlain}`;
-    const listSql = `SELECT e.*, r.ab_group AS ab_group FROM executions e LEFT JOIN recommendations r ON r.id = e.recommendation_id ${whereSqlAliased} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`;
+    const countSql = `SELECT COUNT(*) as cnt FROM executions e LEFT JOIN recommendations r ON r.id = e.recommendation_id ${whereSqlAliased}`;
+    const listSql = `SELECT e.*, COALESCE(e.ab_group, r.ab_group) AS ab_group, COALESCE(e.variant, r.variant) AS variant, COALESCE(e.experiment_id, r.experiment_id) AS experiment_id FROM executions e LEFT JOIN recommendations r ON r.id = e.recommendation_id ${whereSqlAliased} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`;
 
     const count = await new Promise<number>((resolve, reject) => {
-      this.db!.get(countSql, args, (err, row: any) => {
+      this.db!.get(countSql, args, (err: Error | null, row: any) => {
         if (err) return reject(err);
         resolve(Number(row?.cnt ?? 0));
       });
     });
 
     const items = await new Promise<ExecutionRecord[]>((resolve, reject) => {
-      this.db!.all(listSql, [...args, limit, offset], (err, rows: any[]) => {
+      this.db!.all(listSql, [...args, limit, offset], (err: Error | null, rows: any[]) => {
         if (err) return reject(err);
         const mapped = Array.isArray(rows) ? rows.map((r) => this.rowToExecution(r)) : [];
         resolve(mapped);
@@ -1460,7 +2604,7 @@ export class RecommendationDatabase {
       s.extra_json ?? null
     ];
     return new Promise<number>((resolve, reject) => {
-      this.db!.run(sql, params, function(this: any, err: any) {
+      this.db!.run(sql, params, function (this: any, err: Error | null) {
         if (err) {
           console.error('Error saving monitoring snapshot:', err);
           reject(err);
@@ -1550,7 +2694,7 @@ export class RecommendationDatabase {
     const sql = `SELECT id, recommendation_id, check_time, current_price, extra_json FROM recommendation_monitoring ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`;
 
     return new Promise((resolve, reject) => {
-      this.db!.all(sql, [...args, cap, off], (err, rows: any[]) => {
+      this.db!.all(sql, [...args, cap, off], (err: Error | null, rows: any[]) => {
         if (err) return reject(err);
         const items: any[] = [];
         for (const r of rows || []) {
@@ -1586,12 +2730,370 @@ export class RecommendationDatabase {
     });
   }
 
+  async getSlippageThresholds(): Promise<{ symbol: string; timeframe: string; direction: string; threshold: number; last_updated: string; }[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    return new Promise((resolve, reject) => {
+      const sql = `
+        SELECT symbol, timeframe, direction, threshold, last_updated 
+        FROM slippage_thresholds 
+        ORDER BY symbol, timeframe, direction
+      `;
+      this.db!.all(sql, (err: Error | null, rows: any[]) => {
+        if (err) return reject(err);
+        resolve(rows.map(row => ({
+          symbol: String(row.symbol),
+          timeframe: String(row.timeframe),
+          direction: String(row.direction),
+          threshold: Number(row.threshold),
+          last_updated: String(row.last_updated)
+        })));
+      });
+    });
+  }
+
+  async saveSlippageThreshold(symbol: string, timeframe: string, direction: string, threshold: number): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    return new Promise((resolve, reject) => {
+      const sql = `
+        INSERT OR REPLACE INTO slippage_thresholds (symbol, timeframe, direction, threshold, last_updated)
+        VALUES (?, ?, ?, ?, datetime('now'))
+      `;
+      this.db!.run(sql, [symbol, timeframe, direction, threshold], (err: Error | null) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+  }
+
+  async getSlippageStatisticsLegacy(symbol?: string, timeframe?: string, direction?: string): Promise<SlippageStatistics[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    return new Promise((resolve, reject) => {
+      let sql = `
+        SELECT symbol, period as timeframe, direction, 
+               datetime(created_at) as period_start, datetime(created_at) as period_end,
+               avg_slippage_bps as avg_slippage, max_slippage_bps as max_slippage, 
+               min_slippage_bps as min_slippage, 0 as std_slippage, 
+               total_executions as sample_count, created_at
+        FROM slippage_statistics 
+        WHERE 1=1
+      `;
+      const params: any[] = [];
+      
+      if (symbol) {
+        sql += ' AND symbol = ?';
+        params.push(symbol);
+      }
+      if (timeframe) {
+        sql += ' AND period = ?';
+        params.push(timeframe);
+      }
+      if (direction) {
+        sql += ' AND direction = ?';
+        params.push(direction);
+      }
+      
+      sql += ' ORDER BY symbol, period, direction, created_at DESC';
+      
+      this.db!.all(sql, params, (err: Error | null, rows: any[]) => {
+        if (err) return reject(err);
+        resolve(rows.map(row => ({
+          symbol: String(row.symbol),
+          direction: String(row.direction) as 'LONG' | 'SHORT',
+          period: String(row.timeframe), // Map timeframe to period
+          total_executions: Number(row.sample_count),
+          avg_slippage_bps: Number(row.avg_slippage),
+          median_slippage_bps: Number(row.avg_slippage), // Approximate with avg
+          max_slippage_bps: Number(row.max_slippage),
+          min_slippage_bps: Number(row.min_slippage),
+          low_slippage_count: 0, // Default values
+          medium_slippage_count: 0,
+          high_slippage_count: 0,
+          extreme_slippage_count: 0,
+          avg_total_cost_bps: Number(row.avg_slippage), // Approximate
+          avg_fee_bps: 0, // Default
+          avg_latency_ms: 0, // Default
+          avg_price_difference_bps: Number(row.avg_slippage), // Approximate
+          suggested_threshold_adjustment: 0, // Default
+          confidence_score: 1.0, // Default
+          calculated_at: new Date(row.created_at),
+          updated_at: new Date(row.created_at)
+        })));
+      });
+    });
+  }
+
+  /**
+   * 获取变体统计信息
+   */
+  async getVariantStatistics(experimentId: string, startDate: Date, endDate: Date): Promise<any[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise<any[]>((resolve, reject) => {
+      const sql = `
+        SELECT 
+          variant,
+          COUNT(*) as sample_size,
+          SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as win_count,
+          AVG(pnl_percent) as avg_return,
+          AVG(pnl_amount) as avg_pnl,
+          AVG(CASE WHEN result = 'WIN' THEN 1.0 ELSE 0.0 END) as win_rate,
+          MIN(pnl_percent) as min_return,
+          MAX(pnl_percent) as max_return,
+          COUNT(CASE WHEN status = 'CLOSED' THEN 1 END) as completed_count
+        FROM recommendations 
+        WHERE experiment_id = ? 
+          AND created_at >= ? 
+          AND created_at <= ?
+          AND variant IS NOT NULL
+        GROUP BY variant
+        ORDER BY variant
+      `;
+
+      this.db!.all(sql, [experimentId, startDate.toISOString(), endDate.toISOString()], (err: Error | null, rows: any[]) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        const results = rows.map(row => ({
+          experimentId,
+          variant: row.variant,
+          sampleSize: Number(row.sample_size),
+          winRate: Number(row.win_rate),
+          avgReturn: Number(row.avg_return) || 0,
+          avgPnL: Number(row.avg_pnl) || 0,
+          minReturn: Number(row.min_return) || 0,
+          maxReturn: Number(row.max_return) || 0,
+          completedCount: Number(row.completed_count),
+          statisticalSignificance: Number(row.sample_size) >= 30,
+          pValue: 0.05 // Simplified - should be calculated properly
+        }));
+
+        resolve(results);
+      });
+    });
+  }
+
+  /**
+   * 获取A/B测试报告
+   */
+  async getABTestReports(options: {
+    experimentId?: string;
+    startDate: Date;
+    endDate: Date;
+  }): Promise<any[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const { experimentId, startDate, endDate } = options;
+    
+    return new Promise<any[]>((resolve, reject) => {
+      let sql = `
+        SELECT 
+          r.experiment_id,
+          r.variant,
+          r.id as recommendation_id,
+          r.symbol,
+          r.direction,
+          r.status,
+          r.result,
+          r.pnl_percent,
+          r.pnl_amount,
+          r.created_at,
+          r.closed_at,
+          COUNT(e.id) as execution_count,
+          AVG(e.slippage_bps) as avg_slippage
+        FROM recommendations r
+        LEFT JOIN executions e ON r.id = e.recommendation_id
+        WHERE r.created_at >= ? 
+          AND r.created_at <= ?
+          AND r.variant IS NOT NULL
+      `;
+
+      const params = [startDate.toISOString(), endDate.toISOString()];
+
+      if (experimentId) {
+        sql += ' AND r.experiment_id = ?';
+        params.push(experimentId);
+      }
+
+      sql += `
+        GROUP BY r.id, r.experiment_id, r.variant, r.symbol, r.direction, r.status, r.result, r.pnl_percent, r.pnl_amount, r.created_at, r.closed_at
+        ORDER BY r.created_at DESC
+      `;
+
+      this.db!.all(sql, params, (err: Error | null, rows: any[]) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        // Group by experiment and variant for summary statistics
+        const grouped = new Map<string, any[]>();
+        
+        rows.forEach((row: any) => {
+          const key = `${row.experiment_id}:${row.variant}`;
+          if (!grouped.has(key)) {
+            grouped.set(key, []);
+          }
+          grouped.get(key)!.push(row);
+        });
+
+        const reports = Array.from(grouped.entries()).map(([key, records]) => {
+          const [experimentId, variant] = key.split(':');
+          const completedRecords = records.filter(r => r.status === 'CLOSED');
+          
+          const winCount = completedRecords.filter(r => r.result === 'WIN').length;
+          const totalPnL = completedRecords.reduce((sum, r) => sum + (r.pnl_amount || 0), 0);
+          const totalReturn = completedRecords.reduce((sum, r) => sum + (r.pnl_percent || 0), 0);
+          
+          const returns = completedRecords.map(r => r.pnl_percent || 0);
+          const avgReturn = returns.length > 0 ? totalReturn / returns.length : 0;
+          const sharpeRatio = this.calculateSharpeRatio(returns);
+          const maxDrawdown = this.calculateMaxDrawdown(returns);
+
+          return {
+            experimentId,
+            variant,
+            sampleSize: records.length,
+            completedCount: completedRecords.length,
+            winRate: completedRecords.length > 0 ? winCount / completedRecords.length : 0,
+            avgReturn,
+            avgPnL: completedRecords.length > 0 ? totalPnL / completedRecords.length : 0,
+            sharpeRatio,
+            maxDrawdown,
+            avgSlippage: records.reduce((sum, r) => sum + (r.avg_slippage || 0), 0) / records.length,
+            executionCount: records.reduce((sum, r) => sum + (r.execution_count || 0), 0),
+            statisticalSignificance: records.length >= 30,
+            pValue: 0.05,
+            records: records.map(r => ({
+              recommendationId: r.recommendation_id,
+              symbol: r.symbol,
+              direction: r.direction,
+              status: r.status,
+              result: r.result,
+              pnlPercent: r.pnl_percent,
+              pnlAmount: r.pnl_amount,
+              createdAt: r.created_at,
+              closedAt: r.closed_at,
+              executionCount: r.execution_count,
+              avgSlippage: r.avg_slippage
+            }))
+          };
+        });
+
+        resolve(reports);
+      });
+    });
+  }
+
+  /**
+   * 计算夏普比率
+   */
+  private calculateSharpeRatio(returns: number[]): number {
+    if (returns.length === 0) return 0;
+    
+    const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
+    const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - avgReturn, 2), 0) / returns.length;
+    const stdDev = Math.sqrt(variance);
+    
+    return stdDev > 0 ? avgReturn / stdDev : 0;
+  }
+
+  /**
+   * 计算最大回撤
+   */
+  private calculateMaxDrawdown(returns: number[]): number {
+    if (returns.length === 0) return 0;
+    
+    let maxDrawdown = 0;
+    let peak = returns[0];
+    
+    for (let i = 1; i < returns.length; i++) {
+      if (returns[i] > peak) {
+        peak = returns[i];
+      }
+      
+      const drawdown = (peak - returns[i]) / peak;
+      if (drawdown > maxDrawdown) {
+        maxDrawdown = drawdown;
+      }
+    }
+    
+    return maxDrawdown;
+  }
+
+  /**
+   * 根据实验ID获取推荐记录
+   */
+  async getRecommendationsByExperiment(experimentId: string, startDate: Date, endDate: Date): Promise<RecommendationRecord[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise<RecommendationRecord[]>((resolve, reject) => {
+      const sql = `
+        SELECT * FROM recommendations 
+        WHERE experiment_id = ? 
+          AND created_at >= ? 
+          AND created_at <= ?
+          AND variant IS NOT NULL
+        ORDER BY created_at DESC
+      `;
+
+      this.db!.all(sql, [experimentId, startDate.toISOString(), endDate.toISOString()], (err: Error | null, rows: any[]) => {
+        if (err) {
+          reject(err);
+        } else {
+          const recs = rows.map(row => this.rowToRecommendation(row));
+          resolve(recs);
+        }
+      });
+    });
+  }
+
+  /**
+   * 根据实验ID获取执行记录
+   */
+  async getExecutionsByExperiment(experimentId: string, startDate: Date, endDate: Date): Promise<ExecutionRecord[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise<ExecutionRecord[]>((resolve, reject) => {
+      const sql = `
+        SELECT e.* FROM executions e
+        INNER JOIN recommendations r ON e.recommendation_id = r.id
+        WHERE r.experiment_id = ? 
+          AND e.created_at >= ? 
+          AND e.created_at <= ?
+          AND r.variant IS NOT NULL
+        ORDER BY e.created_at DESC
+      `;
+
+      this.db!.all(sql, [experimentId, startDate.toISOString(), endDate.toISOString()], (err: Error | null, rows: any[]) => {
+        if (err) {
+          reject(err);
+        } else {
+          const executions = rows.map(row => this.rowToExecution(row));
+          resolve(executions);
+        }
+      });
+    });
+  }
+
   private async migrateSchema(): Promise<void> {
     if (!this.db) {
       throw new Error('Database not initialized');
     }
     await new Promise<void>((resolve, reject) => {
-      this.db!.all("PRAGMA table_info(ml_samples)", [], (err, rows: any[]) => {
+      this.db!.all("PRAGMA table_info(ml_samples)", [], (err: Error | null, rows: any[]) => {
         if (err) {
           return reject(err);
         }
@@ -1605,7 +3107,7 @@ export class RecommendationDatabase {
           });
         }
         // 新增：为 recommendations 增加 exit_label 列，并进行一次性回填（幂等）
-        this.db!.all("PRAGMA table_info(recommendations)", [], (err2, recRows: any[]) => {
+        this.db!.all("PRAGMA table_info(recommendations)", [], (err2: Error | null,  recRows: any[]) => {
           if (err2) {
             return reject(err2);
           }
@@ -1631,14 +3133,14 @@ export class RecommendationDatabase {
                 // 回填失败不应阻断初始化，打印警告后继续
               }
               // Ensure recommendation_monitoring has extra_json column (idempotent)
-              this.db!.all("PRAGMA table_info(recommendation_monitoring)", [], (mErr, mRows: any[]) => {
+              this.db!.all("PRAGMA table_info(recommendation_monitoring)", [], (mErr: Error | null, mRows: any[]) => {
                 if (mErr) {
                   console.warn('Failed to inspect recommendation_monitoring schema (non-fatal):', mErr);
                   return resolve();
                 }
                 const hasExtra = Array.isArray(mRows) && mRows.some((r: any) => r.name === 'extra_json');
                 const afterMonitoring = () => {
-                  this.db!.all("PRAGMA table_info(recommendations)", [], (err3, recRows2: any[]) => {
+                  this.db!.all("PRAGMA table_info(recommendations)", [], (err3: Error | null,  recRows2: any[]) => {
                     if (err3) {
                       console.warn('Failed to inspect recommendations schema for EV columns (non-fatal):', err3);
                       return resolve();
@@ -1649,6 +3151,52 @@ export class RecommendationDatabase {
                     const hasEvOk = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ev_ok');
                     const hasAB = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'ab_group');
                     const hasExtraJson = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'extra_json');
+                    
+                    // ATR动态止损相关字段
+                    const hasAtrValue = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'atr_value');
+                    const hasAtrPeriod = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'atr_period');
+                    const hasAtrSlMultiplier = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'atr_sl_multiplier');
+                    const hasAtrTpMultiplier = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'atr_tp_multiplier');
+                    
+                    // 分批止盈状态字段
+                    const hasTp1Hit = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'tp1_hit');
+                    const hasTp2Hit = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'tp2_hit');
+                    const hasTp3Hit = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'tp3_hit');
+                    const hasReductionCount = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'reduction_count');
+                    const hasReductionRatio = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'reduction_ratio');
+                    
+                    // 实验相关字段
+                    const hasExperimentId = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'experiment_id');
+                    const hasVariant = Array.isArray(recRows2) && recRows2.some((r: any) => r.name === 'variant');
+                    
+                    // 在执行 recommendations 迁移完成后，继续执行 executions 的列迁移
+                    const migrateExecutionsThenResolve = () => {
+                      this.db!.all("PRAGMA table_info(executions)", [], (eErr: Error | null, eRows: any[]) => {
+                        if (eErr) {
+                          console.warn('Failed to inspect executions schema (non-fatal):', eErr);
+                          return resolve();
+                        }
+                        const hasExeVariant = Array.isArray(eRows) && eRows.some((r: any) => r.name === 'variant');
+                        const hasExeAbGroup = Array.isArray(eRows) && eRows.some((r: any) => r.name === 'ab_group');
+                        const hasExeExperimentId = Array.isArray(eRows) && eRows.some((r: any) => r.name === 'experiment_id');
+                        const exeAlters: string[] = [];
+                        if (!hasExeVariant) exeAlters.push("ALTER TABLE executions ADD COLUMN variant TEXT");
+                        if (!hasExeAbGroup) exeAlters.push("ALTER TABLE executions ADD COLUMN ab_group TEXT");
+                        if (!hasExeExperimentId) exeAlters.push("ALTER TABLE executions ADD COLUMN experiment_id TEXT");
+                        if (exeAlters.length === 0) return resolve();
+                        const runExe = (i: number) => {
+                          if (i >= exeAlters.length) return resolve();
+                          this.db!.run(exeAlters[i], (eaErr: Error | null) => {
+                            if (eaErr) {
+                              console.warn('Executions schema migrate step failed (非致命):', exeAlters[i], eaErr);
+                            }
+                            runExe(i + 1);
+                          });
+                        };
+                        runExe(0);
+                      });
+                    };
+
                     const alters: string[] = [];
                     if (!hasExpected) alters.push("ALTER TABLE recommendations ADD COLUMN expected_return REAL");
                     if (!hasEv) alters.push("ALTER TABLE recommendations ADD COLUMN ev REAL");
@@ -1656,9 +3204,26 @@ export class RecommendationDatabase {
                     if (!hasEvOk) alters.push("ALTER TABLE recommendations ADD COLUMN ev_ok INTEGER");
                     if (!hasAB) alters.push("ALTER TABLE recommendations ADD COLUMN ab_group TEXT");
                     if (!hasExtraJson) alters.push("ALTER TABLE recommendations ADD COLUMN extra_json TEXT");
-                    if (alters.length === 0) return resolve();
+                    
+                    // ATR动态止损相关字段
+                    if (!hasAtrValue) alters.push("ALTER TABLE recommendations ADD COLUMN atr_value REAL");
+                    if (!hasAtrPeriod) alters.push("ALTER TABLE recommendations ADD COLUMN atr_period INTEGER");
+                    if (!hasAtrSlMultiplier) alters.push("ALTER TABLE recommendations ADD COLUMN atr_sl_multiplier REAL");
+                    if (!hasAtrTpMultiplier) alters.push("ALTER TABLE recommendations ADD COLUMN atr_tp_multiplier REAL");
+                    
+                    // 分批止盈状态字段
+                    if (!hasTp1Hit) alters.push("ALTER TABLE recommendations ADD COLUMN tp1_hit INTEGER DEFAULT 0");
+                    if (!hasTp2Hit) alters.push("ALTER TABLE recommendations ADD COLUMN tp2_hit INTEGER DEFAULT 0");
+                    if (!hasTp3Hit) alters.push("ALTER TABLE recommendations ADD COLUMN tp3_hit INTEGER DEFAULT 0");
+                    if (!hasReductionCount) alters.push("ALTER TABLE recommendations ADD COLUMN reduction_count INTEGER DEFAULT 0");
+                    if (!hasReductionRatio) alters.push("ALTER TABLE recommendations ADD COLUMN reduction_ratio REAL");
+                    
+                    // 实验相关字段
+                    if (!hasExperimentId) alters.push("ALTER TABLE recommendations ADD COLUMN experiment_id TEXT");
+                    if (!hasVariant) alters.push("ALTER TABLE recommendations ADD COLUMN variant TEXT");
+                    if (alters.length === 0) return migrateExecutionsThenResolve();
                     const runNext = (i: number) => {
-                      if (i >= alters.length) return resolve();
+                      if (i >= alters.length) return migrateExecutionsThenResolve();
                       this.db!.run(alters[i], (aErr: Error | null) => {
                         if (aErr) {
                           console.warn('EV schema migrate step failed (non-fatal):', alters[i], aErr);
@@ -1714,6 +3279,274 @@ export class RecommendationDatabase {
         });
       });
     });
+  }
+
+  // Decision Chain Database Methods
+  async createDecisionChainTable(): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
+    return new Promise<void>((resolve, reject) => {
+      this.db!.run(`
+        CREATE TABLE IF NOT EXISTS decision_chains (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chain_id TEXT UNIQUE NOT NULL,
+          symbol TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          status TEXT NOT NULL,
+          start_time INTEGER NOT NULL,
+          end_time INTEGER,
+          final_decision TEXT,
+          rejection_reason TEXT,
+          rejection_stage TEXT,
+          steps_json TEXT NOT NULL,
+          metrics_json TEXT,
+          created_at INTEGER DEFAULT (strftime('%s', 'now'))
+        )
+      `, (err: Error | null) => {
+        if (err) {
+          console.error('Error creating decision_chains table:', err);
+          reject(err);
+        } else {
+          // Create indexes for efficient querying
+          this.db!.run('CREATE INDEX IF NOT EXISTS idx_decision_chains_symbol ON decision_chains(symbol)', () => {});
+          this.db!.run('CREATE INDEX IF NOT EXISTS idx_decision_chains_status ON decision_chains(status)', () => {});
+          this.db!.run('CREATE INDEX IF NOT EXISTS idx_decision_chains_time ON decision_chains(start_time)', () => {});
+          this.db!.run('CREATE INDEX IF NOT EXISTS idx_decision_chains_rejection ON decision_chains(rejection_stage, rejection_reason)', () => {});
+          resolve();
+        }
+      });
+    });
+  }
+
+  async saveDecisionChain(chain: any): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const stmt = this.db!.prepare(`
+        INSERT OR REPLACE INTO decision_chains 
+        (chain_id, symbol, direction, status, start_time, end_time, final_decision, 
+         rejection_reason, rejection_stage, steps_json, metrics_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      stmt.run([
+        chain.chainId,
+        chain.symbol,
+        chain.direction,
+        chain.status,
+        chain.startTime,
+        chain.endTime || null,
+        chain.finalDecision || null,
+        chain.rejectionReason || null,
+        chain.rejectionStage || null,
+        JSON.stringify(chain.steps),
+        chain.metrics ? JSON.stringify(chain.metrics) : null
+      ], (err: Error | null) => {
+        stmt.finalize();
+        if (err) {
+          console.error('Error saving decision chain:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  async getDecisionChain(chainId: string): Promise<any> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise<any>((resolve, reject) => {
+      this.db!.get(
+        'SELECT * FROM decision_chains WHERE chain_id = ?',
+        [chainId],
+        (err: Error | null, row: any) => {
+          if (err) {
+            console.error('Error getting decision chain:', err);
+            reject(err);
+          } else if (row) {
+            resolve({
+              ...row,
+              steps: JSON.parse(row.steps_json),
+              metrics: row.metrics_json ? JSON.parse(row.metrics_json) : null
+            });
+          } else {
+            resolve(null);
+          }
+        }
+      );
+    });
+  }
+
+  async queryDecisionChains(filters: any): Promise<any[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise<any[]>((resolve, reject) => {
+      let sql = 'SELECT * FROM decision_chains WHERE 1=1';
+      const params: any[] = [];
+
+      if (filters.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(filters.symbol);
+      }
+      if (filters.direction) {
+        sql += ' AND direction = ?';
+        params.push(filters.direction);
+      }
+      if (filters.status) {
+        sql += ' AND status = ?';
+        params.push(filters.status);
+      }
+      if (filters.rejectionStage) {
+        sql += ' AND rejection_stage = ?';
+        params.push(filters.rejectionStage);
+      }
+      if (filters.rejectionReason) {
+        sql += ' AND rejection_reason = ?';
+        params.push(filters.rejectionReason);
+      }
+      if (filters.startTimeFrom) {
+        sql += ' AND start_time >= ?';
+        params.push(filters.startTimeFrom);
+      }
+      if (filters.startTimeTo) {
+        sql += ' AND start_time <= ?';
+        params.push(filters.startTimeTo);
+      }
+
+      sql += ' ORDER BY start_time DESC';
+      if (filters.limit) {
+        sql += ' LIMIT ?';
+        params.push(filters.limit);
+      }
+
+      this.db!.all(sql, params, (err: Error | null, rows: any[]) => {
+        if (err) {
+          console.error('Error querying decision chains:', err);
+          reject(err);
+        } else {
+          resolve(rows.map(row => ({
+            ...row,
+            steps: JSON.parse(row.steps_json),
+            metrics: row.metrics_json ? JSON.parse(row.metrics_json) : null
+          })));
+        }
+      });
+    });
+  }
+
+  async getDecisionChainMetrics(filters: any): Promise<any> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise<any>((resolve, reject) => {
+      let sql = `
+        SELECT 
+          COUNT(*) as total_count,
+          COUNT(CASE WHEN status = 'APPROVED' THEN 1 END) as approved_count,
+          COUNT(CASE WHEN status = 'REJECTED' THEN 1 END) as rejected_count,
+          COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_count,
+          rejection_stage,
+          rejection_reason,
+          COUNT(*) as stage_count
+        FROM decision_chains
+        WHERE 1=1
+      `;
+      const params: any[] = [];
+
+      if (filters.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(filters.symbol);
+      }
+      if (filters.direction) {
+        sql += ' AND direction = ?';
+        params.push(filters.direction);
+      }
+      if (filters.startTimeFrom) {
+        sql += ' AND start_time >= ?';
+        params.push(filters.startTimeFrom);
+      }
+      if (filters.startTimeTo) {
+        sql += ' AND start_time <= ?';
+        params.push(filters.startTimeTo);
+      }
+
+      sql += ' GROUP BY rejection_stage, rejection_reason ORDER BY stage_count DESC';
+
+      this.db!.all(sql, params, (err: Error | null, rows: any[]) => {
+        if (err) {
+          console.error('Error getting decision chain metrics:', err);
+          reject(err);
+        } else {
+          const summary = {
+            total: 0,
+            approved: 0,
+            rejected: 0,
+            pending: 0,
+            rejectionBreakdown: [] as any[]
+          };
+
+          rows.forEach((row: any) => {
+            summary.total += row.total_count;
+            summary.approved += row.approved_count;
+            summary.rejected += row.rejected_count;
+            summary.pending += row.pending_count;
+            
+            if (row.rejection_stage) {
+              summary.rejectionBreakdown.push({
+                stage: row.rejection_stage,
+                reason: row.rejection_reason,
+                count: row.stage_count
+              });
+            }
+          });
+
+          resolve(summary);
+        }
+      });
+    });
+  }
+
+  /**
+   * 兼容 DecisionChainMonitor 接口的 save 方法
+   * 将数据保存为决策链格式
+   */
+  async save(key: string, data: any): Promise<void> {
+    if (key.startsWith('chain:')) {
+      // 如果是决策链数据，使用 saveDecisionChain 方法
+      const chainId = key.replace('chain:', '');
+      return this.saveDecisionChain({
+        ...data,
+        chainId: data.chainId || chainId
+      });
+    } else {
+      // 其他数据暂时不支持，抛出错误
+      throw new Error(`Unsupported key format for save: ${key}`);
+    }
+  }
+
+  /**
+   * 兼容 DecisionChainMonitor 接口的 get 方法
+   * 获取决策链数据
+   */
+  async get(key: string): Promise<any | null> {
+    if (key.startsWith('chain:')) {
+      // 如果是决策链数据，使用 getDecisionChain 方法
+      const chainId = key.replace('chain:', '');
+      return this.getDecisionChain(chainId);
+    } else {
+      // 其他数据暂时不支持，返回 null
+      return null;
+    }
   }
 }
 

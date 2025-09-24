@@ -1,0 +1,14 @@
+{
+  "timestamp": "2025-09-23T14:31:22.813Z",
+  "tests": {
+    "overall": {
+      "success": false,
+      "error": "Request failed with status code 404"
+    }
+  },
+  "summary": {
+    "totalTests": 1,
+    "passedTests": 0,
+    "failedTests": 2
+  }
+}

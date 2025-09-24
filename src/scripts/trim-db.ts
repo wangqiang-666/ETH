@@ -1,4 +1,4 @@
-import { RecommendationDatabase } from "../services/recommendation-database";
+import { RecommendationDatabase } from "../services/recommendation-database.js";
 
 async function main() {
   try {

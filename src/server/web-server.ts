@@ -8,22 +8,22 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { ethStrategyEngine } from '../strategy/eth-strategy-engine';
-import { StrategyResult } from '../strategy/eth-strategy-engine';
-import { smartSignalAnalyzer } from '../analyzers/smart-signal-analyzer';
-import { enhancedOKXDataService, setTestingFGIOverride, clearTestingFGIOverride, setTestingFundingOverride, clearTestingFundingOverride, getEffectiveTestingFGIOverride } from '../services/enhanced-okx-data-service';
-import { config } from '../config';
-import riskRoutes from '../api/risk-routes';
-import backtestRoutes from '../api/backtest-routes';
-import { dataValidator } from '../utils/data-validator';
-import { TechnicalIndicatorAnalyzer } from '../indicators/technical-indicators';
+import { ethStrategyEngine } from '../strategy/eth-strategy-engine.js';
+import { StrategyResult } from '../strategy/eth-strategy-engine.js';
+import { smartSignalAnalyzer } from '../analyzers/smart-signal-analyzer.js';
+import { enhancedOKXDataService, setTestingFGIOverride, clearTestingFGIOverride, setTestingFundingOverride, clearTestingFundingOverride, getEffectiveTestingFGIOverride } from '../services/enhanced-okx-data-service.js';
+import { config } from '../config.js';
+import riskRoutes from '../api/risk-routes.js';
+import backtestRoutes from '../api/backtest-routes.js';
+import { dataValidator } from '../utils/data-validator.js';
+import { TechnicalIndicatorAnalyzer } from '../indicators/technical-indicators.js';
 import { RSI, MACD, BollingerBands  } from 'technicalindicators';
 
 import fs from 'fs';
-import { RecommendationIntegrationService } from '../services/recommendation-integration-service';
-import { tradingSignalService } from '../services/trading-signal-service';
-import { riskManagementService } from '../services/risk-management-service';
-import { MLAnalyzer } from '../ml/ml-analyzer';
+import { RecommendationIntegrationService } from '../services/recommendation-integration-service.js';
+import { tradingSignalService } from '../services/trading-signal-service.js';
+import { riskManagementService } from '../services/risk-management-service.js';
+import { MLAnalyzer } from '../ml/ml-analyzer.js';
 import NodeCache from 'node-cache';
 import { spawn } from 'child_process';
 
@@ -896,7 +896,32 @@ export class WebServer {
       const disableExternal = disableExternalRaw === '1' || disableExternalRaw === 'true';
       if (disableExternal) {
         // 外部市场禁用时，也尝试通过增强数据服务返回覆盖价（若未设置覆盖则可能为 null）
-        const ticker = await enhancedOKXDataService.getTicker(symbol);
+        let ticker = await enhancedOKXDataService.getTicker(symbol);
+        // 回退：若 ticker 仍为 null，尝试用最近K线的 close 合成
+        if (!ticker) {
+          try {
+            const klines = await enhancedOKXDataService.getKlineData(symbol, '1m', 1);
+            if (Array.isArray(klines) && klines.length > 0) {
+              const last = klines[klines.length - 1];
+              const price = (last as any)?.close ?? 0;
+              if (Number.isFinite(price) && price > 0) {
+                ticker = {
+                  price,
+                  volume: 0,
+                  timestamp: Date.now(),
+                  high24h: price,
+                  low24h: price,
+                  change24h: 0,
+                  changeFromSodUtc8: 0,
+                  open24hPrice: price,
+                  sodUtc8Price: price
+                } as any;
+              }
+            }
+          } catch (e) {
+            // 忽略回退构造中的异常，继续返回 null
+          }
+        }
         const response: ApiResponse = {
           success: true,
           data: ticker,
@@ -905,7 +930,32 @@ export class WebServer {
         res.json(response);
         return;
       }
-      const ticker = await enhancedOKXDataService.getTicker(symbol);
+      let ticker = await enhancedOKXDataService.getTicker(symbol);
+      // 回退：若外部未禁用但 ticker 获取失败，也尝试用最近K线 close 合成
+      if (!ticker) {
+        try {
+          const klines = await enhancedOKXDataService.getKlineData(symbol, '1m', 1);
+          if (Array.isArray(klines) && klines.length > 0) {
+            const last = klines[klines.length - 1];
+            const price = (last as any)?.close ?? 0;
+            if (Number.isFinite(price) && price > 0) {
+              ticker = {
+                price,
+                volume: 0,
+                timestamp: Date.now(),
+                high24h: price,
+                low24h: price,
+                change24h: 0,
+                changeFromSodUtc8: 0,
+                open24hPrice: price,
+                sodUtc8Price: price
+              } as any;
+            }
+          }
+        } catch (e) {
+          // 忽略回退构造中的异常，继续返回 null
+        }
+      }
       const response: ApiResponse = {
         success: true,
         data: ticker,

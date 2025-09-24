@@ -1,11 +1,11 @@
-import { TechnicalIndicatorAnalyzer, TechnicalIndicatorResult } from '../indicators/technical-indicators';
-import { MLAnalyzer, MLAnalysisResult, MarketData } from '../ml/ml-analyzer';
-import { config } from '../config';
-import { recommendationDatabase } from '../services/recommendation-database';
-import type { MLSampleRecord } from '../services/recommendation-database';
-import { logger } from '../utils/logger';
-import { KronosClient, KronosForecast } from '../ml/kronos-client';
-import { enhancedOKXDataService } from '../services/enhanced-okx-data-service';
+import { TechnicalIndicatorAnalyzer, TechnicalIndicatorResult } from '../indicators/technical-indicators.js';
+import { MLAnalyzer, MLAnalysisResult, MarketData } from '../ml/ml-analyzer.js';
+import { config } from '../config.js';
+import { recommendationDatabase } from '../services/recommendation-database.js';
+import type { MLSampleRecord } from '../services/recommendation-database.js';
+import { logger } from '../utils/logger.js';
+import { KronosClient, KronosForecast } from '../ml/kronos-client.js';
+import { enhancedOKXDataService } from '../services/enhanced-okx-data-service.js';
 
 // 智能交易信号类型
 export type SmartSignalType = 'STRONG_BUY' | 'BUY' | 'HOLD' | 'SELL' | 'STRONG_SELL';

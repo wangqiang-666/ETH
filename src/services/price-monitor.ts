@@ -1,5 +1,5 @@
-import { EnhancedOKXDataService } from './enhanced-okx-data-service';
-import { RecommendationRecord } from './recommendation-tracker';
+import { EnhancedOKXDataService } from './enhanced-okx-data-service.js';
+import { RecommendationRecord } from './recommendation-tracker.js';
 
 /**
  * 价格监控服务

@@ -1,7 +1,8 @@
-import { enhancedOKXDataService } from './enhanced-okx-data-service';
-import { recommendationDatabase } from './recommendation-database';
-import { riskManagementService } from './risk-management-service';
-import { config } from '../config';
+import { enhancedOKXDataService } from './enhanced-okx-data-service.js';
+import { recommendationDatabase } from './recommendation-database.js';
+import { riskManagementService } from './risk-management-service.js';
+import { config } from '../config.js';
+import { EventEmitter } from 'events';
 
 // 推荐记录类型（供数据库与跟踪器共用）
 export interface RecommendationRecord {
@@ -18,6 +19,17 @@ export interface RecommendationRecord {
   stop_loss_percent?: number | null;
   take_profit_percent?: number | null;
   liquidation_price?: number | null;
+  // ATR动态止损相关
+  atr_value?: number | null;
+  atr_period?: number | null;
+  atr_sl_multiplier?: number | null;
+  atr_tp_multiplier?: number | null;
+  // 分批止盈状态
+  tp1_hit?: boolean | null;
+  tp2_hit?: boolean | null;
+  tp3_hit?: boolean | null;
+  reduction_count?: number | null;
+  reduction_ratio?: number | null;
   // 账户/保证金相关（数据库同名列）
   margin_ratio?: number | null;
   maintenance_margin?: number | null;
@@ -59,6 +71,11 @@ export interface RecommendationRecord {
   ev_threshold?: number | null;
   ev_ok?: boolean | null; // 统一布尔；DB 层做 0/1 转换
   ab_group?: string | null;
+  // 新增：A/B测试变体标识
+  variant?: string | null;
+  // 新增：实验ID（用于 A/B 测试分组统计与查询）
+  experiment_id?: string | null;
+  
   // 去重键
   dedupe_key?: string | null;
 }
@@ -73,7 +90,7 @@ type PriceCheckResult = {
 };
 
 
-export class RecommendationTracker {
+export class RecommendationTracker extends EventEmitter {
   private activeRecommendations: Map<string, RecommendationRecord> = new Map();
   
   // 对外读取活跃推荐列表
@@ -108,6 +125,7 @@ export class RecommendationTracker {
   };
 
   constructor() {
+    super();
     const strat: any = (config as any)?.strategy || {};
     const gating: any = strat.gating || {};
     const trailing: any = strat.trailing || {};
@@ -172,6 +190,10 @@ export class RecommendationTracker {
       dedupe_key: dedupeKey,
     } as RecommendationRecord;
 
+    // A/B：为缺省情况填充默认实验ID与变体，避免下游统计缺字段
+    (record as any).experiment_id = (record as any).experiment_id || 'recommendation-strategy-v1';
+    (record as any).variant = (record as any).variant || 'control';
+
     // 获取市场数据（可通过环境变量在创建阶段禁用外部行情，避免超时）
     let marketData: any;
     if (DISABLE_EXTERNAL_MARKET_ON_CREATE) {
@@ -203,6 +225,57 @@ export class RecommendationTracker {
     (record as any).current_price = marketData.currentPrice;
     (record as any).volume_24h = marketData.volume24h;
     (record as any).price_change_24h = marketData.priceChange24h;
+
+    // 新增：提取ATR动态止损字段
+    try {
+      const atrValue = Number(recommendation?.atr_value ?? recommendation?.atrValue ?? 0);
+      const atrPeriod = Number(recommendation?.atr_period ?? recommendation?.atrPeriod ?? 14);
+      const atrSlMultiplier = Number(recommendation?.atr_sl_multiplier ?? recommendation?.atrSlMultiplier ?? 2.0);
+      const atrTpMultiplier = Number(recommendation?.atr_tp_multiplier ?? recommendation?.atrTpMultiplier ?? 3.0);
+      
+      if (atrValue > 0) {
+        (record as any).atr_value = atrValue;
+        (record as any).atr_period = atrPeriod;
+        (record as any).atr_sl_multiplier = atrSlMultiplier;
+        (record as any).atr_tp_multiplier = atrTpMultiplier;
+      }
+    } catch (e) {
+      console.warn('[RecommendationTracker] extract ATR fields failed:', (e as any)?.message || String(e));
+    }
+
+    // 新增：初始化分批止盈状态字段
+    try {
+      (record as any).tp1_hit = false;
+      (record as any).tp2_hit = false;
+      (record as any).tp3_hit = false;
+      (record as any).reduction_count = 0;
+      (record as any).reduction_ratio = 0;
+    } catch (e) {
+      console.warn('[RecommendationTracker] initialize TP/reduction fields failed:', (e as any)?.message || String(e));
+    }
+
+    // 新增：在创建时构建 extra_json（记录追踪止损与 ATR 配置快照，便于后续分析与回放）
+    try {
+      const atrCfg = ((config as any)?.strategy?.atrStops) || {};
+      const tstate = this.trailingStates.get(id) || {};
+      const trailingCfg = {
+        enabled: this.TRAIL_ENABLED,
+        percent: this.TRAIL_PERCENT,
+        minStep: this.TRAIL_MIN_STEP,
+        onBreakeven: this.TRAIL_ON_BREAKEVEN,
+        activateProfitPct: this.TRAIL_ACTIVATE_PROFIT_PCT,
+        flex: this.FLEX,
+        state: tstate
+      } as any;
+      const creationMeta = {
+        created_at: now.toISOString(),
+        marketData,
+        source: (record as any)?.source ?? null
+      };
+      (record as any).extra_json = JSON.stringify({ trailingCfg, atrCfg, creationMeta });
+    } catch (e) {
+      console.warn('[RecommendationTracker] build extra_json on create failed:', (e as any)?.message || String(e));
+    }
 
     // 新增：创建时按百分比回填止盈/止损目标价（与 backfill 脚本一致）
     try {
@@ -889,6 +962,21 @@ console.warn('[RecommendationTracker] maybeUpdateTrailing error:', (e as any)?.m
         
             // 从活跃缓存移除
             this.activeRecommendations.delete(rec.id);
+            
+            // 滑点监控和告警
+            try {
+              this.emit('recommendation:closed', {
+                recommendation: rec,
+                exitData: {
+                  exitPrice: safeExit,
+                  pnlAmount: pa,
+                  pnlPercent: pp,
+                  reason: reason
+                }
+              });
+            } catch (monitorError) {
+              console.warn('[RecommendationTracker] Slippage monitoring failed:', (monitorError as any)?.message || String(monitorError));
+            }
           } catch (e) {
             console.error('[RecommendationTracker] closeRecommendation failed:', (e as any)?.message || String(e));
             throw e;
@@ -1201,7 +1289,8 @@ console.warn('[RecommendationTracker] maybeUpdateTrailing error:', (e as any)?.m
                             stop_loss_price: rec.stop_loss_price,
                             take_profit_price: rec.take_profit_price
                           };
-                          const extraPayload = { trailingCfg, exposure, triggerCheck };
+                          const atrCfg = ((config as any)?.strategy?.atrStops) || {};
+                          const extraPayload = { trailingCfg, atrCfg, exposure, triggerCheck };
             
                           try { await recommendationDatabase.initialize(); } catch {}
                           await recommendationDatabase.saveMonitoringSnapshot({

@@ -1,5 +1,5 @@
-import { MarketData } from '../ml/ml-analyzer';
-import { KlineData } from '../services/okx-data-service';
+import { MarketData } from '../ml/ml-analyzer.js';
+import { KlineData } from '../services/okx-data-service.js';
 
 export type Severity = 'INFO' | 'WARNING' | 'ERROR';
 

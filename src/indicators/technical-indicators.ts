@@ -1,6 +1,6 @@
 import { RSI, MACD, BollingerBands, Stochastic, WilliamsR, EMA, SMA, ATR, ADX, MFI, OBV } from 'technicalindicators';
-import _ from 'lodash';
-import { config } from '../config';
+import * as _ from 'lodash';
+import { config } from '../config.js';
 
 /**
  * K线数据接口

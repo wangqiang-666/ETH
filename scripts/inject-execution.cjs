@@ -20,6 +20,9 @@ function parseArgs() {
     else if (a === '--pnl') opts.pnl_amount = parseFloat(args[++i]);
     else if (a === '--pnlpct') opts.pnl_percent = parseFloat(args[++i]);
     else if (a === '--now') opts.now = parseInt(args[++i], 10);
+    else if (a === '--variant') opts.variant = args[++i];
+    else if (a === '--ab-group') opts.ab_group = args[++i];
+    else if (a === '--experiment-id') opts.experiment_id = args[++i];
   }
   return opts;
 }
@@ -32,18 +35,21 @@ function insertExecution(db, exe) {
       INSERT INTO executions (
         created_at, updated_at, recommendation_id, position_id, event_type, symbol, direction, size,
         intended_price, intended_timestamp, fill_price, fill_timestamp, latency_ms,
-        slippage_bps, slippage_amount, fee_bps, fee_amount, pnl_amount, pnl_percent, extra_json
+        slippage_bps, slippage_amount, fee_bps, fee_amount, pnl_amount, pnl_percent, extra_json,
+        variant, ab_group, experiment_id
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?
       )`;
     const params = [
       exe.created_at, exe.updated_at, exe.recommendation_id || null, exe.position_id || null, exe.event_type,
       exe.symbol || null, exe.direction || null, exe.size || null,
       exe.intended_price || null, exe.intended_timestamp || null, exe.fill_price || null, exe.fill_timestamp || null, exe.latency_ms || null,
       exe.slippage_bps || null, exe.slippage_amount || null, exe.fee_bps || null, exe.fee_amount || null, exe.pnl_amount || null, exe.pnl_percent || null,
-      exe.extra_json ? JSON.stringify(exe.extra_json) : null
+      exe.extra_json ? JSON.stringify(exe.extra_json) : null,
+      exe.variant || null, exe.ab_group || null, exe.experiment_id || null
     ];
     db.run(sql, params, function(err) {
       if (err) return reject(err);
@@ -69,6 +75,9 @@ async function main() {
     size: isFinite(opts.size) ? opts.size : 0.01,
     slippage_bps: isFinite(opts.slippage_bps) ? opts.slippage_bps : 0,
     fee_bps: isFinite(opts.fee_bps) ? opts.fee_bps : 5,
+    variant: opts.variant || null,
+    ab_group: opts.ab_group || null,
+    experiment_id: opts.experiment_id || null,
   };
 
   const t0 = isFinite(opts.now) ? opts.now : Date.now();

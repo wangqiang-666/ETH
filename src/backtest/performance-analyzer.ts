@@ -1,4 +1,4 @@
-import { BacktestResult, BacktestTrade } from './backtest-engine';
+import { BacktestResult, BacktestTrade } from './backtest-engine.js';
 
 // 性能分析报告
 export interface PerformanceReport {
@@ -90,8 +90,8 @@ export class PerformanceAnalyzer {
     };
 
     // 交易统计
-    const bestTrade = Math.max(...trades.map(t => t.pnlPercent || 0));
-    const worstTrade = Math.min(...trades.map(t => t.pnlPercent || 0));
+    const bestTrade = Math.max(...trades.map((t: any) => t.pnlPercent || 0));
+    const worstTrade = Math.min(...trades.map((t: any) => t.pnlPercent || 0));
     const avgTradesPerMonth = monthlyReturns.length > 0 
       ? summary.totalTrades / monthlyReturns.length 
       : 0;
@@ -110,10 +110,10 @@ export class PerformanceAnalyzer {
 
     // 风险分析
     const downsideReturns = trades
-      .filter(t => (t.pnlPercent || 0) < 0)
-      .map(t => t.pnlPercent || 0);
+      .filter((t: any) => (t.pnlPercent || 0) < 0)
+      .map((t: any) => t.pnlPercent || 0);
     const downsideDeviation = downsideReturns.length > 0 
-      ? Math.sqrt(downsideReturns.reduce((sum, r) => sum + r * r, 0) / downsideReturns.length)
+      ? Math.sqrt(downsideReturns.reduce((sum: any, r: any) => sum + r * r, 0) / downsideReturns.length)
       : 0;
 
     const riskAnalysis = {
@@ -126,13 +126,13 @@ export class PerformanceAnalyzer {
     };
 
     // 月度分析
-    const positiveMonths = monthlyReturns.filter(m => m.return > 0).length;
-    const bestMonth = monthlyReturns.reduce((best, current) => 
+    const positiveMonths = monthlyReturns.filter((m: any) => m.return > 0).length;
+    const bestMonth = monthlyReturns.reduce((best: any, current: any) => 
       current.return > best.return ? current : best, monthlyReturns[0] || { month: 'N/A', return: 0 });
-    const worstMonth = monthlyReturns.reduce((worst, current) => 
+    const worstMonth = monthlyReturns.reduce((worst: any, current: any) => 
       current.return < worst.return ? current : worst, monthlyReturns[0] || { month: 'N/A', return: 0 });
     const avgMonthlyReturn = monthlyReturns.length > 0 
-      ? monthlyReturns.reduce((sum, m) => sum + m.return, 0) / monthlyReturns.length 
+      ? monthlyReturns.reduce((sum: any, m: any) => sum + m.return, 0) / monthlyReturns.length 
       : 0;
 
     const monthlyAnalysis = {
@@ -421,7 +421,7 @@ export class PerformanceAnalyzer {
     const { monthlyReturns, summary } = result;
 
     // 月度一致性
-    const positiveMonths = monthlyReturns.filter(m => m.return > 0).length;
+    const positiveMonths = monthlyReturns.filter((m: any) => m.return > 0).length;
     const monthlyConsistency = monthlyReturns.length > 0 ? (positiveMonths / monthlyReturns.length) * 100 : 0;
 
     // 回撤恢复能力

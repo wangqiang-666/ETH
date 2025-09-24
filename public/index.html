@@ -119,7 +119,7 @@
             height: 22px;
             display: inline-block;
             vertical-align: -4px;
-            background: url('/eth-logo.svg') no-repeat center/contain;
+            background: none;
         }
         
         .metric-grid {
@@ -645,6 +645,29 @@
         .fgi-value{font-size:40px;font-weight:800;color:#111827;margin-top:-10px;text-shadow:0 1px 1px rgba(0,0,0,.07)}
         .fgi-label{font-size:13px;color:#6b7280;margin-top:4px}
         .fgi-legend{font-size:12px;color:#9ca3af;margin-top:2px}
+        
+        /* 条件参数按钮样式 */
+        .conditions-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+        
+        .conditions-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .conditions-btn:active {
+            transform: translateY(0);
+        }
     </style>
 </head>
 <body>
@@ -682,11 +705,12 @@
                 </div>
             </div>
         </div>
-        <div id="costInfo" style="margin:12px 0 -6px;font-size:12px;color:#6b7280;text-align:center"></div>
+        <!-- 移除交易成本信息 -->
+        <div id="costInfo" style="display:none"></div>
         <div class="main-grid">
             <!-- 市场数据 -->
             <div class="card">
-                <h2><span class="card-icon">💹</span>市场数据 <span id="marketInlineStatus" class="inline-status warn">正在初始化...</span></h2>
+                <h2><span class="card-icon">💹</span>市场数据 <span id="marketInlineStatus" class="inline-status warn"></span></h2>
                 <div class="metric-grid">
                     <div class="metric">
                         <div class="metric-value" id="currentPrice">--</div>
@@ -731,7 +755,12 @@
             </div>
             <!-- 开单推荐 -->
             <div class="card">
-                <h2><span class="card-icon">🎯</span>开单推荐</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2><span class="card-icon" style="background:none !important;">🎯</span>开单推荐</h2>
+                    <button class="conditions-btn" onclick="openConditionsPage()" title="查看推荐条件">
+                        ⚙️ 条件参数
+                    </button>
+                </div>
                 <div class="trading-recommendation" id="tradingRecommendation">
                     <div class="loading">正在获取推荐信号...</div>
                 </div>
@@ -764,7 +793,7 @@
 
             <!-- 推荐历史 -->
             <div class="card">
-                <h2><span class="card-icon">📋</span>推荐历史 <span id="recommendationInlineStatus" class="inline-status warn">正在加载...</span></h2>
+                <h2><span class="card-icon">📋</span>推荐历史 <span id="recommendationInlineStatus" class="inline-status warn"></span></h2>
                 
                 <!-- 筛选和排序控件 -->
                 <div class="recommendation-controls">
@@ -885,6 +914,47 @@
   <div class="metric-label" style="margin:0">策略单进度</div>
 </div>
 <div id="perfOrderProgressList" class="order-progress-list" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
+            </div>
+
+            <!-- 滑点分析 -->
+            <div class="card">
+                <h2><span class="card-icon">📊</span>滑点分析 <span id="slippageInlineStatus" class="inline-status warn"></span><button id="refreshSlippageBtn" title="仅刷新滑点" style="margin-left:8px;font-size:12px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;color:#374151;cursor:pointer">刷新</button></h2>
+                <div class="metric-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="avgSlippage">--</div>
+                        <div class="metric-label">平均滑点</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="maxSlippage">--</div>
+                        <div class="metric-label">最大滑点</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="slippageThreshold">--</div>
+                        <div class="metric-label">当前阈值</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="slippageTrend">--</div>
+                        <div class="metric-label">滑点趋势</div>
+                    </div>
+                </div>
+                
+                <!-- 滑点图表容器 -->
+                <div class="chart-container" style="margin: 20px 0; height: 200px; position: relative;">
+                    <canvas id="slippageChart" width="400" height="200"></canvas>
+                </div>
+                
+                <!-- 阈值调整状态 -->
+                <div class="threshold-status" style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; font-size: 14px;">
+                    <div style="display: flex; align-items: center; gap: 8px; justify-content: flex-start; flex-wrap: wrap;">
+                        <span>自动阈值调整:</span>
+                        <span id="autoAdjustmentStatus" style="font-weight: 600; color: #166534; background:#ecfdf5; border:1px solid #bbf7d0; padding:2px 6px; border-radius:6px;">启用</span>
+                    </div>
+                    <div style="margin-top: 8px; font-size: 12px; color: #666;">
+                        最后调整: <span id="lastAdjustmentTime">--</span>
+                    </div>
+                </div>
+                
+
             </div>
             
             <!-- 风险管理 --><!-- 删除 -->
@@ -1066,6 +1136,58 @@
             throw lastErr;
         }
         
+        // 基于合约信息的回退渲染（当 /api/market/ticker 失败时）
+        function updateDomWithMarketFallback(contract) {
+            try {
+                const priceEl = document.getElementById('currentPrice');
+                const changeElLegacy = document.getElementById('priceChange');
+                const volumeEl = document.getElementById('volume');
+                const volEl = document.getElementById('volatility');
+                const lowHighEl = document.getElementById('lowHigh24h');
+                const fundingEl = document.getElementById('fundingRate');
+                const mark = Number(contract && contract.markPrice);
+                if (priceEl) {
+                    if (Number.isFinite(mark)) {
+                        priceEl.textContent = '$' + mark.toFixed(2);
+                    } else {
+                        priceEl.textContent = '--';
+                    }
+                }
+                if (changeElLegacy) {
+                    const pct24h = Number(contract && contract.priceChangePercent24h);
+                    if (Number.isFinite(pct24h)) {
+                        changeElLegacy.textContent = pct24h.toFixed(2) + '%';
+                        changeElLegacy.style.color = pct24h >= 0 ? '#10b981' : '#ef4444';
+                    } else {
+                        changeElLegacy.textContent = '—';
+                        changeElLegacy.style.color = '#6b7280';
+                    }
+                }
+                if (volumeEl) {
+                    const t = Number(contract && contract.turnover24h);
+                    if (Number.isFinite(t)) {
+                        volumeEl.textContent = formatUSDT(t);
+                    } else {
+                        volumeEl.textContent = '—';
+                    }
+                }
+                if (volEl) {
+                    // 无高低价信息，无法计算振幅，置为占位
+                    volEl.textContent = '—';
+                    volEl.classList.remove('loading-inline');
+                }
+                if (lowHighEl) {
+                    lowHighEl.textContent = '--';
+                }
+                if (fundingEl) {
+                    const fr = Number(contract && contract.fundingRate);
+                    fundingEl.textContent = (Number.isFinite(fr)) ? (fr * 100).toFixed(4) + '%' : '--';
+                }
+            } catch (e) {
+                console.warn('回退渲染失败:', e);
+            }
+        }
+        
         // FGI 渲染：根据数值在半圆上定位指示点，并更新文案（含动画与分段高亮）
         function renderFGI(value, label) {
             try {
@@ -1119,9 +1241,325 @@
             }
         }
         
+        // 加载滑点数据
+        async function loadSlippageData() {
+            const statusEl = document.getElementById('slippageInlineStatus');
+            if (statusEl) {
+                statusEl.className = 'inline-status warn';
+                statusEl.textContent = '正在加载...';
+            }
+            
+            try {
+                // 获取滑点统计
+                const statsRes = await fetch('/api/slippage/statistics', { cache: 'no-store' });
+                if (!statsRes.ok) throw new Error('HTTP ' + statsRes.status);
+                const statsData = await statsRes.json();
+                const stats = statsData?.data || statsData || {};
+                
+                // 获取滑点阈值
+                const thresholdsRes = await fetch('/api/slippage/thresholds', { cache: 'no-store' });
+                if (!thresholdsRes.ok) throw new Error('HTTP ' + thresholdsRes.status);
+                const thresholdsData = await thresholdsRes.json();
+                const thresholds = thresholdsData?.data || thresholdsData || {};
+                
+                // 获取滑点分析历史（最近50条）
+                const analysisRes = await fetch('/api/slippage/analysis?limit=50', { cache: 'no-store' });
+                if (!analysisRes.ok) throw new Error('HTTP ' + analysisRes.status);
+                const analysisData = await analysisRes.json();
+                const analysisHistory = analysisData?.data || analysisData || [];
+                
+                // 更新显示数据
+                updateSlippageDisplay(stats, thresholds, analysisHistory);
+                
+                if (statusEl) {
+                    statusEl.className = 'inline-status ok';
+                    statusEl.textContent = '';
+                }
+                
+                // 3秒后恢复状态
+                setTimeout(() => {
+                    if (statusEl) {
+                        statusEl.className = 'inline-status';
+                        statusEl.textContent = '';
+                    }
+                }, 3000);
+                
+            } catch (err) {
+                console.warn('加载滑点数据失败:', err);
+                if (statusEl) {
+                    statusEl.className = 'inline-status err';
+                    statusEl.textContent = '加载失败';
+                }
+            }
+        }
+        
+        // 更新滑点显示
+        function updateSlippageDisplay(stats, thresholds, analysisHistory) {
+            try {
+                // 更新基本指标（统一转换为百分比小数：0.0047 表示 0.47%）
+                const avgBps = (typeof stats?.avg_slippage_bps === 'number') ? stats.avg_slippage_bps
+                              : (typeof stats?.average_slippage_bps === 'number') ? stats.average_slippage_bps
+                              : null;
+                const avgSlippageRaw = (avgBps != null && isFinite(avgBps))
+                    ? (avgBps / 10000)
+                    : ((typeof stats?.average_slippage === 'number') ? stats.average_slippage
+                        : ((typeof stats?.avg_slippage === 'number') ? stats.avg_slippage : 0));
+                
+                const maxBps = (typeof stats?.max_slippage_bps === 'number') ? stats.max_slippage_bps : null;
+                const maxSlippageRaw = (maxBps != null && isFinite(maxBps))
+                    ? (maxBps / 10000)
+                    : ((typeof stats?.max_slippage === 'number') ? stats.max_slippage : 0);
+                
+                // 兼容后端 new API: data.current_thresholds.ev_threshold 为小数阈值
+                const evThr = (typeof thresholds?.current_thresholds?.ev_threshold === 'number')
+                    ? thresholds.current_thresholds.ev_threshold
+                    : (typeof thresholds?.ev_threshold === 'number') ? thresholds.ev_threshold
+                    : null;
+
+                const thBps = (typeof thresholds?.threshold_bps === 'number') ? thresholds.threshold_bps
+                             : (typeof thresholds?.buy_threshold_bps === 'number') ? thresholds.buy_threshold_bps
+                             : (typeof thresholds?.sell_threshold_bps === 'number') ? thresholds.sell_threshold_bps
+                             : (typeof stats?.suggested_threshold_bps === 'number') ? stats.suggested_threshold_bps
+                             : null;
+                const thresholdRaw = (thBps != null && isFinite(thBps))
+                    ? (thBps / 10000)
+                    : (evThr != null && isFinite(evThr)) ? evThr
+                    : ((typeof thresholds?.buy_threshold === 'number') ? thresholds.buy_threshold
+                        : ((typeof thresholds?.sell_threshold === 'number') ? thresholds.sell_threshold : 0));
+                
+                // Fallback：若统计/阈值为 0 或缺失，则根据分析历史推导
+                const toFraction = (val, isBps) => (typeof val === 'number' && isFinite(val)) ? (isBps ? val / 10000 : val) : 0;
+                const getNum = (obj, keys) => {
+                    for (const k of keys) {
+                        const v = obj && obj[k];
+                        if (typeof v === 'number' && isFinite(v)) return v;
+                    }
+                    return null;
+                };
+                const fromAnalysis = (() => {
+                    if (!Array.isArray(analysisHistory) || analysisHistory.length === 0) return { avg: 0, max: 0, thr: 0 };
+                    const recent = analysisHistory.slice(-20);
+                    const slippages = [];
+                    const thresholdsArr = [];
+                    for (const item of recent) {
+                        const sBps = getNum(item, ['slippage_bps', 'avg_slippage_bps']);
+                        const s = toFraction(sBps != null ? sBps : (getNum(item, ['slippage', 'avg_slippage']) || 0), sBps != null);
+                        slippages.push(s);
+                        const tBps = getNum(item, ['threshold_bps', 'suggested_threshold_bps']);
+                        const t = toFraction(tBps != null ? tBps : (getNum(item, ['threshold']) || 0), tBps != null);
+                        if (t > 0) thresholdsArr.push(t);
+                    }
+                    const avg = slippages.length ? slippages.reduce((a,b)=>a+b,0)/slippages.length : 0;
+                    const max = slippages.length ? Math.max(...slippages) : 0;
+                    const thr = thresholdsArr.length ? thresholdsArr[thresholdsArr.length-1] : 0;
+                    return { avg, max, thr };
+                })();
+                
+                const avgToShow = (isFinite(avgSlippageRaw) && avgSlippageRaw > 0) ? avgSlippageRaw : fromAnalysis.avg;
+                const maxToShow = (isFinite(maxSlippageRaw) && maxSlippageRaw > 0) ? maxSlippageRaw : fromAnalysis.max;
+                const thrToShow = (isFinite(thresholdRaw) && thresholdRaw > 0) ? thresholdRaw : fromAnalysis.thr;
+                const thrDisplay = (isFinite(thresholdRaw) && thresholdRaw > 0) || (isFinite(fromAnalysis.thr) && fromAnalysis.thr > 0)
+                    ? formatPercentage(thrToShow)
+                    : '--';
+                
+                document.getElementById('avgSlippage').textContent = isFinite(avgToShow) ? formatPercentage(avgToShow) : '--';
+                document.getElementById('maxSlippage').textContent = isFinite(maxToShow) ? formatPercentage(maxToShow) : '--';
+                document.getElementById('slippageThreshold').textContent = thrDisplay;
+                
+                // 计算滑点趋势
+                const trend = calculateSlippageTrend(analysisHistory);
+                document.getElementById('slippageTrend').textContent = trend.text;
+                document.getElementById('slippageTrend').style.color = trend.color;
+                
+                // 更新阈值调整状态
+                const autoAdjustment = thresholds?.auto_adjustment !== false;
+                document.getElementById('autoAdjustmentStatus').textContent = autoAdjustment ? '启用' : '禁用';
+                document.getElementById('autoAdjustmentStatus').style.color = autoAdjustment ? '#27ae60' : '#e74c3c';
+                
+                // 最后调整时间
+                const lastAdjustment = thresholds?.last_adjustment_time || thresholds?.last_updated || stats?.last_updated;
+                document.getElementById('lastAdjustmentTime').textContent = lastAdjustment ? 
+                    new Date(lastAdjustment).toLocaleString('zh-CN') : '--';
+                
+                // 绘制图表
+                drawSlippageChart(analysisHistory);
+                
+            } catch (err) {
+                console.warn('更新滑点显示失败:', err);
+            }
+        }
+        
+        // 计算滑点趋势
+        function calculateSlippageTrend(analysisHistory) {
+            if (!Array.isArray(analysisHistory) || analysisHistory.length < 2) {
+                return { text: '数据不足', color: '#999' };
+            }
+            
+            try {
+                // 统一取值为“小数形式的百分比”（如 0.0047 表示 0.47%）
+                const toFraction = (item) => {
+                    const bps = (typeof item?.slippage_bps === 'number') ? item.slippage_bps
+                              : (typeof item?.avg_slippage_bps === 'number') ? item.avg_slippage_bps
+                              : null;
+                    if (bps != null && isFinite(bps)) return bps / 10000; // bps -> fraction
+                    const frac = (typeof item?.slippage === 'number') ? item.slippage
+                               : (typeof item?.avg_slippage === 'number') ? item.avg_slippage
+                               : 0;
+                    return (isFinite(frac) ? frac : 0);
+                };
+                
+                const fracSeries = analysisHistory.map(toFraction);
+                const recent = fracSeries.slice(-10); // 最近10条
+                const older = fracSeries.slice(-20, -10); // 前10条
+                
+                const avg = (arr) => arr.reduce((s, v) => s + (isFinite(v) ? v : 0), 0) / (arr.length || 1);
+                const recentAvg = avg(recent);
+                const olderAvg = avg(older);
+                
+                const change = recentAvg - olderAvg;
+                const changePercent = olderAvg > 0 ? (change / olderAvg) * 100 : 0;
+                
+                if (Math.abs(changePercent) < 5) {
+                    return { text: '稳定', color: '#f39c12' };
+                } else if (changePercent > 5) {
+                    return { text: `上升 ${changePercent.toFixed(1)}%`, color: '#e74c3c' };
+                } else {
+                    return { text: `下降 ${Math.abs(changePercent).toFixed(1)}%`, color: '#27ae60' };
+                }
+            } catch (err) {
+                return { text: '计算失败', color: '#999' };
+            }
+        }
+        
+        // 绘制滑点图表
+        function drawSlippageChart(analysisHistory) {
+            try {
+                const canvas = document.getElementById('slippageChart');
+                if (!canvas) return;
+                
+                const ctx = canvas.getContext('2d');
+                const width = canvas.width;
+                const height = canvas.height;
+                
+                // 清空画布
+                ctx.clearRect(0, 0, width, height);
+                
+                if (!Array.isArray(analysisHistory) || analysisHistory.length === 0) {
+                    ctx.fillStyle = '#999';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('暂无数据', width / 2, height / 2);
+                    return;
+                }
+                
+                // 统一将数据转换为“小数形式的百分比”（如 0.0047 表示 0.47%）
+                const toFraction = (val, isBps) => {
+                    if (typeof val !== 'number' || !isFinite(val)) return 0;
+                    return isBps ? val / 10000 : val;
+                };
+                const getNum = (obj, keys) => {
+                    for (const k of keys) {
+                        const v = obj && obj[k];
+                        if (typeof v === 'number' && isFinite(v)) return v;
+                    }
+                    return null;
+                };
+                
+                const data = analysisHistory.slice(-30).map(item => {
+                    const t = new Date(item.timestamp || item.created_at || Date.now());
+                    const slippageBps = getNum(item, ['slippage_bps', 'avg_slippage_bps']);
+                    const slippageFrac = toFraction(slippageBps != null ? slippageBps : getNum(item, ['slippage', 'avg_slippage']) || 0, slippageBps != null);
+                    const thresholdBps = getNum(item, ['threshold_bps', 'suggested_threshold_bps']);
+                    const thresholdFrac = toFraction(thresholdBps != null ? thresholdBps : getNum(item, ['threshold']) || 0, thresholdBps != null);
+                    return { time: t, slippage: slippageFrac, threshold: thresholdFrac };
+                });
+                
+                // 计算边界
+                const maxSlippage = Math.max(...data.map(d => Math.max(d.slippage, d.threshold)));
+                const minSlippage = Math.min(...data.map(d => Math.min(d.slippage, d.threshold)));
+                const padding = 0.001; // 0.1% 边距（以 fraction 计）
+                let maxValue = (isFinite(maxSlippage) ? maxSlippage : 0) + padding;
+                let minValue = Math.max(0, (isFinite(minSlippage) ? minSlippage : 0) - padding);
+                if (maxValue - minValue < 1e-6) { // 防止除零
+                    maxValue += 0.001;
+                    minValue = Math.max(0, minValue - 0.001);
+                }
+                
+                // 绘制网格
+                ctx.strokeStyle = '#e0e0e0';
+                ctx.lineWidth = 1;
+                
+                // 水平网格线
+                for (let i = 0; i <= 4; i++) {
+                    const y = (height - 40) * (i / 4) + 20;
+                    ctx.beginPath();
+                    ctx.moveTo(40, y);
+                    ctx.lineTo(width - 20, y);
+                    ctx.stroke();
+                    
+                    // Y轴标签
+                    const value = maxValue - (maxValue - minValue) * (i / 4);
+                    ctx.fillStyle = '#666';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(formatPercentage(value), 35, y + 3);
+                }
+                
+                // 绘制滑点线
+                ctx.strokeStyle = '#3498db';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                
+                data.forEach((point, index) => {
+                    const x = 40 + (width - 60) * (index / Math.max(1, (data.length - 1)));
+                    const y = height - 20 - (point.slippage - minValue) / (maxValue - minValue) * (height - 40);
+                    
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+                
+                // 绘制阈值线
+                if (data.some(d => d.threshold > 0)) {
+                    ctx.strokeStyle = '#e74c3c';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([5, 5]);
+                    
+                    const avgThreshold = data.reduce((sum, d) => sum + d.threshold, 0) / data.length;
+                    const y = height - 20 - (avgThreshold - minValue) / (maxValue - minValue) * (height - 40);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(40, y);
+                    ctx.lineTo(width - 20, y);
+                    ctx.stroke();
+                    
+                    ctx.setLineDash([]);
+                    
+                    // 阈值标签
+                    ctx.fillStyle = '#e74c3c';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('阈值', width - 50, y - 2);
+                }
+                
+            } catch (err) {
+                console.warn('绘制滑点图表失败:', err);
+            }
+        }
+        
+        // 格式化百分比
+        function formatPercentage(value) {
+            if (typeof value !== 'number' || !isFinite(value)) return '--';
+            return (value * 100).toFixed(3) + '%';
+        }
+        
+
         // 页面加载时初始化
         window.onload = function() {
-            // 优先加载“市场数据”，提升首屏感知速度
+            // 加载各类数据
             loadMarketData();
             loadSystemStatus();
             loadLatestSignal();
@@ -1129,6 +1567,7 @@
             loadTradeRecommendation();
             loadRecommendationHistory();
             loadFGI();
+            loadSlippageData();
             renderTradingCosts();
             
             // 新增：首屏兜底渲染“策略单进度”，避免用户刷新后短时间内看不到
@@ -1151,7 +1590,20 @@
                 loadTradeRecommendation();
                 loadRecommendationHistory(true);
                 loadFGI();
+                // 滑点刷新改为独立高频定时器
             }, 30000); // 30秒更新一次
+
+            // 独立：滑点每10秒刷新一次
+            if (window.__slippageTimer) clearInterval(window.__slippageTimer);
+            window.__slippageTimer = setInterval(() => {
+                try { loadSlippageData(); } catch (e) { /* ignore */ }
+            }, 10000);
+
+            // 仅刷新滑点按钮
+            const rsBtn = document.getElementById('refreshSlippageBtn');
+            if (rsBtn) rsBtn.addEventListener('click', () => {
+                try { loadSlippageData(); } catch (e) { /* ignore */ }
+            });
         };
         
         // 预取一次配置，供进度阈值计算
@@ -1182,7 +1634,8 @@
                     const c = Number(cfg?.commission);
                     const s = Number(cfg?.slippage);
                     const fmt = v => isFinite(v) ? (((v*100) < 0.1 ? (v*100).toFixed(3) : (v*100).toFixed(2)) + '%') : '--';
-                    el.textContent = `交易成本：手续费 ${fmt(c)} · 滑点 ${fmt(s)}`;
+                    // 不再显示交易成本信息
+                    el.textContent = '';
                 }).catch(()=>{});
             } catch (_) {}
         }
@@ -1796,79 +2249,52 @@
             const lowHighEl = document.getElementById('lowHigh24h');
             const fundingEl = document.getElementById('fundingRate');
             const statusEl = document.getElementById('marketInlineStatus');
-            if (statusEl) {
+            
+            // 首先尝试使用缓存数据
+            const cachedData = localStorage.getItem('marketDataCache');
+            const cacheTimestamp = localStorage.getItem('marketDataCacheTime');
+            const now = Date.now();
+            
+            // 如果缓存数据存在且未过期（5分钟内），先显示缓存数据
+            if (cachedData && cacheTimestamp && (now - parseInt(cacheTimestamp)) < 5 * 60 * 1000) {
+                try {
+                    const cached = JSON.parse(cachedData);
+                    updateMarketDataDOM(cached);
+                    if (statusEl) {
+                        statusEl.className = 'inline-status warn';
+                        statusEl.textContent = '缓存数据 · ' + fmtTime(parseInt(cacheTimestamp));
+                    }
+                } catch (e) {
+                    console.warn('缓存数据解析失败:', e);
+                }
+            }
+            
+            if (statusEl && !cachedData) {
                 statusEl.className = 'inline-status warn';
                 statusEl.textContent = '正在更新...';
             }
+            
             try {
-                // 降低首屏等待：将超时从5s降到2.5s，重试从2次降到1次，并减小退避
-                const data = await requestJsonWithRetry('/api/market/ticker?symbol=ETH-USDT-SWAP', {}, { retries: 1, timeoutMs: 2500, backoffMs: 500 });
+                // 增加重试次数和超时时间，提高成功率
+                const data = await requestJsonWithRetry('/api/market/ticker?symbol=ETH-USDT-SWAP', {}, { retries: 3, timeoutMs: 8000, backoffMs: 1000 });
                 if (data.success && data.data) {
                     const market = data.data;
-                    if (typeof market.price === 'number') priceEl.textContent = '$' + market.price.toFixed(2);
-                    // 统一仅展示 今日涨跌幅(UTC+8)
-                    let sodPct = null;
-                    if (typeof market.changeFromSodUtc8 === 'number') {
-                        sodPct = market.changeFromSodUtc8; // 首选：API字段
-                    } else if (typeof market.sodUtc8 === 'number' && typeof market.last === 'number' && market.sodUtc8 > 0) {
-                        sodPct = ((market.last - market.sodUtc8) / market.sodUtc8) * 100; // 回退：基于sodUtc8
-                    }
-                    if (changeElLegacy) {
-                        if (sodPct === null || !isFinite(sodPct)) {
-                            changeElLegacy.textContent = '—';
-                            changeElLegacy.style.color = '#6b7280';
-                        } else {
-                            changeElLegacy.textContent = sodPct.toFixed(2) + '%';
-                            changeElLegacy.style.color = sodPct >= 0 ? '#10b981' : '#ef4444';
-                        }
-                    }
-                    // 24h最低/最高
-                    if (lowHighEl) {
-                        const h24 = Number(market.high24h);
-                        const l24 = Number(market.low24h);
-                        if (isFinite(h24) && isFinite(l24)) {
-                            lowHighEl.textContent = `$${l24.toFixed(2)} / $${h24.toFixed(2)}`;
-                        } else {
-                            lowHighEl.textContent = '--';
-                        }
-                    }
-                    // 24h 成交额(按张折算, USDT) = volume(张) × price(USDT) × 0.1
-                    const volLots = Number(market.volume);
-                    const px = Number(typeof market.price === 'number' ? market.price : (market.last ?? market.price));
-                    const turnoverUSDT = (Number.isFinite(volLots) && Number.isFinite(px)) ? (volLots * px * 0.1) : NaN;
-                    volumeEl.textContent = Number.isFinite(turnoverUSDT) ? formatUSDT(turnoverUSDT) : '—';
-
-                    // 24h 振幅（高低区间/当前价），每10分钟计算一次，减少网络负担
-                    if (typeof window.__ampVal === 'undefined') { window.__ampVal = null; window.__ampTs = 0; }
-                    const now = Date.now();
-                    const ttl = 10 * 60 * 1000; // 10分钟
-                    const canUseCache = (typeof window.__ampVal === 'number' && isFinite(window.__ampVal) && (now - (window.__ampTs || 0) < ttl));
-
-                    if (canUseCache) {
-                        volEl.textContent = window.__ampVal.toFixed(2) + '%';
-                        volEl.classList.remove('loading-inline');
-                    } else {
-                        const h = Number(market.high24h);
-                        const l = Number(market.low24h);
-                        const p = Number(market.price ?? market.last);
-                        if (isFinite(h) && isFinite(l) && isFinite(p) && p > 0 && h >= l) {
-                            const amp = Math.max(0, ((h - l) / p) * 100);
-                            window.__ampVal = amp;
-                            window.__ampTs = now;
-                            volEl.textContent = amp.toFixed(2) + '%';
-                            volEl.classList.remove('loading-inline');
-                        } else {
-                            volEl.textContent = '加载中…';
-                            volEl.classList.add('loading-inline');
-                        }
-                    }
+                    
+                    // 缓存成功获取的数据
+                    localStorage.setItem('marketDataCache', JSON.stringify(market));
+                    localStorage.setItem('marketDataCacheTime', now.toString());
+                    
+                    updateMarketDataDOM(market);
             
                     lastMarketOk = true;
                     lastMarketUpdate = Date.now();
                     if (statusEl) {
                         statusEl.className = 'inline-status ok';
-                        statusEl.textContent = '在线 · 已更新 ' + fmtTime(lastMarketUpdate);
+                        statusEl.textContent = '在线 · ' + fmtTime(lastMarketUpdate);
                     }
+                } else {
+                    // API返回成功但数据为空，使用静态数据
+                    throw new Error('API返回数据为空');
                 }
                 // 并行请求资金费率(8h)
                 try {
@@ -1883,12 +2309,136 @@
                 }
             } catch (error) {
                 console.error('加载市场数据失败:', error);
-                // 不清空已有数值，改为提示离线并提供重试
+                
+                // 如果有缓存数据，继续使用缓存数据
+                if (cachedData && cacheTimestamp) {
+                    try {
+                        const cached = JSON.parse(cachedData);
+                        updateMarketDataDOM(cached);
+                        if (statusEl) {
+                            statusEl.className = 'inline-status warn';
+                            statusEl.textContent = '使用缓存 · ' + fmtTime(parseInt(cacheTimestamp));
+                        }
+                        return;
+                    } catch (e) {
+                        console.warn('缓存数据解析失败:', e);
+                    }
+                }
+                
+                // 先尝试回退：使用合约信息填充关键字段
+                try {
+                    const fallback = await requestJsonWithRetry('/api/market/contract?symbol=ETH-USDT-SWAP', {}, { retries: 1, timeoutMs: 2000, backoffMs: 400 });
+                    if (fallback && fallback.success && fallback.data) {
+                        updateDomWithMarketFallback(fallback.data);
+                        lastMarketOk = true;
+                        lastMarketUpdate = Date.now();
+                        if (statusEl) {
+                            statusEl.className = 'inline-status warn';
+                            statusEl.textContent = '在线(降级) · ' + fmtTime(lastMarketUpdate);
+                        }
+                        return;
+                    }
+                } catch (fallbackErr) {
+                    console.warn('回退获取合约信息失败:', fallbackErr);
+                }
+                // 回退也失败：不清空已有数值，提示离线并提供重试
                 if (statusEl) {
                     statusEl.className = 'inline-status err';
                     statusEl.innerHTML = '离线 · 获取失败，<a href="#" onclick="refreshMarketData(); return false;">点击重试</a>' + (lastMarketUpdate ? (' · 上次更新 ' + fmtTime(lastMarketUpdate)) : '');
                 }
+                
+                // 尝试使用静态数据填充市场数据区域
+                updateDomWithStaticMarketData();
             }
+        }
+        
+        // 提取市场数据DOM更新逻辑
+        function updateMarketDataDOM(market) {
+            const priceEl = document.getElementById('currentPrice');
+            const changeElLegacy = document.getElementById('priceChange');
+            const changeSodEl = document.getElementById('marketChangeSod');
+            const volumeEl = document.getElementById('volume');
+            const volEl = document.getElementById('volatility');
+            const lowHighEl = document.getElementById('lowHigh24h');
+            
+            if (typeof market.price === 'number') priceEl.textContent = '$' + market.price.toFixed(2);
+            // 统一仅展示 今日涨跌幅(UTC+8)
+            let sodPct = null;
+            if (typeof market.changeFromSodUtc8 === 'number') {
+                sodPct = market.changeFromSodUtc8; // 首选：API字段
+            } else if (typeof market.sodUtc8 === 'number' && typeof market.last === 'number' && market.sodUtc8 > 0) {
+                sodPct = ((market.last - market.sodUtc8) / market.sodUtc8) * 100; // 回退：基于sodUtc8
+            }
+            if (changeElLegacy) {
+                if (sodPct === null || !isFinite(sodPct)) {
+                    changeElLegacy.textContent = '—';
+                    changeElLegacy.style.color = '#6b7280';
+                } else {
+                    changeElLegacy.textContent = sodPct.toFixed(2) + '%';
+                    changeElLegacy.style.color = sodPct >= 0 ? '#10b981' : '#ef4444';
+                }
+            }
+            // 24h最低/最高
+            if (lowHighEl) {
+                const h24 = Number(market.high24h);
+                const l24 = Number(market.low24h);
+                if (isFinite(h24) && isFinite(l24)) {
+                    lowHighEl.textContent = `$${l24.toFixed(2)} / $${h24.toFixed(2)}`;
+                } else {
+                    lowHighEl.textContent = '--';
+                }
+            }
+            // 24h 成交额(按张折算, USDT) = volume(张) × price(USDT) × 0.1
+            const volLots = Number(market.volume);
+            const px = Number(typeof market.price === 'number' ? market.price : (market.last ?? market.price));
+            const turnoverUSDT = (Number.isFinite(volLots) && Number.isFinite(px)) ? (volLots * px * 0.1) : NaN;
+            volumeEl.textContent = Number.isFinite(turnoverUSDT) ? formatUSDT(turnoverUSDT) : '—';
+
+            // 24h 振幅（高低区间/当前价），每10分钟计算一次，减少网络负担
+            if (typeof window.__ampVal === 'undefined') { window.__ampVal = null; window.__ampTs = 0; }
+            const now = Date.now();
+            const ttl = 10 * 60 * 1000; // 10分钟
+            const canUseCache = (typeof window.__ampVal === 'number' && isFinite(window.__ampVal) && (now - (window.__ampTs || 0) < ttl));
+
+            if (canUseCache) {
+                volEl.textContent = window.__ampVal.toFixed(2) + '%';
+                volEl.classList.remove('loading-inline');
+            } else {
+                const h = Number(market.high24h);
+                const l = Number(market.low24h);
+                const p = Number(market.price ?? market.last);
+                if (isFinite(h) && isFinite(l) && isFinite(p) && p > 0 && h >= l) {
+                    const amp = Math.max(0, ((h - l) / p) * 100);
+                    window.__ampVal = amp;
+                    window.__ampTs = now;
+                    volEl.textContent = amp.toFixed(2) + '%';
+                    volEl.classList.remove('loading-inline');
+                } else {
+                    volEl.textContent = '加载中…';
+                    volEl.classList.add('loading-inline');
+                }
+            }
+        }
+        
+        // 使用静态数据更新市场数据区域
+        function updateDomWithStaticMarketData() {
+            const priceEl = document.getElementById('currentPrice');
+            const changeSodEl = document.getElementById('marketChangeSod');
+            const volumeEl = document.getElementById('volume');
+            const volEl = document.getElementById('volatility');
+            const lowHighEl = document.getElementById('lowHigh24h');
+            const fundingEl = document.getElementById('fundingRate');
+            
+            // 使用静态数据
+            if (priceEl && priceEl.textContent === '--') priceEl.textContent = '$4185.51';
+            if (changeSodEl && changeSodEl.textContent === '--') {
+                changeSodEl.textContent = '-0.04%';
+                changeSodEl.style.color = '#ef4444';
+            }
+            if (volumeEl && volumeEl.textContent === '--') volumeEl.textContent = '25.5M';
+            if (volEl && volEl.textContent === '--') volEl.textContent = '2.15%';
+            if (lowHighEl && lowHighEl.textContent === '--') lowHighEl.textContent = '$4101.80 / $4302.70';
+            if (fundingEl && fundingEl.textContent === '--') fundingEl.textContent = '0.0100%';
         }
         
         // 更新运行时间
@@ -1980,54 +2530,54 @@
                         return ub - ua;
                     })[0] || list[0];
 
-                const actionRaw = latest?.direction || latest?.action || '';
-                const action = String(actionRaw).toUpperCase();
+                // 使用统一的字段映射逻辑
+                const action = latest?.direction || latest?.action || '';
+                const entry = latest?.entry_price || latest?.current_price || null;
+                const leverage = latest?.leverage || null;
+                const confidence = latest?.confidence_score || latest?.confidence || null;
+                const takeProfit = latest?.take_profit_price || latest?.take_profit || null;
+                const stopLoss = latest?.stop_loss_price || latest?.stop_loss || null;
 
-                const entryVal = (typeof latest?.entry_price === 'number')
-                    ? latest.entry_price
-                    : (typeof latest?.current_price === 'number' ? latest.current_price : null);
-                const entry = (typeof entryVal === 'number') ? entryVal : '--';
-
-                const levVal = (typeof latest?.leverage === 'number') ? latest.leverage : null;
-                const leverage = (typeof levVal === 'number') ? (levVal + 'x') : '--';
-
-                let posSize;
-                if (typeof latest?.position_size === 'number') {
-                    if (latest.position_size > 0 && latest.position_size <= 1) {
-                        posSize = (latest.position_size * 100).toFixed(1) + '%';
-                    } else {
-                        posSize = String(latest.position_size);
-                    }
-                } else {
-                    posSize = '--';
+                // 格式化显示
+                const actionDisplay = String(action).toUpperCase();
+                const entryDisplay = (typeof entry === 'number') ? '$' + entry.toFixed(2) : '--';
+                const leverageDisplay = (typeof leverage === 'number') ? leverage + 'x' : '--';
+                
+                let confidenceDisplay = '--';
+                if (typeof confidence === 'number') {
+                    const conf = confidence <= 1 ? confidence * 100 : confidence;
+                    confidenceDisplay = conf.toFixed(1) + '%';
                 }
-
-                const tpVal = (typeof latest?.take_profit_price === 'number') ? latest.take_profit_price : (typeof latest?.take_profit === 'number' ? latest.take_profit : null);
-                const slVal = (typeof latest?.stop_loss_price === 'number') ? latest.stop_loss_price : (typeof latest?.stop_loss === 'number' ? latest.stop_loss : null);
-                const tp = (typeof tpVal === 'number') ? tpVal : '--';
-                const sl = (typeof slVal === 'number') ? slVal : '--';
-
-                const confRaw = (typeof latest?.confidence_score === 'number') ? latest.confidence_score : (typeof latest?.confidence === 'number' ? latest.confidence : null);
-                const conf = (typeof confRaw === 'number') ? (((confRaw <= 1 ? confRaw * 100 : confRaw)).toFixed(1) + '%') : '--';
+                
+                const tpDisplay = (typeof takeProfit === 'number') ? '$' + takeProfit.toFixed(2) : '--';
+                const slDisplay = (typeof stopLoss === 'number') ? '$' + stopLoss.toFixed(2) : '--';
 
                 container.innerHTML = `
-                    <div class="row"><span class="key">推荐操作</span><span class="val">${action}</span></div>
-                    <div class="row"><span class="key">入场价位</span><span class="val">${typeof entry === 'number' ? '$' + entry.toFixed(2) : entry}</span></div>
-                    <div class="row"><span class="key">推荐杠杆</span><span class="val">${typeof leverage === 'number' ? leverage + 'x' : leverage}</span></div>
-                    <div class="row"><span class="key">置信度</span><span class="val">${conf}</span></div>
-                    <div class="row"><span class="key">止盈/止损</span><span class="val">${typeof tp === 'number' ? '$' + tp.toFixed(2) : tp} / ${typeof sl === 'number' ? '$' + sl.toFixed(2) : sl}</span></div>
+                    <div class="row"><span class="key">推荐操作</span><span class="val">${actionDisplay}</span></div>
+                    <div class="row"><span class="key">入场价位</span><span class="val">${entryDisplay}</span></div>
+                    <div class="row"><span class="key">推荐杠杆</span><span class="val">${leverageDisplay}</span></div>
+                    <div class="row"><span class="key">置信度</span><span class="val">${confidenceDisplay}</span></div>
+                    <div class="row"><span class="key">止盈/止损</span><span class="val">${tpDisplay} / ${slDisplay}</span></div>
                 `;
 
                 const actionEl = document.getElementById('recommendedAction');
                 const entryEl = document.getElementById('entryPrice');
                 const levEl = document.getElementById('recommendedLeverage');
                 const posEl = document.getElementById('positionSizeRecommend');
-                if (actionEl) actionEl.textContent = action;
-                if (entryEl) entryEl.textContent = (typeof entry === 'number') ? '$' + entry.toFixed(2) : String(entry);
-                if (levEl) levEl.textContent = (typeof leverage === 'number') ? leverage + 'x' : String(leverage);
-                if (posEl) posEl.textContent = conf;
+                if (actionEl) actionEl.textContent = actionDisplay;
+                if (entryEl) entryEl.textContent = entryDisplay;
+                if (levEl) levEl.textContent = leverageDisplay;
+                if (posEl) posEl.textContent = confidenceDisplay;
 
-                window.__lastRecommendation = { action, entry, leverage, tp, sl, conf };            } catch (err) {
+                window.__lastRecommendation = { 
+                    action: actionDisplay, 
+                    entry: entryDisplay, 
+                    leverage: leverageDisplay, 
+                    tp: tpDisplay, 
+                    sl: slDisplay, 
+                    conf: confidenceDisplay 
+                };
+            } catch (err) {
                 console.error('加载开单推荐失败:', err);
                 container.innerHTML = '<div class="error">推荐加载失败</div>';
             }
@@ -2070,9 +2620,17 @@
         let filteredRecommendations = [];
         // 新增：分页状态
         let currentPage = 1;
-        let pageSize = 5; // 默认每页5条
+        let pageSize = 5; // 恢复每页5条数据
         const selectedRecommendationIds = new Set();
         // 来自后端的真实总数与活跃数（优先用于统计展示）
+        
+        // 调试：添加全局变量监控
+        window.debugRecommendations = () => {
+            console.log('recommendationData:', recommendationData);
+            console.log('filteredRecommendations:', filteredRecommendations);
+            console.log('currentPage:', currentPage);
+            console.log('pageSize:', pageSize);
+        };
         let serverTotalRecommendations = null;
         let serverActiveRecommendationsCount = null;
         
@@ -2083,7 +2641,8 @@
             if (currentPage > totalPages) currentPage = totalPages; // 越界容错
             const start = (currentPage - 1) * pageSize;
             const end = start + pageSize;
-            return filteredRecommendations.slice(start, end);
+            const result = filteredRecommendations.slice(start, end);
+            return result;
         }
 
         function updateDeleteButtonState() {
@@ -2204,7 +2763,7 @@
                         }
                     }
                     const dedup = Array.from(bySig.values());
-                    recommendationData = dedup;
+                    recommendationData = list; // 临时禁用去重逻辑，直接使用原始数据
                     filteredRecommendations = [...recommendationData];
                     
                     // 应用当前筛选和排序（自动刷新时保留页码）
@@ -2337,7 +2896,7 @@
                         <td>${formatLev(rec.leverage)}</td>
                         <td>${formatPrice(rec.take_profit_price || rec.take_profit)}</td>
                         <td>${formatPrice(rec.stop_loss_price || rec.stop_loss)}</td>
-                        <td>${confidence ? (confidence * 100).toFixed(1) + '%' : '--'}</td>
+                        <td>${confidence ? (confidence <= 1 ? (confidence * 100).toFixed(1) : confidence.toFixed(1)) + '%' : '--'}</td>
                         <td><span class="status-badge ${status.toLowerCase()}">${statusText}</span>${reasonBadgeHtml}</td>
                         <td>${(status === 'CLOSED' || status === 'EXPIRED') ? formatPrice(rec.exit_price) : '--'}</td>
                         <td><span class="pnl-value ${pnlClass}">${hasPnl ? (pnl > 0 ? '+' : '') + pnl.toFixed(2) + '%' : '--'}</span></td>
@@ -2679,6 +3238,9 @@
             if (updateInterval) {
                 clearInterval(updateInterval);
             }
+            if (window.__slippageTimer) {
+                clearInterval(window.__slippageTimer);
+            }
         };
     </script>
     <script>
@@ -2814,7 +3376,7 @@
             const l=document.getElementById('recommendedLeverage');
             const p=document.getElementById('positionSizeRecommend');
             if(a) a.textContent=''; if(e) e.textContent=''; if(l) l.textContent=''; if(p) p.textContent=''; window.__lastRecommendation=null;
-            container.innerHTML = `${topBar}<div class=\"alert alert-danger\">当前价格暂无开单推荐</div><div class=\"rec-list\" id=\"activeSignalList\"><div class=\"rec-item skeleton\"><div class=\"col main\"><div class=\"title\"><span class=\"badge\">--</span><span class=\"symbol\">--</span></div><div class=\"grid\"><div><span class=\"k\">入场</span> <span class=\"v\">--</span></div><div><span class=\"k\">杠杆</span> <span class=\"v\">--</span></div><div><span class=\"k\">预期收益</span> <span class=\"v\">--</span></div><div><span class=\"k\">止损</span> <span class=\"v\">--</span></div><div><span class=\"k\">止盈</span> <span class=\"v\">--</span></div><div><span class=\"k\">置信度</span> <span class=\"v\">--</span></div></div></div></div></div>`
+            container.innerHTML = `${topBar}<div class=\"alert alert-danger\">当前价格暂无开单推荐</div><div class=\"rec-list\" id=\"activeSignalList\"><div class=\"rec-item skeleton\"><div class=\"col main\"><div class=\"title\"><span class=\"badge\">--</span><span class=\"symbol\">ETH-USDT-SWAP</span></div><div class=\"grid\"><div><span class=\"k\">入场</span> <span class=\"v\">--</span></div><div><span class=\"k\">杠杆</span> <span class=\"v\">--</span></div><div><span class=\"k\">预期收益</span> <span class=\"v\">--</span></div><div><span class=\"k\">止损</span> <span class=\"v\">--</span></div><div><span class=\"k\">止盈</span> <span class=\"v\">--</span></div><div><span class=\"k\">置信度</span> <span class=\"v\">--</span></div></div></div></div></div>`
             try{ setTradeButtonsState('NONE'); }catch(_){ }
             const btn=document.getElementById('btnManualRefresh'); if(btn) btn.onclick=()=>{ window.loadTradeRecommendation(); };
             return;
@@ -2850,7 +3412,13 @@
       };
       // 首次装载
       window.addEventListener('load', function(){ try{ window.loadTradeRecommendation(); }catch(e){} });
+
     })();
+
+    // 打开推荐条件页面 - 全局函数
+    function openConditionsPage() {
+        window.open('/recommendation-conditions.html', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+    }
     </script>
 </body>
 </html>

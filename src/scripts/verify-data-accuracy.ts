@@ -2,15 +2,15 @@
 let enhancedOKXDataService: any;
 async function getEnhancedService() {
   if (!enhancedOKXDataService) {
-    const mod = await import('../services/enhanced-okx-data-service');
+    const mod = await import('../services/enhanced-okx-data-service.js');
     enhancedOKXDataService = mod.enhancedOKXDataService;
   }
   return enhancedOKXDataService;
 }
 
-import { TechnicalIndicatorAnalyzer, KlineData } from '../indicators/technical-indicators';
-import { config } from '../config';
-import { OKXDataService } from '../services/okx-data-service';
+import { TechnicalIndicatorAnalyzer, KlineData } from '../indicators/technical-indicators.js';
+import { config } from '../config.js';
+import { OKXDataService } from '../services/okx-data-service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 

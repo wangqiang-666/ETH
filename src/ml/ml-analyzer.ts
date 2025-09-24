@@ -1,12 +1,12 @@
 import { Matrix } from 'ml-matrix';
 import * as ss from 'simple-statistics';
-import { TechnicalIndicatorResult, TechnicalIndicatorAnalyzer } from '../indicators/technical-indicators';
-import { config } from '../config';
-import { EnhancedMLAnalyzer } from './enhanced-ml-analyzer';
-import { enhancedOKXDataService } from '../services/enhanced-okx-data-service';
+import { TechnicalIndicatorResult, TechnicalIndicatorAnalyzer } from '../indicators/technical-indicators.js';
+import { config } from '../config.js';
+import { EnhancedMLAnalyzer } from './enhanced-ml-analyzer.js';
+import { enhancedOKXDataService } from '../services/enhanced-okx-data-service.js';
 // 新增：离线模型加载所需
-import fs from 'fs/promises';
-import path from 'path';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 // 简单的线性回归模型
 class SimpleLinearRegression {
@@ -245,7 +245,7 @@ export class MLAnalyzer {
 
         const mdNow = this.buildMarketDataForIndex(klines, i, winCount);
         const historicalMarketData = this.buildHistoricalMarketData(klines, Math.max(0, i - 50), i);
-        const features = this.extractFeatures(mdNow, indicators as TechnicalIndicatorResult, historicalMarketData);
+        const features = this.extractFeatures(mdNow, indicators, historicalMarketData);
 
         const nextClose = klines[i + 1].close;
         const target = (nextClose - klines[i].close) / klines[i].close;

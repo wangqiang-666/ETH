@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
-import { config } from '../config';
-import { MarketData } from '../ml/ml-analyzer';
+import { config } from '../config.js';
+import { MarketData } from '../ml/ml-analyzer.js';
 
 // 重新导出MarketData接口
 export type { MarketData };
@@ -100,7 +100,7 @@ export class OKXDataService {
   private apiClient: AxiosInstance;
   private proxyClient: AxiosInstance | null = null;
   private useProxy: boolean;
-  private rateLimitDelay = 100; // 请求间隔，避免触发限流
+  private rateLimitDelay = 500; // 请求间隔，避免触发限流
   private lastRequestTime = 0;
 
   // 新增：是否禁用外部行情请求（CI/本地防网络调用）

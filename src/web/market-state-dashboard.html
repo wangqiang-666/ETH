@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>市场状态识别与自适应系统 - 控制面板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #2d3748;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-active { background: #48bb78; }
+        .status-warning { background: #ed8936; }
+        .status-error { background: #f56565; }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .metric-item {
+            text-align: center;
+            padding: 15px;
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 10px;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #6366f1;
+            margin-bottom: 5px;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        .market-state-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .state-trending-up { background: #d4edda; color: #155724; }
+        .state-trending-down { background: #f8d7da; color: #721c24; }
+        .state-sideways { background: #fff3cd; color: #856404; }
+        .state-high-volatility { background: #f1c0c7; color: #721c24; }
+        .state-low-volatility { background: #d1ecf1; color: #0c5460; }
+        .state-breakout { background: #ffeaa7; color: #6c5ce7; }
+        .state-reversal { background: #fab1a0; color: #e17055; }
+
+        .strategy-list {
+            list-style: none;
+        }
+
+        .strategy-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .strategy-item:last-child {
+            border-bottom: none;
+        }
+
+        .strategy-name {
+            font-weight: 500;
+            color: #2d3748;
+        }
+
+        .strategy-weight {
+            font-weight: 600;
+            color: #6366f1;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #8b5cf6);
+            transition: width 0.3s ease;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: #6366f1;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5b21b6;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e0;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid;
+        }
+
+        .alert-info {
+            background: #ebf8ff;
+            border-color: #3182ce;
+            color: #2c5282;
+        }
+
+        .alert-success {
+            background: #f0fff4;
+            border-color: #38a169;
+            color: #276749;
+        }
+
+        .alert-warning {
+            background: #fffbeb;
+            border-color: #d69e2e;
+            color: #744210;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .timestamp {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .metric-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 市场状态识别与自适应系统</h1>
+            <p>实时监控市场状态，智能调整策略参数，优化投资组合表现</p>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-primary" onclick="refreshData()">
+                <span id="refresh-icon">🔄</span> 刷新数据
+            </button>
+            <button class="btn btn-secondary" onclick="toggleAutoRefresh()">
+                <span id="auto-refresh-text">启用自动刷新</span>
+            </button>
+            <button class="btn btn-secondary" onclick="exportData()">
+                📊 导出数据
+            </button>
+        </div>
+
+        <div id="alerts-container"></div>
+
+        <div class="dashboard-grid">
+            <!-- 市场状态卡片 -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="status-indicator status-active"></span>
+                    当前市场状态
+                </div>
+                <div id="market-state-content">
+                    <div class="market-state-badge state-sideways" id="current-state">
+                        SIDEWAYS
+                    </div>
+                    <div class="metric-grid">
+                        <div class="metric-item">
+                            <div class="metric-value" id="confidence-value">75%</div>
+                            <div class="metric-label">置信度</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-value" id="adx-value">28.5</div>
+                            <div class="metric-label">ADX强度</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-value" id="atr-percentile">65%</div>
+                            <div class="metric-label">ATR分位数</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-value" id="volatility-level">MEDIUM</div>
+                            <div class="metric-label">波动性水平</div>
+                        </div>
+                    </div>
+                    <div class="timestamp" id="market-state-timestamp">
+                        最后更新: --
+                    </div>
+                </div>
+            </div>
+
+            <!-- 多时间框架一致性 -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="status-indicator status-active"></span>
+                    多时间框架一致性
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value" id="consistency-value">82%</div>
+                    <div class="metric-label">一致性指数</div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="timeframe-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- 策略参数自适应 -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="status-indicator status-active"></span>
+                    自适应参数
+                </div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-value" id="signal-threshold">0.55</div>
+                        <div class="metric-label">信号阈值</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="leverage-factor">3.2x</div>
+                        <div class="metric-label">杠杆系数</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="cooldown-period">25min</div>
+                        <div class="metric-label">冷却周期</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="holding-duration">2.5h</div>
+                        <div class="metric-label">目标持仓时长</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 子策略流量分配 -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="status-indicator status-active"></span>
+                    子策略流量分配
+                </div>
+                <ul class="strategy-list" id="strategy-allocations">
+                    <!-- 动态生成 -->
+                </ul>
+            </div>
+
+            <!-- 模型校准性能 -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="status-indicator status-active"></span>
+                    模型校准性能
+                </div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-value" id="brier-score">0.185</div>
+                        <div class="metric-label">Brier分数</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="calibration-error">0.08</div>
+                        <div class="metric-label">校准误差</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="sharpe-ratio">1.85</div>
+                        <div class="metric-label">Sharpe比率</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="win-rate">68%</div>
+                        <div class="metric-label">胜率</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 系统状态监控 -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="status-indicator status-active"></span>
+                    系统状态
+                </div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-value" id="total-updates">156</div>
+                        <div class="metric-label">总更新次数</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="active-strategies">4</div>
+                        <div class="metric-label">活跃策略数</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="calibration-data">2.8K</div>
+                        <div class="metric-label">校准数据点</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="uptime">99.2%</div>
+                        <div class="metric-label">系统可用性</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 历史表现图表 -->
+        <div class="card">
+            <div class="card-title">
+                📈 不同市场状态下的策略表现
+            </div>
+            <div class="chart-container" style="height: 400px;">
+                <canvas id="performance-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let autoRefreshInterval = null;
+        let isAutoRefreshEnabled = false;
+        let performanceChart = null;
+        let timeframeChart = null;
+
+        // API基础URL
+        const API_BASE = window.location.origin;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+            refreshData();
+        });
+
+        // 初始化图表
+        function initializeCharts() {
+            // 多时间框架一致性图表
+            const timeframeCtx = document.getElementById('timeframe-chart').getContext('2d');
+            timeframeChart = new Chart(timeframeCtx, {
+                type: 'radar',
+                data: {
+                    labels: ['1分钟', '5分钟', '15分钟', '1小时', '4小时'],
+                    datasets: [{
+                        label: '状态一致性',
+                        data: [0.8, 0.85, 0.9, 0.82, 0.78],
+                        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+                        borderColor: 'rgba(99, 102, 241, 1)',
+                        borderWidth: 2,
+                        pointBackgroundColor: 'rgba(99, 102, 241, 1)',
+                        pointBorderColor: '#fff',
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: 'rgba(99, 102, 241, 1)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            beginAtZero: true,
+                            max: 1,
+                            ticks: {
+                                stepSize: 0.2
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+
+            // 策略表现图表
+            const performanceCtx = document.getElementById('performance-chart').getContext('2d');
+            performanceChart = new Chart(performanceCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['趋势上升', '趋势下降', '横盘整理', '高波动', '低波动', '突破', '反转'],
+                    datasets: [
+                        {
+                            label: '胜率 (%)',
+                            data: [72, 68, 55, 45, 78, 85, 62],
+                            backgroundColor: 'rgba(72, 187, 120, 0.8)',
+                            borderColor: 'rgba(72, 187, 120, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Sharpe比率',
+                            data: [2.1, 1.8, 0.9, 0.6, 2.5, 3.2, 1.4],
+                            backgroundColor: 'rgba(99, 102, 241, 0.8)',
+                            borderColor: 'rgba(99, 102, 241, 1)',
+                            borderWidth: 1,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: '胜率 (%)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Sharpe比率'
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: true,
+                            text: '不同市场状态下的策略表现对比'
+                        }
+                    }
+                }
+            });
+        }
+
+        // 刷新数据
+        async function refreshData() {
+            const refreshIcon = document.getElementById('refresh-icon');
+            refreshIcon.innerHTML = '<div class="loading"></div>';
+
+            try {
+                // 并行获取所有数据
+                const [marketState, strategyAllocations, systemStatus, calibrationPerformance] = await Promise.all([
+                    fetchMarketState(),
+                    fetchStrategyAllocations(),
+                    fetchSystemStatus(),
+                    fetchCalibrationPerformance()
+                ]);
+
+                // 更新UI
+                updateMarketStateUI(marketState);
+                updateStrategyAllocationsUI(strategyAllocations);
+                updateSystemStatusUI(systemStatus);
+                updateCalibrationPerformanceUI(calibrationPerformance);
+
+                showAlert('数据刷新成功', 'success');
+            } catch (error) {
+                console.error('数据刷新失败:', error);
+                showAlert('数据刷新失败: ' + error.message, 'warning');
+            } finally {
+                refreshIcon.innerHTML = '🔄';
+            }
+        }
+
+        // 获取市场状态数据
+        async function fetchMarketState() {
+            const response = await fetch(`${API_BASE}/api/market-state`);
+            if (!response.ok) throw new Error('获取市场状态失败');
+            return await response.json();
+        }
+
+        // 获取策略分配数据
+        async function fetchStrategyAllocations() {
+            const response = await fetch(`${API_BASE}/api/strategy-allocations`);
+            if (!response.ok) throw new Error('获取策略分配失败');
+            return await response.json();
+        }
+
+        // 获取系统状态
+        async function fetchSystemStatus() {
+            const response = await fetch(`${API_BASE}/api/system-status`);
+            if (!response.ok) throw new Error('获取系统状态失败');
+            return await response.json();
+        }
+
+        // 获取校准性能
+        async function fetchCalibrationPerformance() {
+            const response = await fetch(`${API_BASE}/api/calibration-performance`);
+            if (!response.ok) throw new Error('获取校准性能失败');
+            return await response.json();
+        }
+
+        // 更新市场状态UI
+        function updateMarketStateUI(data) {
+            if (!data || !data.data) return;
+
+            const marketState = data.data;
+            
+            // 更新主要状态
+            const stateElement = document.getElementById('current-state');
+            stateElement.textContent = marketState.primaryState || 'UNKNOWN';
+            stateElement.className = `market-state-badge state-${(marketState.primaryState || 'sideways').toLowerCase().replace('_', '-')}`;
+
+            // 更新指标
+            document.getElementById('confidence-value').textContent = 
+                Math.round((marketState.confidence || 0) * 100) + '%';
+            document.getElementById('adx-value').textContent = 
+                (marketState.adxValue || 0).toFixed(1);
+            document.getElementById('atr-percentile').textContent = 
+                Math.round(marketState.atrPercentile || 0) + '%';
+            document.getElementById('volatility-level').textContent = 
+                marketState.volatilityLevel || 'UNKNOWN';
+
+            // 更新一致性
+            document.getElementById('consistency-value').textContent = 
+                Math.round((marketState.multiTimeFrameConsistency || 0) * 100) + '%';
+
+            // 更新时间戳
+            document.getElementById('market-state-timestamp').textContent = 
+                '最后更新: ' + new Date(marketState.timestamp || Date.now()).toLocaleString();
+        }
+
+        // 更新策略分配UI
+        function updateStrategyAllocationsUI(data) {
+            if (!data || !data.data) return;
+
+            const allocations = data.data;
+            const container = document.getElementById('strategy-allocations');
+            container.innerHTML = '';
+
+            allocations.forEach(allocation => {
+                const li = document.createElement('li');
+                li.className = 'strategy-item';
+                li.innerHTML = `
+                    <div>
+                        <div class="strategy-name">${allocation.strategyName || allocation.strategyId}</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${(allocation.allocation * 100).toFixed(1)}%"></div>
+                        </div>
+                    </div>
+                    <div class="strategy-weight">${(allocation.allocation * 100).toFixed(1)}%</div>
+                `;
+                container.appendChild(li);
+            });
+        }
+
+        // 更新系统状态UI
+        function updateSystemStatusUI(data) {
+            if (!data || !data.data) return;
+
+            const status = data.data;
+            
+            document.getElementById('total-updates').textContent = status.totalUpdates || 0;
+            document.getElementById('active-strategies').textContent = status.activeStrategies || 0;
+            document.getElementById('calibration-data').textContent = 
+                formatNumber(status.totalCalibrationData || 0);
+            document.getElementById('uptime').textContent = 
+                ((status.uptime || 0) * 100).toFixed(1) + '%';
+        }
+
+        // 更新校准性能UI
+        function updateCalibrationPerformanceUI(data) {
+            if (!data || !data.data) return;
+
+            const performance = data.data;
+            
+            document.getElementById('brier-score').textContent = 
+                (performance.avgBrierScore || 0).toFixed(3);
+            document.getElementById('calibration-error').textContent = 
+                (performance.avgCalibrationError || 0).toFixed(2);
+            document.getElementById('sharpe-ratio').textContent = 
+                (performance.avgSharpeRatio || 0).toFixed(2);
+            document.getElementById('win-rate').textContent = 
+                Math.round((performance.avgWinRate || 0) * 100) + '%';
+        }
+
+        // 切换自动刷新
+        function toggleAutoRefresh() {
+            const button = document.getElementById('auto-refresh-text');
+            
+            if (isAutoRefreshEnabled) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                isAutoRefreshEnabled = false;
+                button.textContent = '启用自动刷新';
+            } else {
+                autoRefreshInterval = setInterval(refreshData, 30000); // 30秒刷新一次
+                isAutoRefreshEnabled = true;
+                button.textContent = '停止自动刷新';
+            }
+        }
+
+        // 导出数据
+        async function exportData() {
+            try {
+                const response = await fetch(`${API_BASE}/api/export-data`);
+                if (!response.ok) throw new Error('导出失败');
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `market-state-data-${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                
+                showAlert('数据导出成功', 'success');
+            } catch (error) {
+                showAlert('数据导出失败: ' + error.message, 'warning');
+            }
+        }
+
+        // 显示提醒
+        function showAlert(message, type = 'info') {
+            const container = document.getElementById('alerts-container');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            
+            container.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        // 格式化数字
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return num.toString();
+        }
+
+        // 页面卸载时清理
+        window.addEventListener('beforeunload', function() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>

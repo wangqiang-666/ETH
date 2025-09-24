@@ -1,8 +1,10 @@
-import express from 'express';
-import { RecommendationTracker, RecommendationRecord, CooldownError, DuplicateError, OppositeConstraintError, ExposureLimitError, MTFConsistencyError } from '../services/recommendation-tracker';
-import { RecommendationDatabase, ExecutionRecord } from '../services/recommendation-database';
-import { StatisticsCalculator, StrategyStatistics, OverallStatistics } from '../services/statistics-calculator';
-import { EnhancedOKXDataService } from '../services/enhanced-okx-data-service';
+import * as express from 'express';
+import { RecommendationTracker, RecommendationRecord, CooldownError, DuplicateError, OppositeConstraintError, ExposureLimitError, MTFConsistencyError } from '../services/recommendation-tracker.js';
+import { RecommendationDatabase, ExecutionRecord } from '../services/recommendation-database.js';
+import { StatisticsCalculator, StrategyStatistics, OverallStatistics } from '../services/statistics-calculator.js';
+import { EnhancedOKXDataService } from '../services/enhanced-okx-data-service.js';
+import { ABTestingService, ABTestConfig, ABTestAnalysis } from '../services/ab-testing-service.js';
+import { DecisionChainMonitor } from '../services/decision-chain-monitor.js';
 
 /**
  * 推荐API路由器
@@ -13,6 +15,8 @@ export class RecommendationAPI {
   private tracker: RecommendationTracker;
   private database: RecommendationDatabase;
   private statisticsCalculator: StatisticsCalculator;
+  private abTestingService: ABTestingService;
+  private decisionChainMonitor: DecisionChainMonitor;
   // 新增：在创建成功后触发的钩子（由集成服务注入）
   private onCreateHook?: (id: string, data: any) => void | Promise<void>;
 
@@ -29,6 +33,24 @@ export class RecommendationAPI {
     recent: [] as Array<{ ts: number; symbol: string; direction?: 'LONG' | 'SHORT'; reason: string }>
   };
 
+  // 新增：API层决策统计
+  private apiDecisionMetrics = {
+    totalRequests: 0,
+    successfulCreations: 0,
+    rejectedCreations: 0,
+    validationErrors: 0,
+    gatingErrors: 0,
+    systemErrors: 0,
+    rejectionReasons: {} as Record<string, number>,
+    responseTimeStats: {
+      total: 0,
+      count: 0,
+      min: Infinity,
+      max: 0,
+      avg: 0
+    }
+  };
+
   constructor(
     dataService: EnhancedOKXDataService,
     database: RecommendationDatabase,
@@ -39,6 +61,8 @@ export class RecommendationAPI {
     // 使用外部注入的 tracker，否则回退到内部创建
     this.tracker = tracker ?? new RecommendationTracker();
     this.statisticsCalculator = new StatisticsCalculator(database);
+    this.abTestingService = new ABTestingService();
+    this.decisionChainMonitor = new DecisionChainMonitor();
     
     this.setupRoutes();
   }
@@ -53,7 +77,7 @@ export class RecommendationAPI {
    */
   private setupRoutes(): void {
     // 推荐管理路由
-    this.router.post('/recommendations', this.createRecommendation.bind(this));
+    this.router.post('/recommendations', this.handleCreateRecommendation.bind(this));
     this.router.get('/recommendations', this.getRecommendations.bind(this));
     this.router.get('/recommendations/:id', this.getRecommendation.bind(this));
     this.router.put('/recommendations/:id/close', this.closeRecommendation.bind(this));
@@ -88,19 +112,291 @@ export class RecommendationAPI {
 
     // 新增：门控监控查询路由（仅返回类型为 GATED 的监控快照）
     this.router.get('/monitoring/gated', this.listGatedMonitoring.bind(this));
+
+    // 新增：滑点分析路由
+    this.router.get('/slippage/analysis', this.getSlippageAnalysis.bind(this));
+    this.router.post('/slippage/analysis', this.createSlippageAnalysis.bind(this));
+    this.router.get('/slippage/statistics', this.getSlippageStatistics.bind(this));
+    this.router.post('/slippage/statistics/calculate', this.calculateSlippageStatistics.bind(this));
+    this.router.get('/slippage/thresholds', this.getSlippageThresholds.bind(this));
+    this.router.post('/slippage/thresholds/adjust', this.adjustSlippageThresholds.bind(this));
+    this.router.get('/slippage/alerts', this.getSlippageAlerts.bind(this));
+    this.router.post('/slippage/anomalies/detect', this.detectHighSlippageAnomalies.bind(this));
+    this.router.post('/slippage/backfill', this.backfillSlippageStatistics.bind(this));
+    this.router.get('/slippage/backfill/history', this.getSlippageBackfillHistory.bind(this));
+
+    // A/B测试路由
+    this.router.get('/ab-testing/experiments', this.getExperiments.bind(this));
+    this.router.post('/ab-testing/experiments', this.createExperiment.bind(this));
+    this.router.get('/ab-testing/experiments/:experimentId', this.getExperiment.bind(this));
+    this.router.post('/ab-testing/experiments/:experimentId/assign-variant', this.assignVariant.bind(this));
+    this.router.get('/ab-testing/experiments/:experimentId/analysis', this.getExperimentAnalysis.bind(this));
+    this.router.get('/ab-testing/variant-stats', this.getVariantStatistics.bind(this));
+    this.router.get('/ab-testing/reports', this.getABTestReports.bind(this));
+
+    // 决策链监控路由
+    this.router.get('/decision-chains', this.getDecisionChainsRoute.bind(this));
+    this.router.get('/decision-chains/:chainId', this.getDecisionChainRoute.bind(this));
+    this.router.get('/decision-chains/:chainId/replay', this.replayDecisionChainRoute.bind(this));
+    this.router.get('/decision-chains/symbol/:symbol', this.getDecisionChainsBySymbolRoute.bind(this));
+    this.router.get('/decision-chains/recent', this.getRecentDecisionChainsRoute.bind(this));
+    this.router.get('/decision-chains/stats', this.getDecisionChainStatsRoute.bind(this));
+    this.router.get('/decision-chains/failures', this.getFailedDecisionChainsRoute.bind(this));
   }
   
   /**
-   * 创建新推荐
+   * 创建新推荐（公开方法，供测试使用）
+   */
+  public async createRecommendation(request: any): Promise<any> {
+    try {
+      // 验证必需字段
+      if (!request || typeof request !== 'object') {
+        return { success: false, error: 'Invalid request body' };
+      }
+      
+      // 验证价格和杠杆
+      const priceFields = ['entryPrice', 'current_price'];
+      for (const field of priceFields) {
+        const v = Number(request[field]);
+        if (Number.isFinite(v) && v > 0) {
+          request.entry_price = v;
+          break;
+        }
+      }
+      
+      const lev = Number(request.leverage);
+      if (!Number.isFinite(lev) || lev <= 0) {
+        return { success: false, error: 'Invalid leverage' };
+      }
+      
+      // 验证方向
+      if (!['LONG', 'SHORT'].includes(request.direction)) {
+        return { success: false, error: 'Direction must be LONG or SHORT' };
+      }
+      
+      // 添加决策链监控
+      const chainId = await this.decisionChainMonitor.startChain({
+        symbol: request.symbol,
+        direction: request.direction,
+        source: 'API_RECOMMENDATION'
+      });
+      
+      await this.decisionChainMonitor.addDecisionStep(chainId, {
+        stage: 'SIGNAL_COLLECTION',
+        decision: 'PENDING',
+        reason: 'Creating recommendation via API',
+        details: {
+          userId: request.user_id || 'default-user',
+          experimentId: request.experiment_id || 'recommendation-strategy-v1'
+        }
+      });
+      
+      // 创建推荐
+      const recommendationId = await this.tracker.addRecommendation(request, { bypassCooldown: request?.bypassCooldown === true });
+      
+      await this.decisionChainMonitor.addDecisionStep(chainId, {
+        stage: 'EXECUTION_DECISION',
+        decision: 'APPROVED',
+        reason: 'Recommendation created successfully',
+        details: { recommendationId }
+      });
+      
+      // Link recommendation to decision chain
+      this.decisionChainMonitor.linkRecommendation(chainId, recommendationId);
+      
+      await this.decisionChainMonitor.finalizeChain(chainId);
+      
+      // 在创建成功后调用外部钩子（异步，不阻塞响应）
+      if (this.onCreateHook) {
+        Promise.resolve(this.onCreateHook(recommendationId, request)).catch(err => {
+          console.warn('onCreateHook error:', err?.message || String(err));
+        });
+      }
+      
+      // 创建后使统计缓存失效，保证前端统计实时
+      try { (this.statisticsCalculator as any)?.clearAllCache?.(); } catch {}
+      
+      return {
+        success: true,
+        data: {
+          id: recommendationId,
+          recommendationId,
+          decisionChainId: chainId,
+          message: 'Recommendation created successfully'
+        }
+      };
+      
+    } catch (error) {
+      console.error('Error creating recommendation:', error);
+      
+      // 添加决策链监控
+      const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      this.decisionChainMonitor.startChain(chainId, request.symbol, 'API_RECOMMENDATION');
+      
+      // 新增：对冷却期错误映射为 429，并记录统一拒绝原因快照
+      if (error instanceof CooldownError) {
+        try { 
+          await this.logGatingDecision('API', request, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by cooldown',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
+        return {
+          success: false,
+          error: 'cooldown',
+          data: { decisionChainId: chainId }
+        };
+      }
+      // 新增：对相似/重复推荐映射为 409（计入门控拒绝打点）
+      if (error instanceof DuplicateError) {
+        try { 
+          await this.logGatingDecision('API', request, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by duplicate detection',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
+        return {
+          success: false,
+          error: 'duplicate',
+          data: { decisionChainId: chainId }
+        };
+      }
+      // 新增：多TF一致性失败 -> 409
+      if (error instanceof MTFConsistencyError || (error as any)?.code === 'MTF_CONSISTENCY') {
+        try { 
+          await this.logGatingDecision('API', request, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by MTF consistency check',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
+        return {
+          success: false,
+          error: 'MTF consistency',
+          data: { decisionChainId: chainId }
+        };
+      }
+      // 新增：对反向并存与净敞口限制映射为 409，并记录统一拒绝原因快照
+      if (error instanceof OppositeConstraintError) {
+        try { 
+          await this.logGatingDecision('API', request, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by opposite constraint',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
+        return {
+          success: false,
+          error: 'opposite constraint',
+          data: { decisionChainId: chainId }
+        };
+      }
+      if (error instanceof ExposureLimitError) {
+        try { 
+          await this.logGatingDecision('API', request, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by exposure limit',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
+        return {
+          success: false,
+          error: 'exposure limit',
+          data: { decisionChainId: chainId }
+        };
+      }
+      if ((error as any)?.code === 'EXPOSURE_CAP') {
+        try { 
+          await this.logGatingDecision('API', request, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by exposure cap',
+            details: {
+              errorType: 'EXPOSURE_CAP',
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
+        return {
+          success: false,
+          error: 'exposure cap',
+          data: { decisionChainId: chainId }
+        };
+      }
+      // 处理其他系统错误
+      try {
+        await this.decisionChainMonitor.addDecisionStep(chainId, {
+          stage: 'GATING_CHECK',
+          decision: 'REJECTED',
+          reason: 'System error during recommendation creation',
+          details: {
+            errorType: (error as Error).constructor.name,
+            errorMessage: (error as any)?.message
+          }
+        });
+        await this.decisionChainMonitor.finalizeChain(chainId);
+      } catch {}
+      
+      return {
+        success: false,
+        error: 'Failed to create recommendation',
+        data: { decisionChainId: chainId }
+      };
+    }
+  }
+
+  /**
+   * 创建新推荐（Express路由处理器）
    * POST /api/recommendations
    */
-  private async createRecommendation(req: express.Request, res: express.Response): Promise<void> {
+  private async handleCreateRecommendation(req: express.Request, res: express.Response): Promise<void> {
+    const startTime = Date.now();
+    let chainId: string | null = null;
+    
     try {
+      this.apiDecisionMetrics.totalRequests++;
+      
       const loopGuard = String(req.headers['x-loop-guard'] || '').toLowerCase() === '1';
       const recommendationData = req.body;
       
       // 验证必需字段
       if (!recommendationData || typeof recommendationData !== 'object') {
+        this.apiDecisionMetrics.validationErrors++;
+        this.recordRejectionReason('INVALID_REQUEST_BODY');
         res.status(400).json({ success: false, error: 'Invalid request body' });
         return;
       }
@@ -129,12 +425,57 @@ export class RecommendationAPI {
         return;
       }
       
+      // A/B测试：为用户分配实验变体
+      const userId = recommendationData.user_id || 'default-user';
+      const experimentId = recommendationData.experiment_id || 'recommendation-strategy-v1';
+      const assignedVariant = this.abTestingService.assignVariant(userId, experimentId);
+      
+      // 获取变体配置并应用到推荐数据
+      const variantConfig = this.abTestingService.getVariantConfig(experimentId, assignedVariant);
+      
+      // 创建新的推荐数据对象，避免修改常量
+      const finalRecommendationData = {
+        ...recommendationData,
+        variant: assignedVariant,
+        experiment_id: experimentId
+      };
+      
+      if (variantConfig) {
+        // 应用变体特定的策略配置
+        finalRecommendationData.stop_loss_multiplier = variantConfig.stopLossMultiplier || recommendationData.stop_loss_multiplier;
+        finalRecommendationData.take_profit_multiplier = variantConfig.takeProfitMultiplier || recommendationData.take_profit_multiplier;
+        finalRecommendationData.confidence_threshold = variantConfig.confidenceThreshold || recommendationData.confidence_threshold;
+      }
+      
+      // 添加决策链监控
+      const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      await this.decisionChainMonitor.startChain(chainId, finalRecommendationData.symbol, 'API_RECOMMENDATION');
+      
+      await this.decisionChainMonitor.addDecisionStep(chainId, {
+        stage: 'SIGNAL_COLLECTION',
+        decision: 'PENDING',
+        reason: 'Creating recommendation via API',
+        details: {
+          userId: userId,
+          experimentId: experimentId,
+          variant: assignedVariant
+        }
+      });
+      
       // 创建推荐
-      const recommendationId = await this.tracker.addRecommendation(recommendationData, { bypassCooldown: recommendationData?.bypassCooldown === true });
+      const recommendationId = await this.tracker.addRecommendation(finalRecommendationData, { bypassCooldown: finalRecommendationData?.bypassCooldown === true });
+      
+      await this.decisionChainMonitor.addDecisionStep(chainId, {
+        stage: 'EXECUTION_DECISION',
+        decision: 'APPROVED',
+        reason: 'Recommendation created successfully',
+        details: { recommendationId }
+      });
+      await this.decisionChainMonitor.finalizeChain(chainId);
       
       // 在创建成功后调用外部钩子（异步，不阻塞响应）
       if (!loopGuard && this.onCreateHook) {
-        Promise.resolve(this.onCreateHook(recommendationId, recommendationData)).catch(err => {
+        Promise.resolve(this.onCreateHook(recommendationId, finalRecommendationData)).catch(err => {
           console.warn('onCreateHook error:', err?.message || String(err));
         });
       }
@@ -146,6 +487,9 @@ export class RecommendationAPI {
         success: true,
         data: {
           id: recommendationId,
+          variant: assignedVariant,
+          experiment_id: experimentId,
+          variant_config: variantConfig,
           message: 'Recommendation created successfully'
         }
       });
@@ -154,7 +498,21 @@ export class RecommendationAPI {
       console.error('Error creating recommendation:', error);
       // 新增：对冷却期错误映射为 429，并记录统一拒绝原因快照
       if (error instanceof CooldownError) {
-        try { await this.logGatingDecision('API', req.body, error); } catch {}
+        try { 
+          const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          this.decisionChainMonitor.startChain(chainId, req.body.symbol, 'API_RECOMMENDATION');
+          await this.logGatingDecision('API', req.body, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by cooldown',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
         res.status(429).json({
           success: false,
           error: (error as any).code,
@@ -168,7 +526,21 @@ export class RecommendationAPI {
       }
       // 新增：对相似/重复推荐映射为 409（计入门控拒绝打点）
       if (error instanceof DuplicateError) {
-        try { await this.logGatingDecision('API', req.body, error); } catch {}
+        try { 
+          const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          this.decisionChainMonitor.startChain(chainId, req.body.symbol, 'API_RECOMMENDATION');
+          await this.logGatingDecision('API', req.body, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by duplicate detection',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
         res.status(409).json({
           success: false,
           error: (error as any).code,
@@ -183,7 +555,21 @@ export class RecommendationAPI {
       }
       // 新增：多TF一致性失败 -> 409
       if (error instanceof MTFConsistencyError || (error as any)?.code === 'MTF_CONSISTENCY') {
-        try { await this.logGatingDecision('API', req.body, error); } catch {}
+        try { 
+          const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          this.decisionChainMonitor.startChain(chainId, req.body.symbol, 'API_RECOMMENDATION');
+          await this.logGatingDecision('API', req.body, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by MTF consistency check',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
         res.status(409).json({
           success: false,
           error: (error as any).code,
@@ -198,7 +584,21 @@ export class RecommendationAPI {
       }
       // 新增：对反向并存与净敞口限制映射为 409，并记录统一拒绝原因快照
       if (error instanceof OppositeConstraintError) {
-        try { await this.logGatingDecision('API', req.body, error); } catch {}
+        try { 
+          const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          this.decisionChainMonitor.startChain(chainId, req.body.symbol, 'API_RECOMMENDATION');
+          await this.logGatingDecision('API', req.body, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by opposite constraint',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
         res.status(409).json({
           success: false,
           error: (error as any).code,
@@ -212,7 +612,21 @@ export class RecommendationAPI {
         return;
       }
       if (error instanceof ExposureLimitError) {
-        try { await this.logGatingDecision('API', req.body, error); } catch {}
+        try { 
+          const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          this.decisionChainMonitor.startChain(chainId, req.body.symbol, 'API_RECOMMENDATION');
+          await this.logGatingDecision('API', req.body, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by exposure limit',
+            details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
         res.status(409).json({
           success: false,
           error: (error as any).code,
@@ -225,7 +639,21 @@ export class RecommendationAPI {
         return;
       }
       if ((error as any)?.code === 'EXPOSURE_CAP') {
-        try { await this.logGatingDecision('API', req.body, error); } catch {}
+        try { 
+          const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          this.decisionChainMonitor.startChain(chainId, req.body.symbol, 'API_RECOMMENDATION');
+          await this.logGatingDecision('API', req.body, error);
+          await this.decisionChainMonitor.addDecisionStep(chainId, {
+            stage: 'GATING_CHECK',
+            decision: 'REJECTED',
+            reason: 'Recommendation gated by exposure cap',
+            details: {
+              errorType: 'EXPOSURE_CAP',
+              errorMessage: (error as any)?.message
+            }
+          });
+          await this.decisionChainMonitor.finalizeChain(chainId);
+        } catch {}
         const e: any = error;
         const scope = e.scope;
         const totalCap = e.totalCap ?? (scope === 'TOTAL' ? e.cap : undefined);
@@ -246,6 +674,22 @@ export class RecommendationAPI {
         });
         return;
       }
+      // 处理其他系统错误
+      try {
+        const chainId = `API_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        this.decisionChainMonitor.startChain(chainId, req.body.symbol, 'API_RECOMMENDATION');
+        await this.decisionChainMonitor.addDecisionStep(chainId, {
+          stage: 'GATING_CHECK',
+          decision: 'REJECTED',
+          reason: 'System error during recommendation creation',
+          details: {
+              errorType: (error as Error).constructor.name,
+              errorMessage: (error as any)?.message
+            }
+        });
+        await this.decisionChainMonitor.finalizeChain(chainId);
+      } catch {}
+      
       res.status(500).json({
         success: false,
         error: 'Failed to create recommendation',
@@ -292,8 +736,12 @@ export class RecommendationAPI {
         includeActiveFlag
       );
       
+      // 使用统一的字段映射和去重逻辑
+      const { deduplicateRecommendations } = await import('../utils/recommendation-field-mapper.js');
+      const normalizedRecommendations = deduplicateRecommendations(recommendations || []);
+      
       // 更新：优先使用 DB 的 exit_label（英文枚举），否则派生（已简化为四类）
-      const enriched = (recommendations || []).map((r: any) => {
+      const enriched = normalizedRecommendations.map((r: any) => {
         const label = r.exit_label ? r.exit_label : undefined;
         return {
           ...r,
@@ -304,7 +752,7 @@ export class RecommendationAPI {
       res.json({
         success: true,
         data: enriched,
-        total
+        total: enriched.length // 使用去重后的数量
       });
       
     } catch (error) {
@@ -486,20 +934,21 @@ export class RecommendationAPI {
         }
       }
 
+      // 使用统一的字段映射和去重逻辑
+      const { deduplicateRecommendations } = await import('../utils/recommendation-field-mapper.js');
+      const normalizedRecommendations = deduplicateRecommendations(activeRecommendations);
+
       // 填充 exit_label 为中文（若无则根据状态/原因派生）
-      const recommendationsWithLabel = (activeRecommendations || []).map((rec: any) => {
+      const recommendationsWithLabel = normalizedRecommendations.map((rec: any) => {
         const label = rec?.exit_label ? mapExitLabelEnumToCN(rec.exit_label) : deriveExitLabel(rec);
         return { ...rec, exit_label: label };
       });
 
-      // 新增：按照“历史列表”一致的规则去重（时间桶+标的+方向+关键价位），以确保前后端口径一致
-      const deduped = dedupRecommendationsByHistoryRule(recommendationsWithLabel);
-
       res.json({
         success: true,
         data: {
-          recommendations: deduped,
-          count: deduped?.length ?? 0
+          recommendations: recommendationsWithLabel,
+          count: recommendationsWithLabel?.length ?? 0
         }
       });
       
@@ -768,6 +1217,67 @@ export class RecommendationAPI {
     return this.statisticsCalculator;
   }
 
+  /**
+   * 记录拒绝原因统计
+   */
+  private recordRejectionReason(reason: string): void {
+    if (!this.apiDecisionMetrics.rejectionReasons[reason]) {
+      this.apiDecisionMetrics.rejectionReasons[reason] = 0;
+    }
+    this.apiDecisionMetrics.rejectionReasons[reason]++;
+    this.apiDecisionMetrics.rejectedCreations++;
+  }
+
+  /**
+   * 更新响应时间统计
+   */
+  private updateResponseTimeStats(responseTime: number): void {
+    const stats = this.apiDecisionMetrics.responseTimeStats;
+    stats.total += responseTime;
+    stats.count++;
+    stats.min = Math.min(stats.min, responseTime);
+    stats.max = Math.max(stats.max, responseTime);
+    stats.avg = stats.total / stats.count;
+  }
+
+  /**
+   * 获取API决策统计信息
+   */
+  public getAPIDecisionMetrics(): any {
+    return {
+      ...this.apiDecisionMetrics,
+      successRate: this.apiDecisionMetrics.totalRequests > 0 
+        ? (this.apiDecisionMetrics.successfulCreations / this.apiDecisionMetrics.totalRequests * 100).toFixed(2) + '%'
+        : '0%',
+      gatingRate: this.apiDecisionMetrics.totalRequests > 0
+        ? (this.apiDecisionMetrics.gatingErrors / this.apiDecisionMetrics.totalRequests * 100).toFixed(2) + '%'
+        : '0%',
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * 重置API决策统计
+   */
+  public resetAPIDecisionMetrics(): void {
+    this.apiDecisionMetrics = {
+      totalRequests: 0,
+      successfulCreations: 0,
+      rejectedCreations: 0,
+      validationErrors: 0,
+      gatingErrors: 0,
+      systemErrors: 0,
+      rejectionReasons: {},
+      responseTimeStats: {
+        total: 0,
+        count: 0,
+        min: Infinity,
+        max: 0,
+        avg: 0
+      }
+    };
+  }
+
   // 新增：GET /api/executions
   private async listExecutions(req: express.Request, res: express.Response): Promise<void> {
     try {
@@ -784,6 +1294,8 @@ export class RecommendationAPI {
         min_size: req.query.min_size ? Number(req.query.min_size) : undefined,
         max_size: req.query.max_size ? Number(req.query.max_size) : undefined,
         ab_group: req.query.ab_group ? String(req.query.ab_group) : undefined,
+        variant: req.query.variant ? String(req.query.variant) : undefined,
+        experiment_id: req.query.experiment_id ? String(req.query.experiment_id) : undefined,
       };
       const { items, count } = await this.database.listExecutions(filters, limit, offset);
       res.status(200).json({ items, count });
@@ -851,11 +1363,16 @@ export class RecommendationAPI {
         fee_amount: body.fee_amount !== undefined ? Number(body.fee_amount) : null,
         pnl_amount: body.pnl_amount !== undefined ? Number(body.pnl_amount) : null,
         pnl_percent: body.pnl_percent !== undefined ? Number(body.pnl_percent) : null,
+        ab_group: body.ab_group !== undefined ? String(body.ab_group) : null,
+        variant: body.variant !== undefined ? String(body.variant) : null,
+        experiment_id: body.experiment_id !== undefined ? String(body.experiment_id) : null,
         extra_json: body.extra_json ? (typeof body.extra_json === 'string' ? body.extra_json : JSON.stringify(body.extra_json)) : null,
       };
 
       const id = await this.database.saveExecution(exe);
-      res.status(201).json({ id, ...exe });
+      // 保存后按ID查询以返回包含与推荐记录 COALESCE 后的完整字段
+      const full = await this.database.getExecutionById(id);
+      res.status(201).json(full ?? { id, ...exe });
     } catch (e) {
       console.error('createExecution error:', e);
       res.status(500).json({ error: 'failed_to_create_execution' });
@@ -1102,7 +1619,1472 @@ export class RecommendationAPI {
       res.status(500).json({ success: false, error: 'Failed to compute monitoring metrics', details: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
+
+  /**
+   * 获取滑点分析记录
+   * GET /api/slippage/analysis?symbol=BTC-USDT&direction=LONG&limit=50&offset=0
+   */
+  public async getSlippageAnalysis(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol, start_date, end_date, limit, offset, execution_id } = req.query as any;
+      
+      const filters: any = {};
+      if (symbol) filters.symbol = String(symbol).toUpperCase();
+      if (execution_id) filters.execution_id = String(execution_id);
+      if (start_date) {
+        const d = new Date(String(start_date));
+        if (!isNaN(d.getTime())) filters.start_date = d;
+      }
+      if (end_date) {
+        const d = new Date(String(end_date));
+        if (!isNaN(d.getTime())) filters.end_date = d;
+      }
+
+      const limitNum = limit ? Math.min(Number(limit), 1000) : 100;
+      const offsetNum = offset ? Number(offset) : 0;
+
+      const analysis = await this.database.getSlippageAnalysis({
+        ...filters,
+        limit: limitNum,
+        offset: offsetNum
+      });
+      
+      res.json({ 
+        success: true, 
+        data: analysis,
+        pagination: {
+          limit: limitNum,
+          offset: offsetNum,
+          total: analysis.length
+        }
+      });
+    } catch (error) {
+      console.error('Error getting slippage analysis:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to get slippage analysis', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      });
+    }
+  }
+
+  /**
+   * 创建滑点分析记录
+   * POST /api/slippage/analysis
+   */
+  public async createSlippageAnalysis(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const analysisData = req.body;
+      
+      // 验证必要字段
+      if (!analysisData.recommendation_id || !analysisData.symbol || !analysisData.direction) {
+        res.status(400).json({ 
+          success: false, 
+          error: 'Missing required fields: recommendation_id, symbol, direction' 
+        });
+        return;
+      }
+
+      const result = await this.database.saveSlippageAnalysis(analysisData);
+      
+      res.json({ success: true, data: result });
+      return;
+    } catch (error) {
+      console.error('Error creating slippage analysis:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to create slippage analysis', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      });
+    }
+  }
+
+  /**
+   * 获取滑点统计信息
+   * GET /api/slippage/statistics?symbol=BTC-USDT&period=7d&strategy_type=...&group_by=symbol
+   */
+  public async getSlippageStatistics(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol, period, strategy_type, group_by, start_date, end_date } = req.query as any;
+      
+      const filters: any = {};
+      if (symbol) filters.symbol = String(symbol).toUpperCase();
+      if (strategy_type) filters.strategy_type = String(strategy_type);
+      if (start_date) {
+        const d = new Date(String(start_date));
+        if (!isNaN(d.getTime())) filters.start_date = d;
+      }
+      if (end_date) {
+        const d = new Date(String(end_date));
+        if (!isNaN(d.getTime())) filters.end_date = d;
+      }
+
+      // 获取滑点统计
+      let statistics = await this.database.getSlippageStatistics(filters);
+      
+      // 按时间段筛选（如果指定了period）
+      if (period && ['1d', '7d', '30d', '90d'].includes(String(period))) {
+        const days = String(period) === '1d' ? 1 : String(period) === '7d' ? 7 : String(period) === '30d' ? 30 : 90;
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - days);
+        
+        statistics = statistics.filter(stat => 
+          new Date(stat.calculated_at) >= cutoffDate
+        );
+      }
+
+      // 按指定字段分组
+      if (group_by) {
+        const grouped = this.groupSlippageStatistics(statistics, group_by);
+        res.json({ success: true, data: grouped });
+      } else {
+        res.json({ success: true, data: statistics });
+      }
+    } catch (error) {
+      console.error('Error getting slippage statistics:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to get slippage statistics', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      });
+    }
+  }
+
+  /**
+   * 计算滑点统计
+   * POST /api/slippage/statistics/calculate
+   */
+  public async calculateSlippageStatistics(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol, strategy_type, start_date, end_date, force_recalculate } = req.body;
+      
+      const filters: any = {};
+      if (symbol) filters.symbol = String(symbol).toUpperCase();
+      if (strategy_type) filters.strategy_type = String(strategy_type);
+      if (start_date) {
+        const d = new Date(String(start_date));
+        if (!isNaN(d.getTime())) filters.start_date = d;
+      }
+      if (end_date) {
+        const d = new Date(String(end_date));
+        if (!isNaN(d.getTime())) filters.end_date = d;
+      }
+
+      // 强制重新计算或定期更新
+      const shouldRecalculate = force_recalculate === true || 
+        Math.random() < 0.1; // 10%概率重新计算
+
+      if (shouldRecalculate) {
+        // 获取滑点分析数据
+        const analysis = await this.database.getSlippageAnalysis(filters);
+        
+        // 按符号分组计算统计
+        const symbolGroups = this.groupBySymbol(analysis);
+        
+        for (const [symbol, data] of Object.entries(symbolGroups)) {
+          if (data.length > 0) {
+            // 转换数据为 SlippageStatistics 格式
+            const statsData = this.convertToSlippageStatistics(symbol, data);
+            await this.database.updateSlippageStatistics(statsData);
+          }
+        }
+      }
+
+      // 返回最新的统计数据
+      const statistics = await this.database.getSlippageStatistics(filters);
+      
+      res.json({ 
+        success: true, 
+        data: statistics,
+        recalculated: shouldRecalculate
+      });
+    } catch (error) {
+      console.error('Error calculating slippage statistics:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to calculate slippage statistics', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      });
+    }
+  }
+
+  /**
+   * 获取当前滑点阈值设置
+   * GET /api/slippage/thresholds
+   */
+  public async getSlippageThresholds(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol, strategy_type } = req.query as any;
+      
+      // 获取滑点统计信息
+      const filters: any = {};
+      if (symbol) filters.symbol = String(symbol).toUpperCase();
+      if (strategy_type) filters.strategy_type = String(strategy_type);
+      
+      const statistics = await this.database.getSlippageStatistics(filters);
+      
+      // 计算建议的阈值调整
+      const thresholds = this.calculateDynamicThresholds(statistics);
+      
+      res.json({ 
+        success: true, 
+        data: {
+          current_thresholds: thresholds,
+          statistics: statistics,
+          last_updated: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      console.error('Error getting slippage thresholds:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to get slippage thresholds', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      });
+    }
+  }
+
+  /**
+   * 调整滑点阈值
+   * POST /api/slippage/thresholds/adjust
+   */
+  public async adjustSlippageThresholds(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol, strategy_type, adjustment_type, adjustment_factor, manual_threshold } = req.body;
+      
+      // 获取当前统计信息
+      const filters: any = {};
+      if (symbol) filters.symbol = String(symbol).toUpperCase();
+      if (strategy_type) filters.strategy_type = String(strategy_type);
+      
+      const statistics = await this.database.getSlippageStatistics(filters);
+      
+      let newThresholds: any;
+      let currentThresholds: any;
+      
+      if (manual_threshold !== undefined) {
+        // 手动设置阈值
+        currentThresholds = this.calculateDynamicThresholds(statistics);
+        newThresholds = {
+          symbol: symbol || 'ALL',
+          strategy_type: strategy_type || 'ALL',
+          ev_threshold: Number(manual_threshold),
+          adjusted_at: new Date().toISOString(),
+          adjustment_reason: 'MANUAL'
+        };
+      } else {
+        // 自动计算阈值调整
+        currentThresholds = this.calculateDynamicThresholds(statistics);
+        const adjustment = adjustment_factor || this.calculateAdjustmentFactor(statistics, adjustment_type);
+        
+        newThresholds = {
+          ...currentThresholds,
+          ev_threshold: currentThresholds.ev_threshold * adjustment,
+          adjusted_at: new Date().toISOString(),
+          adjustment_reason: adjustment_type || 'AUTO'
+        };
+      }
+      
+      // 应用阈值限制（防止过度调整）
+      const minThreshold = 0.001; // 最小0.1%
+      const maxThreshold = 0.1;   // 最大10%
+      newThresholds.ev_threshold = Math.max(minThreshold, Math.min(maxThreshold, newThresholds.ev_threshold));
+      
+      // 记录阈值调整
+      await this.database.saveSlippageAnalysis({
+        recommendation_id: `THRESHOLD_ADJUST_${Date.now()}`,
+        symbol: newThresholds.symbol,
+        direction: 'LONG', // 使用有效的方向值
+        expected_price: 0,
+        actual_price: 0,
+        price_difference: 0,
+        price_difference_bps: 0,
+        execution_latency_ms: 0,
+        slippage_bps: Math.round(newThresholds.ev_threshold * 10000), // 转换为基点
+        slippage_category: 'MEDIUM', // 使用有效的滑点类别
+        fee_rate_bps: 0,
+        fee_amount: 0,
+        total_cost_bps: Math.round(newThresholds.ev_threshold * 10000),
+        original_threshold: Math.round(currentThresholds.ev_threshold * 10000),
+        adjusted_threshold: Math.round(newThresholds.ev_threshold * 10000),
+        threshold_adjustment_reason: newThresholds.adjustment_reason
+      });
+      
+      res.json({ 
+        success: true, 
+        data: newThresholds,
+        message: `Threshold adjusted to ${(newThresholds.ev_threshold * 100).toFixed(2)}%`
+      });
+    } catch (error) {
+      console.error('Error adjusting slippage thresholds:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to adjust slippage thresholds', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      });
+    }
+  }
+
+  /**
+   * 获取滑点预警列表
+   * GET /api/slippage/alerts
+   */
+  public async getSlippageAlerts(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol, severity, start_date, end_date, limit, offset } = req.query as any;
+
+      const options: any = {};
+      if (symbol) options.symbol = String(symbol).toUpperCase();
+      if (severity) options.severity = String(severity).toUpperCase();
+      if (start_date) {
+        const d = new Date(String(start_date));
+        if (!isNaN(d.getTime())) options.start_date = d;
+      }
+      if (end_date) {
+        const d = new Date(String(end_date));
+        if (!isNaN(d.getTime())) options.end_date = d;
+      }
+      if (limit !== undefined) options.limit = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 100));
+      if (offset !== undefined) options.offset = Math.max(0, parseInt(String(offset), 10) || 0);
+
+      const alerts = await this.database.getSlippageAlerts(options);
+      res.json({ success: true, data: alerts });
+    } catch (error) {
+      console.error('Error getting slippage alerts:', error);
+      res.status(500).json({ success: false, error: 'Failed to get slippage alerts', details: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
+  /**
+   * 检测高滑点异常并（可选）持久化与自动阈值上调
+   * POST /api/slippage/anomalies/detect
+   */
+  public async detectHighSlippageAnomalies(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const {
+        symbol,
+        period,
+        threshold_bps,
+        threshold,
+        min_samples,
+        persist = true,
+        auto_adjust = true,
+        adjustment_type
+      } = req.body || {};
+
+      const detectOptions: any = {};
+      if (symbol) detectOptions.symbol = String(symbol).toUpperCase();
+      if (period) detectOptions.period = String(period);
+      const thr = threshold_bps !== undefined ? Number(threshold_bps) : (threshold !== undefined ? Number(threshold) : undefined);
+      if (Number.isFinite(thr as number)) detectOptions.threshold = Number(thr);
+      if (min_samples !== undefined) detectOptions.minSamples = Math.max(1, parseInt(String(min_samples), 10) || 10);
+
+      const detection = await this.database.detectHighSlippageAnomalies(detectOptions);
+
+      let persisted = 0;
+      if (persist === true && detection.anomalies.length > 0) {
+        for (const a of detection.anomalies) {
+          try {
+            await this.database.saveSlippageAlert({
+              symbol: a.symbol,
+              direction: a.direction,
+              severity: a.severity,
+              avg_slippage_bps: a.avg_slippage_bps,
+              median_slippage_bps: a.median_slippage_bps,
+              sample_count: a.sample_count,
+              suggested_action: a.suggested_action,
+              triggered_by: 'API_DETECT'
+            });
+            persisted++;
+          } catch (e) {
+            console.warn('Failed to persist slippage alert:', e instanceof Error ? e.message : e);
+          }
+        }
+      }
+
+      let thresholdsAdjusted: any = null;
+      if (auto_adjust === true && detection.anomalies.length > 0) {
+        try {
+          const hasSevere = detection.anomalies.some(a => a.severity === 'HIGH' || a.severity === 'CRITICAL');
+          const factor = this.calculateAdjustmentFactor(detection.anomalies as any[], hasSevere ? (adjustment_type || 'AGGRESSIVE') : adjustment_type);
+
+          const current = await this.getSlippageThresholdsInternal();
+          const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+          const newThresholds = {
+            low_threshold: clamp((current?.low?.target ?? 0.001) * factor, 0.0001, 0.02),
+            medium_threshold: clamp((current?.medium?.target ?? 0.005) * factor, 0.0005, 0.05),
+            high_threshold: clamp((current?.high?.target ?? 0.01) * factor, 0.001, 0.1),
+            adjustment_reason: 'AUTO_ANOMALY_DETECTED'
+          } as any;
+
+          thresholdsAdjusted = await this.adjustSlippageThresholdsInternal(newThresholds);
+        } catch (e) {
+          console.warn('Auto adjust thresholds failed:', e instanceof Error ? e.message : e);
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          anomalies: detection.anomalies,
+          total_checked: detection.total_checked,
+          persisted,
+          thresholds_adjusted: thresholdsAdjusted
+        }
+      });
+    } catch (error) {
+      console.error('Error detecting slippage anomalies:', error);
+      res.status(500).json({ success: false, error: 'Failed to detect slippage anomalies', details: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
+  /**
+   * 按符号分组滑点统计
+   */
+  private groupBySymbol(analysis: any[]): { [key: string]: any[] } {
+    return analysis.reduce((groups, item) => {
+      const symbol = item.symbol || 'UNKNOWN';
+      if (!groups[symbol]) groups[symbol] = [];
+      groups[symbol].push(item);
+      return groups;
+    }, {} as { [key: string]: any[] });
+  }
+
+  /**
+   * 分组滑点统计
+   */
+  private groupSlippageStatistics(statistics: any[], groupBy: string): any {
+    if (groupBy === 'symbol') {
+      return statistics.reduce((groups, stat) => {
+        const key = stat.symbol || 'UNKNOWN';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(stat);
+        return groups;
+      }, {} as { [key: string]: any[] });
+    } else if (groupBy === 'strategy_type') {
+      return statistics.reduce((groups, stat) => {
+        const key = stat.strategy_type || 'UNKNOWN';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(stat);
+        return groups;
+      }, {} as { [key: string]: any[] });
+    }
+    return statistics;
+  }
+
+  /**
+   * 计算动态阈值
+   */
+  private calculateDynamicThresholds(statistics: any[]): any {
+    if (statistics.length === 0) {
+      return {
+        symbol: 'ALL',
+        strategy_type: 'ALL',
+        ev_threshold: 0.005, // 默认0.5%
+        adjusted_at: new Date().toISOString(),
+        adjustment_reason: 'DEFAULT'
+      };
+    }
+
+    // 计算平均滑点和标准差
+    const allSlippages = statistics.flatMap(stat => {
+      const slippages = [];
+      if (stat.avg_slippage_bps) slippages.push(stat.avg_slippage_bps);
+      if (stat.median_slippage_bps) slippages.push(stat.median_slippage_bps);
+      if (stat.p95_slippage_bps) slippages.push(stat.p95_slippage_bps * 0.5); // 95分位数的50%权重
+      return slippages;
+    });
+
+    if (allSlippages.length === 0) {
+      return {
+        symbol: statistics[0].symbol || 'ALL',
+        strategy_type: statistics[0].strategy_type || 'ALL',
+        ev_threshold: 0.005,
+        adjusted_at: new Date().toISOString(),
+        adjustment_reason: 'NO_DATA'
+      };
+    }
+
+    const avgSlippage = allSlippages.reduce((sum, val) => sum + val, 0) / allSlippages.length;
+    
+    // 基于历史数据计算建议阈值（平均滑点 + 2倍标准差）
+    const variance = allSlippages.reduce((sum, val) => sum + Math.pow(val - avgSlippage, 2), 0) / allSlippages.length;
+    const stdDev = Math.sqrt(variance);
+    const suggestedThreshold = (avgSlippage + 2 * stdDev) / 10000; // 转换为百分比
+
+    return {
+      symbol: statistics[0].symbol || 'ALL',
+      strategy_type: statistics[0].strategy_type || 'ALL',
+      ev_threshold: Math.max(0.001, Math.min(0.02, suggestedThreshold)), // 限制在0.1%-2%之间
+      adjusted_at: new Date().toISOString(),
+      adjustment_reason: 'DYNAMIC_CALCULATION'
+    };
+  }
+
+  /**
+   * 将分析数据转换为滑点统计格式
+   */
+  private convertToSlippageStatistics(symbol: string, analysis: any[]): any {
+    if (analysis.length === 0) {
+      return {
+      symbol,
+      direction: 'LONG',
+      period: '1h',
+      avg_slippage_bps: 0,
+      median_slippage_bps: 0,
+      p95_slippage_bps: 0,
+      max_slippage_bps: 0,
+      min_slippage_bps: 0,
+      total_executions: 0,
+      high_slippage_count: 0,
+      slippage_distribution: JSON.stringify({}),
+      cost_analysis: JSON.stringify({}),
+      execution_quality: JSON.stringify({}),
+      threshold_suggestions: JSON.stringify({}),
+      calculated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    }
+
+    // 计算统计指标
+    const slippages = analysis.map(item => item.slippage_bps || 0).sort((a, b) => a - b);
+    const avgSlippage = slippages.reduce((sum, s) => sum + s, 0) / slippages.length;
+    const medianSlippage = slippages[Math.floor(slippages.length / 2)];
+    const p95Slippage = slippages[Math.floor(slippages.length * 0.95)];
+    const maxSlippage = Math.max(...slippages);
+    const minSlippage = Math.min(...slippages);
+    const highSlippageCount = slippages.filter(s => s > 50).length; // 超过50基点的滑点
+
+    // 构建分布数据
+    const distribution = {
+      '0-10': slippages.filter(s => s >= 0 && s <= 10).length,
+      '10-25': slippages.filter(s => s > 10 && s <= 25).length,
+      '25-50': slippages.filter(s => s > 25 && s <= 50).length,
+      '50-100': slippages.filter(s => s > 50 && s <= 100).length,
+      '100+': slippages.filter(s => s > 100).length
+    };
+
+    return {
+      symbol,
+      direction: analysis[0].direction || 'LONG',
+      period: '1h', // 默认1小时周期
+      avg_slippage_bps: Math.round(avgSlippage),
+      median_slippage_bps: Math.round(medianSlippage),
+      p95_slippage_bps: Math.round(p95Slippage),
+      max_slippage_bps: Math.round(maxSlippage),
+      min_slippage_bps: Math.round(minSlippage),
+      total_executions: analysis.length,
+      high_slippage_count: highSlippageCount,
+      slippage_distribution: JSON.stringify(distribution),
+      cost_analysis: JSON.stringify({
+        total_cost: analysis.reduce((sum, item) => sum + (item.cost_impact || 0), 0),
+        avg_cost_per_trade: analysis.reduce((sum, item) => sum + (item.cost_impact || 0), 0) / analysis.length
+      }),
+      execution_quality: JSON.stringify({
+       success_rate: analysis.filter(item => item.slippage_bps < 50).length / analysis.length,
+       avg_latency_ms: analysis.reduce((sum, item) => sum + (item.execution_latency_ms || 0), 0) / analysis.length
+     }),
+      threshold_suggestions: JSON.stringify({
+        recommended_threshold: Math.round(p95Slippage * 1.2), // 建议阈值为95分位的120%
+        risk_level: highSlippageCount > analysis.length * 0.1 ? 'HIGH' : 'LOW'
+      }),
+      calculated_at: new Date()
+    };
+  }
+
+  /**
+   * 计算调整因子
+   */
+  private calculateAdjustmentFactor(statistics: any[], adjustmentType?: string): number {
+    if (statistics.length === 0) return 1.0;
+
+    const avgSlippage = statistics.reduce((sum, stat) => {
+      return sum + (stat.avg_slippage_bps || 0);
+    }, 0) / statistics.length;
+
+    // 基于平均滑点计算调整因子
+    if (avgSlippage > 50) { // 滑点超过50基点
+      return adjustmentType === 'AGGRESSIVE' ? 2.0 : 1.5;
+    } else if (avgSlippage > 30) { // 滑点超过30基点
+      return adjustmentType === 'AGGRESSIVE' ? 1.5 : 1.2;
+    } else if (avgSlippage < 10) { // 滑点低于10基点
+      return adjustmentType === 'CONSERVATIVE' ? 0.8 : 0.9;
+    }
+
+    return 1.0; // 默认不调整
+  }
+
+  /**
+   * 获取当前滑点阈值（内部使用）
+   */
+  public async getSlippageThresholdsInternal(): Promise<any> {
+    try {
+      // 从数据库获取最新的阈值设置
+      const thresholds = await this.database.getSlippageThresholds();
+      
+      if (!thresholds || thresholds.length === 0) {
+        // 返回默认阈值
+        return {
+          low: { min: 0.001, max: 0.005, target: 0.003 },
+          medium: { min: 0.005, max: 0.01, target: 0.007 },
+          high: { min: 0.01, max: 0.02, target: 0.015 },
+          last_updated: new Date().toISOString(),
+          source: 'default'
+        };
+      }
+      
+      const latest = thresholds[0];
+      // 数据库中的阈值是单个值，我们需要将其转换为三个级别
+      const baseThreshold = latest.threshold || 0.01;
+      
+      return {
+        low: { min: baseThreshold * 0.1, max: baseThreshold * 0.5, target: baseThreshold * 0.3 },
+        medium: { min: baseThreshold * 0.5, max: baseThreshold * 1.0, target: baseThreshold * 0.7 },
+        high: { min: baseThreshold * 1.0, max: baseThreshold * 2.0, target: baseThreshold * 1.5 },
+        last_updated: latest.last_updated || new Date().toISOString(),
+        source: 'database'
+      };
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get slippage thresholds:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 调整滑点阈值（内部使用）
+   */
+  public async adjustSlippageThresholdsInternal(thresholdData: any): Promise<any> {
+    try {
+      // 验证输入数据
+      const requiredFields = ['low_threshold', 'medium_threshold', 'high_threshold'];
+      for (const field of requiredFields) {
+        if (typeof thresholdData[field] !== 'number' || thresholdData[field] <= 0) {
+          throw new Error(`Invalid ${field}: must be a positive number`);
+        }
+      }
+      
+      // 安全限制检查
+      if (thresholdData.low_threshold > 0.02 || thresholdData.medium_threshold > 0.05 || thresholdData.high_threshold > 0.1) {
+        throw new Error('Threshold values exceed safety limits');
+      }
+      
+      // 保存到数据库 - 使用默认的symbol, timeframe, direction
+      // 注意：saveSlippageThreshold方法需要symbol, timeframe, direction, threshold参数
+      // 这里我们使用默认值，实际应用中可能需要根据具体需求调整
+      const defaultSymbol = 'DEFAULT';
+      const defaultTimeframe = '1h';
+      const defaultDirection = 'LONG';
+      
+      // 保存中等阈值作为基础阈值
+      await this.database.saveSlippageThreshold(
+        defaultSymbol,
+        defaultTimeframe,
+        defaultDirection,
+        thresholdData.medium_threshold
+      );
+      
+      console.log(`[RecommendationAPI] Slippage thresholds adjusted: low=${thresholdData.low_threshold}, medium=${thresholdData.medium_threshold}, high=${thresholdData.high_threshold}`);
+      
+      return {
+        success: true,
+        thresholds: {
+          low: thresholdData.low_threshold,
+          medium: thresholdData.medium_threshold,
+          high: thresholdData.high_threshold
+        },
+        adjusted_at: new Date().toISOString(),
+        adjustment_reason: thresholdData.adjustment_reason
+      };
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to adjust slippage thresholds:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取滑点统计数据（内部使用）
+   */
+  public async getSlippageStatisticsInternal(params: any): Promise<any[]> {
+    try {
+      const { start_date, end_date, window = '7d', symbol, strategy_type } = params;
+      
+      // 构建查询条件
+      const conditions: string[] = [];
+      const values: any[] = [];
+      
+      if (start_date) {
+        conditions.push('calculated_at >= ?');
+        values.push(start_date);
+      }
+      
+      if (end_date) {
+        conditions.push('calculated_at <= ?');
+        values.push(end_date);
+      }
+      
+      if (symbol) {
+        conditions.push('symbol = ?');
+        values.push(symbol);
+      }
+      
+      if (strategy_type) {
+        conditions.push('period = ?');
+        values.push(strategy_type);
+      }
+      
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      
+      // 查询滑点统计数据 - SQLite兼容版本
+      const query = `
+        SELECT 
+          DATE(created_at) as date,
+          symbol,
+          period as strategy_type,
+          AVG(avg_slippage_bps) as avg_slippage_bps,
+          COUNT(*) as sample_count
+        FROM slippage_statistics
+        ${whereClause}
+        GROUP BY DATE(created_at), symbol, period
+        ORDER BY date DESC
+        LIMIT 100
+      `;
+      
+      const stats = await new Promise<any[]>((resolve, reject) => {
+        this.database['db']!.all(query, values, (err: any, rows: any[]) => {
+          if (err) return reject(err);
+          resolve(rows || []);
+        });
+      });
+      
+      // 如果没有找到数据，返回空数组
+      if (!stats || stats.length === 0) {
+        return [];
+      }
+      
+      return stats.map(stat => ({
+        date: stat.date,
+        symbol: stat.symbol,
+        strategy_type: stat.strategy_type,
+        avg_slippage_bps: Number(stat.avg_slippage_bps) || 0,
+        sample_count: Number(stat.sample_count) || 0
+      }));
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get slippage statistics:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 执行滑点统计自动回灌
+   * POST /api/slippage/backfill
+   */
+  public async backfillSlippageStatistics(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { 
+        symbol, 
+        period = '7d', 
+        force = false, 
+        batch_size = 1000,
+        dry_run = false
+      } = req.body;
+
+      console.log(`[RecommendationAPI] Starting slippage statistics backfill: symbol=${symbol}, period=${period}, force=${force}, batch_size=${batch_size}`);
+
+      // 执行回灌操作
+      const result = await this.database.backfillSlippageStatistics({
+        symbol,
+        period,
+        force: Boolean(force),
+        batchSize: Number(batch_size)
+      });
+
+      console.log(`[RecommendationAPI] Slippage backfill completed: processed=${result.processed}, updated=${result.updated}, symbols=${result.symbols.join(',')}`);
+
+      res.json({
+        success: true,
+        data: {
+          processed: result.processed,
+          updated: result.updated,
+          symbols: result.symbols,
+          dry_run: Boolean(dry_run),
+          timestamp: new Date().toISOString()
+        },
+        message: `Successfully backfilled ${result.processed} records, updated ${result.updated} statistics`
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to backfill slippage statistics:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to backfill slippage statistics',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取滑点回灌状态和历史记录
+   * GET /api/slippage/backfill/history
+   */
+  public async getSlippageBackfillHistory(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { limit = 50, offset = 0 } = req.query as any;
+
+      // 查询最近的滑点统计更新记录
+      const query = `
+        SELECT 
+          symbol, 
+          period, 
+          COUNT(*) as record_count,
+          MAX(calculated_at) as last_updated,
+          AVG(avg_slippage_bps) as avg_slippage,
+          AVG(confidence_score) as avg_confidence
+        FROM slippage_statistics
+        GROUP BY symbol, period
+        ORDER BY last_updated DESC
+        LIMIT ? OFFSET ?
+      `;
+
+      const history = await new Promise<any[]>((resolve, reject) => {
+        this.database['db']!.all(query, [Number(limit), Number(offset)], (err: any, rows: any[]) => {
+          if (err) return reject(err);
+          resolve(rows || []);
+        });
+      });
+
+      res.json({
+        success: true,
+        data: {
+          history: history.map(item => ({
+            symbol: item.symbol,
+            period: item.period,
+            record_count: Number(item.record_count),
+            last_updated: item.last_updated,
+            avg_slippage_bps: Number(item.avg_slippage),
+            avg_confidence: Number(item.avg_confidence)
+          })),
+          total: history.length,
+          limit: Number(limit),
+          offset: Number(offset)
+        }
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get slippage backfill history:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get slippage backfill history',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * A/B测试相关方法
+   */
+
+  /**
+   * 获取所有实验配置
+   * GET /api/ab-testing/experiments
+   */
+  private async getExperiments(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      // 获取所有实验配置
+      const experiments = this.abTestingService.getAllExperiments();
+      
+      res.json({
+        success: true,
+        data: experiments
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get experiments:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get experiments',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 创建新实验
+   * POST /api/ab-testing/experiments
+   */
+  private async createExperiment(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const experimentConfig: ABTestConfig = req.body;
+      
+      if (!experimentConfig || !experimentConfig.experimentId) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid experiment configuration'
+        });
+        return;
+      }
+      
+      this.abTestingService.addExperiment(experimentConfig);
+      
+      res.status(201).json({
+        success: true,
+        data: {
+          experimentId: experimentConfig.experimentId,
+          message: 'Experiment created successfully'
+        }
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to create experiment:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create experiment',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取特定实验配置
+   * GET /api/ab-testing/experiments/:experimentId
+   */
+  private async getExperiment(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { experimentId } = req.params;
+      
+      const experiment = this.abTestingService.getExperimentConfig(experimentId);
+      if (!experiment) {
+        res.status(404).json({
+          success: false,
+          error: 'Experiment not found'
+        });
+        return;
+      }
+      
+      res.json({
+        success: true,
+        data: experiment
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get experiment:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get experiment',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 为用户分配实验变体
+   * POST /api/ab-testing/experiments/:experimentId/assign-variant
+   */
+  private async assignVariant(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { experimentId } = req.params;
+      const { userId } = req.body;
+      
+      if (!userId) {
+        res.status(400).json({
+          success: false,
+          error: 'userId is required'
+        });
+        return;
+      }
+      
+      const assignedVariant = this.abTestingService.assignVariant(userId, experimentId);
+      const variantConfig = this.abTestingService.getVariantConfig(experimentId, assignedVariant);
+      
+      res.json({
+        success: true,
+        data: {
+          userId,
+          experimentId,
+          variant: assignedVariant,
+          variantConfig
+        }
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to assign variant:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to assign variant',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取实验分析结果
+   * GET /api/ab-testing/experiments/:experimentId/analysis
+   */
+  private async getExperimentAnalysis(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { experimentId } = req.params;
+      const { start_date, end_date } = req.query;
+      
+      // 获取实验相关的推荐和执行记录
+      const startDate = start_date ? new Date(start_date as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 默认30天
+      const endDate = end_date ? new Date(end_date as string) : new Date();
+      
+      // 从数据库获取推荐和执行记录
+      const recommendations = await this.database.getRecommendationsByExperiment(experimentId, startDate, endDate);
+      const executions = await this.database.getExecutionsByExperiment(experimentId, startDate, endDate);
+      
+      // 分析实验结果
+      const analysis = await this.abTestingService.analyzeExperiment(experimentId, recommendations, executions);
+      
+      res.json({
+        success: true,
+        data: analysis
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get experiment analysis:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get experiment analysis',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取变体统计信息
+   * GET /api/ab-testing/variant-stats
+   */
+  private async getVariantStatistics(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { experiment_id, start_date, end_date } = req.query;
+      
+      if (!experiment_id) {
+        res.status(400).json({
+          success: false,
+          error: 'experiment_id is required'
+        });
+        return;
+      }
+      
+      const startDate = start_date ? new Date(start_date as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const endDate = end_date ? new Date(end_date as string) : new Date();
+      
+      // 获取变体统计
+      const stats = await this.database.getVariantStatistics(experiment_id as string, startDate, endDate);
+      
+      res.json({
+        success: true,
+        data: stats
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get variant statistics:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get variant statistics',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取A/B测试报告
+   * GET /api/ab-testing/reports
+   */
+  private async getABTestReports(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { experiment_id, start_date, end_date, format = 'json' } = req.query;
+      
+      const startDate = start_date ? new Date(start_date as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const endDate = end_date ? new Date(end_date as string) : new Date();
+      
+      // 获取所有实验的报告
+      const reports = await this.database.getABTestReports({
+        experimentId: experiment_id as string,
+        startDate,
+        endDate
+      });
+      
+      if (format === 'csv') {
+        // 生成CSV格式的报告
+        const csv = this.generateCSVReport(reports);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="ab-test-report.csv"');
+        res.send(csv);
+      } else {
+        res.json({
+          success: true,
+          data: reports
+        });
+      }
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get A/B test reports:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get A/B test reports',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 生成CSV格式的A/B测试报告
+   */
+  private generateCSVReport(reports: any[]): string {
+    if (reports.length === 0) {
+      return 'Experiment ID,Variant,Sample Size,Win Rate,Avg Return,Avg PnL,Sharpe Ratio,Max Drawdown,Statistical Significance,P-Value\n';
+    }
+    
+    const headers = ['Experiment ID', 'Variant', 'Sample Size', 'Win Rate', 'Avg Return', 'Avg PnL', 'Sharpe Ratio', 'Max Drawdown', 'Statistical Significance', 'P-Value'];
+    const rows = reports.map(report => [
+      report.experimentId,
+      report.variant,
+      report.sampleSize,
+      report.winRate,
+      report.avgReturn,
+      report.avgPnL,
+      report.sharpeRatio,
+      report.maxDrawdown,
+      report.statisticalSignificance,
+      report.pValue
+    ]);
+    
+    return [headers, ...rows].map(row => row.join(',')).join('\n');
+  }
+
+  /**
+   * 获取决策链列表
+   * GET /api/decision-chains
+   */
+  private async getDecisionChainsRoute(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { limit = 50, offset = 0, symbol, status, type, start_date, end_date } = req.query;
+      
+      const filters: any = {};
+      if (symbol) filters.symbol = symbol as string;
+      if (status) filters.status = status as string;
+      if (type) filters.type = type as string;
+      if (start_date) filters.startDate = new Date(start_date as string);
+      if (end_date) filters.endDate = new Date(end_date as string);
+      
+      const chains = await this.decisionChainMonitor.queryChains({
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string),
+        ...filters
+      });
+      
+      res.json({
+        success: true,
+        data: chains
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get decision chains:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get decision chains',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取单个决策链详情
+   * GET /api/decision-chains/:chainId
+   */
+  private async getDecisionChainRoute(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { chainId } = req.params;
+      
+      const chain = await this.decisionChainMonitor.getChain(chainId);
+      if (!chain) {
+        res.status(404).json({
+          success: false,
+          error: 'Decision chain not found'
+        });
+        return;
+      }
+      
+      res.json({
+        success: true,
+        data: chain
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get decision chain:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get decision chain',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 重放决策链
+   * GET /api/decision-chains/:chainId/replay
+   */
+  private async replayDecisionChainRoute(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { chainId } = req.params;
+      const { include_context = true } = req.query;
+      
+      const replay = await this.decisionChainMonitor.replayChain(chainId, {
+        includeMarketData: include_context === 'true'
+      });
+      
+      if (!replay) {
+        res.status(404).json({
+          success: false,
+          error: 'Decision chain not found'
+        });
+        return;
+      }
+      
+      res.json({
+        success: true,
+        data: replay
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to replay decision chain:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to replay decision chain',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取特定标的的决策链
+   * GET /api/decision-chains/symbol/:symbol
+   */
+  private async getDecisionChainsBySymbolRoute(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol } = req.params;
+      const { limit = 20, status } = req.query;
+      
+      const filters: any = { symbol: symbol.toUpperCase() };
+      if (status) filters.status = status as string;
+      
+      const chains = await this.decisionChainMonitor.queryChains({
+        limit: parseInt(limit as string),
+        ...filters
+      });
+      
+      res.json({
+        success: true,
+        data: chains
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get decision chains by symbol:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get decision chains by symbol',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取最近的决策链
+   * GET /api/decision-chains/recent
+   */
+  private async getRecentDecisionChainsRoute(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { limit = 10, type } = req.query;
+      
+      const filters: any = {};
+      if (type) filters.type = type as string;
+      
+      const chains = await this.decisionChainMonitor.queryChains({
+        limit: parseInt(limit as string),
+        ...filters
+      });
+      
+      res.json({
+        success: true,
+        data: chains
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get recent decision chains:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get recent decision chains',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取决策链统计信息
+   * GET /api/decision-chains/stats
+   */
+  private async getDecisionChainStatsRoute(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { start_date, end_date, symbol, type } = req.query;
+      
+      const filters: any = {};
+      if (start_date) filters.startDate = new Date(start_date as string);
+      if (end_date) filters.endDate = new Date(end_date as string);
+      if (symbol) filters.symbol = symbol as string;
+      if (type) filters.type = type as string;
+      
+      const stats = await this.decisionChainMonitor.getMetrics();
+      
+      res.json({
+        success: true,
+        data: stats
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get decision chain stats:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get decision chain stats',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * 获取失败的决策链
+   * GET /api/decision-chains/failures
+   */
+  private async getFailedDecisionChainsRoute(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { limit = 20, error_type, symbol } = req.query;
+      
+      const filters: any = { status: 'REJECTED' };
+      if (error_type) filters.errorType = error_type as string;
+      if (symbol) filters.symbol = symbol as string;
+      
+      const chains = await this.decisionChainMonitor.queryChains({
+        limit: parseInt(limit as string),
+        ...filters
+      });
+      
+      res.json({
+        success: true,
+        data: chains
+      });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get failed decision chains:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get failed decision chains',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  // Public methods for testing
+  public async getDecisionChains(filters?: any): Promise<any> {
+    const result = await this.decisionChainMonitor.queryChains(filters || {});
+    return {
+      success: true,
+      data: {
+        chains: result.chains,
+        total: result.total,
+        filtered: result.filtered,
+        hasMore: result.hasMore
+      }
+    };
+  }
+
+  public async getDecisionChain(chainId: string): Promise<any> {
+    const chain = await this.decisionChainMonitor.getChain(chainId);
+    return {
+      success: true,
+      data: chain
+    };
+  }
+
+  public async replayDecisionChain(chainId: string): Promise<any> {
+    const replayResult = await this.decisionChainMonitor.replayChain(chainId);
+    return {
+      success: true,
+      data: replayResult
+    };
+  }
+
+  public async getDecisionChainsBySymbol(symbol: string, filters?: any): Promise<any> {
+    const queryFilters = { symbol, ...(filters || {}) };
+    const result = await this.decisionChainMonitor.queryChains(queryFilters);
+    return {
+      success: true,
+      data: {
+        chains: result.chains,
+        total: result.total,
+        filtered: result.filtered,
+        hasMore: result.hasMore
+      }
+    };
+  }
+
+  public async getRecentDecisionChains(filters?: any): Promise<any> {
+    const queryFilters = { ...(filters || {}), limit: filters?.limit || 10 };
+    const result = await this.decisionChainMonitor.queryChains(queryFilters);
+    return {
+      success: true,
+      data: {
+        chains: result.chains,
+        total: result.total,
+        filtered: result.filtered,
+        hasMore: result.hasMore
+      }
+    };
+  }
+
+  public async getDecisionChainStats(filters?: any): Promise<any> {
+    const metrics = await this.decisionChainMonitor.getMetrics();
+    return {
+      success: true,
+      data: metrics
+    };
+  }
+
+  public async getFailedDecisionChains(filters?: any): Promise<any> {
+    const queryFilters = { finalDecision: 'REJECTED', ...(filters || {}) };
+    const result = await this.decisionChainMonitor.queryChains(queryFilters);
+    return {
+      success: true,
+      data: {
+        chains: result.chains,
+        total: result.total,
+        filtered: result.filtered,
+        hasMore: result.hasMore
+      }
+    };
+  }
+
+  /**
+   * 获取系统决策指标
+   */
+  private async getSystemDecisionMetrics(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      // 这里需要从集成服务获取指标，暂时返回模拟数据
+      const metrics = {
+        totalDecisions: 0,
+        approvedDecisions: 0,
+        rejectedDecisions: 0,
+        successRate: '0%',
+        timestamp: new Date().toISOString()
+      };
+      
+      res.json(metrics);
+    } catch (error) {
+      console.error('Error getting system decision metrics:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * 获取API决策指标
+   */
+  private async getSystemAPIDecisionMetrics(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const metrics = this.getAPIDecisionMetrics();
+      res.json(metrics);
+    } catch (error) {
+      console.error('Error getting API decision metrics:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+
 }
+
 
 /**
  * 创建推荐API实例的工厂函数

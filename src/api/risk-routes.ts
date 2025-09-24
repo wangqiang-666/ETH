@@ -1,8 +1,8 @@
 import express from 'express';
-import { riskManagementService } from '../services/risk-management-service';
-import { ethStrategyEngine } from '../strategy/eth-strategy-engine';
-import { SmartSignalResult } from '../analyzers/smart-signal-analyzer';
-import { config } from '../config';
+import { riskManagementService } from '../services/risk-management-service.js';
+import { ethStrategyEngine } from '../strategy/eth-strategy-engine.js';
+import { SmartSignalResult } from '../analyzers/smart-signal-analyzer.js';
+import { config } from '../config.js';
 
 const router = express.Router();
 

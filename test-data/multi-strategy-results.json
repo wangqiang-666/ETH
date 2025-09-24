@@ -1,0 +1,15 @@
+{
+  "timestamp": "2025-09-23T14:31:22.891Z",
+  "tests": {
+    "overall": {
+      "success": false,
+      "error": "Request failed with status code 409"
+    }
+  },
+  "summary": {
+    "totalTests": 1,
+    "passedTests": 0,
+    "failedTests": 2
+  },
+  "performance": {}
+}

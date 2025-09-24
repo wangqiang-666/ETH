@@ -1,12 +1,13 @@
-import { config } from './config'
-import { ethStrategyEngine } from './strategy/eth-strategy-engine'
-import { webServer } from './server/web-server'
-import { enhancedOKXDataService } from './services/enhanced-okx-data-service'
-import { recommendationDatabase } from './services/recommendation-database'
+import { config } from './config.js'
+import { ethStrategyEngine } from './strategy/eth-strategy-engine.js'
+import { webServer } from './server/web-server.js'
+import { enhancedOKXDataService } from './services/enhanced-okx-data-service.js'
+import { recommendationDatabase } from './services/recommendation-database.js'
 import axios from 'axios'
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+import { slippageAnalyzer } from './services/slippage-simulator.js'
 
 /**
  * ETH合约策略分析应用程序主入口
@@ -57,12 +58,22 @@ class ETHStrategyApp {
       // 不阻塞主启动流程，准备就绪后会自动触发一次分析
       void this.startKronosServiceIfEnabled();
 
+      // 启动滑点分析器
+      console.log('📊 启动滑点分析器...');
+      await slippageAnalyzer.start();
+      console.log('✅ 滑点分析器启动成功');
+
       // 启动 ML 标签回填定时任务
       await this.startMLLabelBackfillScheduler();
       
       this.isRunning = true;
       
-      console.log('\n🎉 ETH合约策略分析系统启动完成!');
+      // 添加滑点分析器关闭处理
+    this.addShutdownHandler(async () => {
+      slippageAnalyzer.stop();
+    });
+
+    console.log('\n🎉 ETH合约策略分析系统启动完成!');
       console.log('📈 系统正在运行，开始分析市场数据...');
       console.log(`🌐 Web界面: http://localhost:${config.webServer.port}`);
       console.log(`📊 API 根路径: http://localhost:${config.webServer.port}/api`);
@@ -242,9 +253,10 @@ class ETHStrategyApp {
         }
       };
 
-      // 优先顺序：环境变量 PYTHON -> python -> py
+      // 优先顺序：环境变量 PYTHON -> python3 -> python -> py
       const candidates: Array<[string, string[]]> = [];
       if (process.env.PYTHON) candidates.push([process.env.PYTHON, [appPath]]);
+      candidates.push(['python3', [appPath]]);
       candidates.push(['python', [appPath]]);
       // Windows 常见 Python 启动器
       candidates.push(['py', ['-3', appPath]]);

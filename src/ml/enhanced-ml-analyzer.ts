@@ -1,8 +1,8 @@
 import { Matrix } from 'ml-matrix';
 import * as ss from 'simple-statistics';
-import { TechnicalIndicatorResult } from '../indicators/technical-indicators';
-import { config } from '../config';
-import { MarketData, MLAnalysisResult } from './ml-analyzer';
+import { TechnicalIndicatorResult } from '../indicators/technical-indicators.js';
+import { config } from '../config.js';
+import { MarketData, MLAnalysisResult } from './ml-analyzer.js';
 
 // 高级机器学习模型接口
 interface MLModel {
@@ -325,7 +325,7 @@ class EnsembleModel {
       });
     } else {
       // 根据配置初始化多个模型
-      ensembleConfig.models.forEach(modelConfig => {
+      ensembleConfig.models.forEach((modelConfig: any) => {
         let model: MLModel;
         
         switch (modelConfig.type) {

@@ -1,11 +1,12 @@
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
+import { getVPNOptimizedConfig } from './vpn-config.js';
 
 // 加载环境变量
 dotenv.config();
 
-/**
- * ETH合约策略分析系统配置
- */
+// 获取VPN优化配置
+const vpnConfig = getVPNOptimizedConfig();
+
 export const config = {
     // OKX API配置
     okx: {
@@ -14,12 +15,12 @@ export const config = {
         passphrase: process.env.OKX_PASSPHRASE || '',
         sandbox: process.env.OKX_SANDBOX === 'true',
         baseUrl: 'https://www.okx.com',
-        // 当 FORCE_PROXY=true 时，强制使用代理
+        // 根据VPN环境调整是否使用代理
         useProxy: (process.env.FORCE_PROXY === 'true') || (process.env.USE_PROXY === 'true'),
-        timeout: 30000  // 增加到30秒
+        timeout: vpnConfig.request.timeout
     },
     
-    // 代理服务器配置
+    // 代理配置 - 集成VPN优化
     proxy: {
         url: process.env.HK_PROXY_URL || process.env.PROXY_URL || '',
         baseUrl: process.env.HK_PROXY_URL || process.env.PROXY_URL || '',
@@ -29,38 +30,23 @@ export const config = {
         forceOnly: process.env.FORCE_PROXY === 'true',
         // 显式将 FORCE_PROXY 与 USE_PROXY 都设置为 'false' 时，固定直连模式，禁止自动切换到代理
         directOnly: (process.env.FORCE_PROXY === 'false') && (process.env.USE_PROXY === 'false'),
-        timeout: 30000,  // 增加到30秒
+        timeout: vpnConfig.request.timeout,
         
-        // 连接池配置
-        pool: {
-            maxSockets: 20,           // 每个主机的最大连接数
-            maxFreeSockets: 10,       // 每个主机的最大空闲连接数
-            keepAlive: true,          // 启用 Keep-Alive
-            keepAliveMsecs: 5000,     // Keep-Alive 间隔
-            maxTotalSockets: 100      // 总的最大连接数
-        },
+        // VPN优化的连接池配置
+        pool: vpnConfig.pool,
         
-        // 压缩配置
-        compression: {
-            enabled: true,
-            level: 6,                 // gzip 压缩级别 (1-9)
-            threshold: 1024           // 压缩阈值，超过1KB才压缩
-        },
+        // VPN优化的压缩配置
+        compression: vpnConfig.compression,
         
-        // 重试配置
-        retry: {
-            retries: 3,               // 最大重试次数
-            retryDelay: 1000,         // 重试延迟（毫秒）
-            retryCondition: 'network_error' // 重试条件
-        },
+        // VPN优化的重试配置
+        retry: vpnConfig.retry,
         
-        // 健康检查配置
-        healthCheck: {
-            enabled: true,
-            interval: 30000,          // 30秒检查一次
-            timeout: 5000,            // 健康检查超时
-            endpoint: '/health'       // 健康检查端点
-        }
+        // VPN优化的健康检查配置
+        healthCheck: vpnConfig.healthCheck,
+        
+        // VPN环境标识
+        vpnEnvironment: vpnConfig.isVPNEnvironment,
+        macOS: vpnConfig.isMacOS
     },
     
     // Web服务器配置
@@ -73,7 +59,7 @@ export const config = {
         }
     },
     
-    // 实时广播控制
+    // 实时数据配置
     realtime: {
         jitterEnabled: (process.env.RT_JITTER_ENABLED || 'false') === 'true',
         jitterMaxMs: parseInt(process.env.RT_JITTER_MAX_MS || '800'),
@@ -82,7 +68,8 @@ export const config = {
         snapshotEnabled: (process.env.RT_SNAPSHOT_ENABLED || 'false') === 'true',
         snapshotDir: process.env.RT_SNAPSHOT_DIR || ''
     },
-    
+
+    // 交易配置
     trading: {
         defaultSymbol: process.env.DEFAULT_SYMBOL || 'ETH-USDT-SWAP',
         symbols: [
@@ -107,19 +94,19 @@ export const config = {
         ), // 默认=止损的1.4倍（止损默认0.02 -> 0.028）
         maxRiskPerTrade: parseFloat(process.env.MAX_RISK_PER_TRADE || '0.02'),  // 2%
         maxDrawdown: parseFloat(process.env.MAX_DRAWDOWN || '0.10'),            // 10%
-        // 新增：同向活跃推荐的上限，默认2
+        // 同方向最大活跃仓位数
         maxSameDirectionActives: parseInt(process.env.MAX_SAME_DIR_ACTIVES || '2'),
-        // 新增：净杠杆敞口上限（单位为账户名义比例）。<=0 表示不限制
+        // 净敞口限制
         netExposureCaps: {
-            // 总净名义敞口上限（所有方向合计 size*leverage 的和，与 maxPositionSize 同量纲）
+            // 总净敞口限制（0表示不限制）
             total: parseFloat(process.env.NET_EXPOSURE_CAP_TOTAL || '0'),
-            // 分方向上限（可选），未设置或<=0 表示不限制
+            // 分方向净敞口限制
             perDirection: {
                 LONG: parseFloat(process.env.NET_EXPOSURE_CAP_LONG || '0'),
                 SHORT: parseFloat(process.env.NET_EXPOSURE_CAP_SHORT || '0')
             }
         },
-        // 新增：每小时下单次数上限（0 表示不限制）
+        // 每小时订单数量限制
         hourlyOrderCaps: {
             total: parseInt(process.env.HOURLY_ORDER_CAP_TOTAL || '0'),
             perDirection: {
@@ -129,13 +116,13 @@ export const config = {
         }
     },
     
-    // 交易成本配置（用于动态EV阈值与回测一致）
+    // 交易成本配置
     commission: parseFloat(process.env.COMMISSION || '0.001'),   // 手续费（单边）
     slippage: parseFloat(process.env.SLIPPAGE || '0.0005'),      // 滑点（比例）
     
-    // 技术指标参数
+    // 技术指标配置
     indicators: {
-        // 全局指标选项
+        // 是否只使用已收盘的K线计算指标
         closedOnly: (process.env.INDICATORS_CLOSED_ONLY || 'true') === 'true',
         rsi: {
             period: parseInt(process.env.RSI_PERIOD || '12'),
@@ -161,7 +148,7 @@ export const config = {
         ema: {
             shortPeriod: 12,
             longPeriod: 26,
-            // 趋势过滤EMA周期
+            // 趋势判断用的长期EMA周期
             trendPeriod: parseInt(process.env.EMA_TREND_PERIOD || '100')
         },
         sma: {
@@ -199,48 +186,48 @@ export const config = {
     
     // 策略配置
     strategy: {
-        // 信号强度阈值（0-1），用于交易决策过滤
+        // 信号强度阈值
         signalThreshold: parseFloat(process.env.SIGNAL_THRESHOLD || '0.50'),
-        // 新增：EV 门槛（支持 EV_THRESHOLD/EXPECTED_VALUE_THRESHOLD 环境变量），默认 0.35
+        // 期望值阈值
         evThreshold: parseFloat(process.env.EV_THRESHOLD || process.env.EXPECTED_VALUE_THRESHOLD || '0.35'),
-        // 最小历史胜率（百分比数值，如 55 表示 55%）
+        // 最小胜率要求
         minWinRate: parseFloat(process.env.MIN_WIN_RATE || '55'),
-        // 是否启用机器学习辅助分析
+        // 是否启用机器学习分析
         useMLAnalysis: (process.env.USE_ML_ANALYSIS || 'true') === 'true',
-        // 多因子加权配置：技术面、机器学习、市场结构
+        // 多因子权重配置
         multiFactorWeights: {
             technical: parseFloat(process.env.WEIGHT_TECHNICAL || '0.5'),
             ml: parseFloat(process.env.WEIGHT_ML || '0.3'),
             market: parseFloat(process.env.WEIGHT_MARKET || '0.2')
         },
-        // 主分析周期与K线数量（用于提升1H短期胜率）
+        // 主要时间周期
         primaryInterval: process.env.PRIMARY_INTERVAL || '1H',
         klineLimit: parseInt(process.env.KLINE_LIMIT || '200'),
-        // 入场过滤规则（更严格以提高胜率）
+        // 入场过滤器
         entryFilters: {
             trendFilter: (process.env.TREND_FILTER || 'true') === 'true',
             minCombinedStrengthLong: parseFloat(process.env.MIN_COMBINED_LONG || '55'),
             minCombinedStrengthShort: parseFloat(process.env.MIN_COMBINED_SHORT || '55'),
             allowHighVolatilityEntries: (process.env.ALLOW_HIGH_VOL || 'false') === 'true'
         },
-        // 新增：允许在已有持仓/推荐时生成反向推荐
+        // 是否允许持仓时开反向仓位
         allowOppositeWhileOpen: (process.env.ALLOW_OPPOSITE_WHILE_OPEN || 'false') === 'true',
-        // 新增：生成反向推荐的最低置信度阈值（默认0.70）
+        // 反向开仓最小置信度
         oppositeMinConfidence: parseFloat(process.env.OPPOSITE_MIN_CONFIDENCE || '0.70'),
-        // 新增：允许在风险评估为 HIGH 时仍自动出单（仅用于观测/调试）
+        // 是否允许在高风险时自动交易
         allowAutoOnHighRisk: (process.env.ALLOW_AUTO_ON_HIGH_RISK || 'false') === 'true',
-        // 新增：自动推荐轮询间隔（毫秒），降低可更快出单
+        // 自动推荐间隔（毫秒）
         autoRecommendationIntervalMs: parseInt(process.env.AUTO_RECO_INTERVAL_MS || '15000'),
-        // 新增：策略信号冷却时间（毫秒），默认30分钟
+        // 信号冷却时间（毫秒）
         signalCooldownMs: parseInt(process.env.SIGNAL_COOLDOWN_MS || '1800000'),
-        // 新增：反向信号的最小间隔（毫秒），默认5分钟
+        // 反向信号冷却时间（毫秒）
         oppositeCooldownMs: parseInt(process.env.OPPOSITE_COOLDOWN_MS || '300000'),
-        // 新增：振荡器开关（默认停用KDJ与Williams）
+        // 振荡器配置
         oscillators: {
             useKDJ: (process.env.USE_KDJ || 'false') === 'true',
             useWilliams: (process.env.USE_WILLIAMS || 'false') === 'true'
         },
-        // 新增：门控参数（ADX/量能/波动）
+        // 门控条件配置
         gating: {
             adx: {
                 enabled: (process.env.GATE_ADX_ENABLED || 'false') === 'true',
@@ -257,27 +244,27 @@ export const config = {
                 squeezeBlock: (process.env.GATE_SQUEEZE_BLOCK || 'true') === 'true'
             }
         },
-        // 新增：Kelly 缩放（可选，默认关闭）
+        // Kelly公式配置
         kelly: {
             enabled: (process.env.KELLY_ENABLED || 'false') === 'true',
             maxFraction: parseFloat(process.env.KELLY_MAX_FRACTION || '0.2'),
             minFraction: parseFloat(process.env.KELLY_MIN_FRACTION || '0.02')
         },
-        // 新增：ATR 驱动的止损/止盈（可选，默认关闭）
+        // ATR止损配置
         atrStops: {
             enabled: (process.env.ATR_STOPS_ENABLED || 'false') === 'true',
-            // ATR 来源：'hl' 使用高低价近似，'indicators' 使用指标管道，默认 hl
+            // ATR计算源：'hl' (high-low), 'tr' (true range), 'close' (close-based)
             source: process.env.ATR_SOURCE || 'hl',
-            // ATR 参数（若指标不可用则仅作记录）
+            // ATR周期
             atrPeriod: parseInt(process.env.ATR_PERIOD || process.env.KC_ATR_PERIOD || '14'),
-            // 距离倍数
+            // 止损倍数
             slMultiplier: parseFloat(process.env.ATR_SL_MULTIPLIER || '1.5'),
             tpMultiplier: parseFloat(process.env.ATR_TP_MULTIPLIER || '2.2'),
-            // 最小/上限 ATR 百分比（用于 hl 近似防抖）
+            // ATR百分比限制
             minAtrPct: parseFloat(process.env.ATR_MIN_PCT || process.env.GATE_ATR_PCT_MIN || '0.005'),
             capAtrPct: parseFloat(process.env.ATR_CAP_PCT || '0.2')
         },
-        // 新增：Kronos 模型集成配置
+        // Kronos AI 配置
         kronos: {
             enabled: process.env.KRONOS_ENABLED === 'true',
             baseUrl: process.env.KRONOS_BASE_URL || 'http://localhost:8001',
@@ -287,7 +274,7 @@ export const config = {
             longThreshold: Number(process.env.KRONOS_LONG_THRESHOLD || 0.62),
             shortThreshold: Number(process.env.KRONOS_SHORT_THRESHOLD || 0.62),
             minConfidence: Number(process.env.KRONOS_MIN_CONFIDENCE || 0.55),
-            // 新增：融合占比上限（0-1），限制 Kronos 对ML通道的最大影响力
+            // Alpha 参数最大值
             alphaMax: Number(process.env.KRONOS_ALPHA_MAX || 0.6)
         }
     },
@@ -300,157 +287,118 @@ export const config = {
             modelType: process.env.LOCAL_ML_MODEL || 'ensemble', // 'linear', 'ensemble', 'lstm', 'svm'
             trainingDataSize: parseInt(process.env.ML_TRAINING_SIZE || '500'), // 减少训练数据量
             retrainInterval: parseInt(process.env.ML_RETRAIN_INTERVAL || '50'), // 每50个新样本重训练
-            minTrainingData: parseInt(process.env.ML_MIN_TRAINING || '50'), // 减少最小训练数据
-            
-            // 新增：是否使用真实历史数据进行初始化训练（含真实MACD）
-            useRealHistoricalTraining: (process.env.ML_USE_REAL_TRAINING || 'true') === 'true',
-            // 新增：训练数据来源参数
-            trainingSymbol: process.env.ML_TRAINING_SYMBOL || undefined,
-            trainingInterval: process.env.ML_TRAINING_INTERVAL || '5m', // 使用5分钟K线减少数据量
-            trainingLimit: parseInt(process.env.ML_TRAINING_LIMIT || '200'), // 减少历史数据获取量
-            
-            // 模型参数
-            parameters: {
-                learningRate: parseFloat(process.env.ML_LEARNING_RATE || '0.01'),
-                epochs: parseInt(process.env.ML_EPOCHS || '50'), // 减少训练轮数
-                batchSize: parseInt(process.env.ML_BATCH_SIZE || '32'), // 减少批次大小
-                validationSplit: parseFloat(process.env.ML_VALIDATION_SPLIT || '0.2'), // 减少验证集比例
-                regularization: parseFloat(process.env.ML_REGULARIZATION || '0.001')
-            },
-            
+            minTrainingData: parseInt(process.env.ML_MIN_TRAINING || '50'), // 最少训练数据量
+            features: [
+                'price_change',
+                'volume_change',
+                'rsi',
+                'macd_signal',
+                'bollinger_position',
+                'ema_trend',
+                'adx_strength',
+                'volume_profile'
+            ],
+            // 模型性能阈值
+            minAccuracy: parseFloat(process.env.ML_MIN_ACCURACY || '0.55'),
+            maxTrainingTime: parseInt(process.env.ML_MAX_TRAINING_TIME || '30000'), // 30秒
+            // 预测配置
+            predictionHorizon: parseInt(process.env.ML_PREDICTION_HORIZON || '5'), // 预测未来5个周期
+            confidenceThreshold: parseFloat(process.env.ML_CONFIDENCE_THRESHOLD || '0.6'),
             // 集成学习配置
             ensemble: {
-                enabled: true,
+                enabled: (process.env.ML_ENSEMBLE_ENABLED || 'true') === 'true',
                 models: [
                     { type: 'linear', weight: 0.3 },
-                    { type: 'svm', weight: 0.3 },
-                    { type: 'lstm', weight: 0.4 }
+                    { type: 'polynomial', weight: 0.25 },
+                    { type: 'svm', weight: 0.25 },
+                    { type: 'neural', weight: 0.2 }
                 ]
+            },
+            // 模型参数配置
+            parameters: {
+                regularization: parseFloat(process.env.ML_REGULARIZATION || '0.01'),
+                learningRate: parseFloat(process.env.ML_LEARNING_RATE || '0.001'),
+                epochs: parseInt(process.env.ML_EPOCHS || '100')
+            },
+            // 训练配置
+            useRealHistoricalTraining: (process.env.ML_USE_REAL_HISTORICAL_TRAINING || 'true') === 'true',
+            trainingSymbol: process.env.ML_TRAINING_SYMBOL || '',
+            trainingInterval: process.env.ML_TRAINING_INTERVAL || '1m',
+            trainingLimit: parseInt(process.env.ML_TRAINING_LIMIT || '500')
+        },
+        // 特征配置
+        features: {
+            marketMicrostructure: (process.env.ML_FEATURES_MICROSTRUCTURE || 'true') === 'true',
+            sentiment: {
+                fgi: (process.env.ML_FEATURES_FGI || 'true') === 'true'
+            },
+            advanced: {
+                waveletTransform: (process.env.ML_FEATURES_WAVELET || 'false') === 'true',
+                fourierAnalysis: (process.env.ML_FEATURES_FOURIER || 'false') === 'true',
+                fractalDimension: (process.env.ML_FEATURES_FRACTAL || 'false') === 'true'
             }
         },
-        
-        // 训练配置（离线/本地训练参数）
+        // 训练配置
         training: {
             windowDays: parseInt(process.env.ML_TRAINING_WINDOW_DAYS || '14'),
-            labelHorizonMinutes: parseInt(process.env.ML_TRAINING_LABEL_HORIZON || '60')
+            labelHorizonMinutes: parseInt(process.env.ML_LABEL_HORIZON_MINUTES || '60')
         },
-        
-        // 标签回填配置
+        // 标签配置
         labeling: {
             enabled: (process.env.ML_LABELING_ENABLED || 'true') === 'true',
-            pollIntervalMs: parseInt(process.env.ML_LABELING_POLL_MS || '60000'),
-            horizonMinutesDefault: parseInt(process.env.ML_LABEL_HORIZON_DEFAULT || '60')
-        },
-        
-        // 新增：特征开关配置，供高级特征提取使用
-        features: {
-            advanced: {
-                waveletTransform: (process.env.ML_FEATURE_WAVELET || 'true') === 'true',
-                fourierAnalysis: (process.env.ML_FEATURE_FOURIER || 'true') === 'true',
-                fractalDimension: (process.env.ML_FEATURE_FRACTAL || 'true') === 'true'
-            },
-            // 市场微观结构特征开关
-            marketMicrostructure: (process.env.ML_FEATURE_MARKET_MICRO || 'true') === 'true',
-            // 情绪特征开关
-            sentiment: {
-                fgi: (process.env.ML_FEATURE_FGI || 'true') === 'true'
-            }
+            pollIntervalMs: parseInt(process.env.ML_LABELING_POLL_INTERVAL_MS || '60000'),
+            horizonMinutesDefault: parseInt(process.env.ML_LABELING_HORIZON_MINUTES_DEFAULT || '60')
         }
     },
     
-    web: {
-        port: parseInt(process.env.WEB_PORT || '3000'),
-        host: process.env.WEB_HOST || '0.0.0.0',
-        cors: {
-            origin: process.env.CORS_ORIGIN || '*',
-            credentials: true
-        }
-    },
-
-    // 测试与调试配置
+    // VPN环境配置
+    vpn: vpnConfig,
+    
+    // 测试配置
     testing: {
-        // 是否允许通过测试接口覆盖行情价格（仅用于本地/E2E 调试，不可在生产启用）
-        allowPriceOverride: (process.env.TEST_ALLOW_PRICE_OVERRIDE || 'false') === 'true',
-        // 覆盖价格默认有效期（毫秒）
-        priceOverrideDefaultTtlMs: parseInt(process.env.TEST_PRICE_OVERRIDE_TTL_MS || '15000'),
-        // 是否允许覆盖情绪指数（FGI）
-        allowFGIOverride: (process.env.TEST_ALLOW_FGI_OVERRIDE || 'false') === 'true',
-        // FGI 覆盖默认有效期（毫秒）
-        fgiOverrideDefaultTtlMs: parseInt(process.env.TEST_FGI_OVERRIDE_TTL_MS || '15000'),
-        // 是否允许覆盖资金费率
-        allowFundingOverride: (process.env.TEST_ALLOW_FUNDING_OVERRIDE || 'false') === 'true',
-        // 资金费率覆盖默认有效期（毫秒）
-        fundingOverrideDefaultTtlMs: parseInt(process.env.TEST_FUNDING_OVERRIDE_TTL_MS || '15000')
-    },
-
-    // 新增：推荐跟踪与并发统计配置
-    recommendation: {
-        // 最大持仓时长（小时）。<=0 则表示不自动过期
-        maxHoldingHours: parseInt(process.env.RECOMMENDATION_MAX_HOLDING_HOURS || '168'),
-        // 最小持仓时间（分钟）。仅限制“止盈”触发；<=0 表示不限制
-        minHoldingMinutes: parseInt(process.env.RECOMMENDATION_MIN_HOLDING_MINUTES || '0'),
-        // 并发计数的时间窗口（小时）。仅统计持仓时长小于该值的 ACTIVE 推荐
-        concurrencyCountAgeHours: parseInt(process.env.RECOMMENDATION_CONCURRENCY_AGE_HOURS || '24'),
-        // 新增：追踪止损配置
-        trailing: {
-            // 是否启用追踪止损
-            enabled: (process.env.RECOMMENDATION_TRAIL_ENABLED || 'false') === 'true',
-            // 追踪距离（百分比，基于标的价格变动，不包含杠杆），例如 0.8 表示 0.8%
-            percent: parseFloat(process.env.RECOMMENDATION_TRAIL_PERCENT || '0'),
-            // 新增：只有当基础涨跌幅达到该阈值（%）后才开始移动追踪止盈/止损，避免过早被扫出
-            activateProfitPct: parseFloat(process.env.RECOMMENDATION_TRAIL_ACTIVATE_PROFIT_PCT || '2.2'),
-            // 是否在“止损已抬到保本（TP1 命中）”后才开始追踪
-            activateOnBreakeven: (process.env.RECOMMENDATION_TRAIL_ON_BREAKEVEN || 'true') === 'true',
-            // 最小更新步长（价格，避免频繁抖动更新）。<=0 则不限制
-            minStep: parseFloat(process.env.RECOMMENDATION_TRAIL_MIN_STEP || '0'),
-            // 自适应：在低利润阶段放宽、在高利润阶段收紧
-            flex: {
-                enabled: (process.env.RECOMMENDATION_TRAIL_FLEX_ENABLED || 'true') === 'true',
-                // 低利润区阈值（基于标的百分比，不含杠杆），例如 3.5 表示 3.5%
-                lowProfitThreshold: parseFloat(process.env.RECOMMENDATION_TRAIL_FLEX_LOW_THRESHOLD || '3.5'),
-                // 高利润区阈值（更晚才收紧）
-                highProfitThreshold: parseFloat(process.env.RECOMMENDATION_TRAIL_FLEX_HIGH_THRESHOLD || '7'),
-                // 低利润区放宽倍数（>1 表示轨距更宽）
-                lowMultiplier: parseFloat(process.env.RECOMMENDATION_TRAIL_FLEX_LOW_MULTIPLIER || '2.8'),
-                // 高利润区收紧倍数（<1 表示轨距更窄）
-                highTightenMultiplier: parseFloat(process.env.RECOMMENDATION_TRAIL_FLEX_HIGH_TIGHTEN || '0.6')
-            }
-        }
-     }
- };
-
-/**
- * 验证配置
- */
-export function validateConfig(): boolean {
-    const required = [
-        'okx.apiKey',
-        'okx.secretKey', 
-        'okx.passphrase'
-    ];
-    
-    for (const key of required) {
-        const value = key.split('.').reduce((obj, k) => obj?.[k], config as any);
-        if (!value) {
-            console.error(`❌ 缺少必需的配置项: ${key}`);
-            return false;
-        }
+        allowPriceOverride: (process.env.TESTING_ALLOW_PRICE_OVERRIDE || 'true') === 'true',
+        allowFGIOverride: (process.env.TESTING_ALLOW_FGI_OVERRIDE || 'true') === 'true',
+        allowFundingOverride: (process.env.TESTING_ALLOW_FUNDING_OVERRIDE || 'true') === 'true',
+        fgiOverrideDefaultTtlMs: parseInt(process.env.TESTING_FGI_OVERRIDE_TTL_MS || '10000'),
+        fundingOverrideDefaultTtlMs: parseInt(process.env.TESTING_FUNDING_OVERRIDE_TTL_MS || '10000'),
+        priceOverrideDefaultTtlMs: parseInt(process.env.TESTING_PRICE_OVERRIDE_TTL_MS || '10000')
     }
-    
-    return true;
-}
+};
 
-/**
- * 获取交易对配置
- */
-export function getSymbolConfig(symbol: string = config.trading.defaultSymbol) {
-    return {
+// 获取指定交易对的配置
+export function getSymbolConfig(symbol: string) {
+    const baseConfig = {
         symbol,
         leverage: config.trading.defaultLeverage,
-        stopLoss: config.risk.stopLossPercent,
-        takeProfit: config.risk.takeProfitPercent,
-        maxPosition: config.risk.maxPositionSize
+        maxLeverage: config.trading.maxLeverage,
+        commission: config.commission,
+        slippage: config.slippage
     };
+    
+    // 根据不同交易对调整配置
+    switch (symbol) {
+        case 'BTC-USDT-SWAP':
+            return {
+                ...baseConfig,
+                leverage: Math.min(config.trading.defaultLeverage, 10), // BTC最大10倍
+                slippage: config.slippage * 0.8 // BTC流动性好，滑点较小
+            };
+        case 'ETH-USDT-SWAP':
+            return {
+                ...baseConfig,
+                leverage: Math.min(config.trading.defaultLeverage, 15), // ETH最大15倍
+                slippage: config.slippage * 0.9
+            };
+        case 'SOL-USDT-SWAP':
+        case 'DOGE-USDT-SWAP':
+            return {
+                ...baseConfig,
+                leverage: Math.min(config.trading.defaultLeverage, 20), // 山寨币最大20倍
+                slippage: config.slippage * 1.2 // 山寨币滑点较大
+            };
+        default:
+            return baseConfig;
+    }
 }
 
 export default config;

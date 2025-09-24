@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import NodeCache from 'node-cache';
-import { config } from '../config';
+import { config } from '../config.js';
 
 export interface KronosForecastInput {
   symbol: string;

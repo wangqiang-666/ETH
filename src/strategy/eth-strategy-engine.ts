@@ -1,12 +1,12 @@
-import { SmartSignalAnalyzer, SmartSignalResult } from '../analyzers/smart-signal-analyzer';
-import type { MarketData, KlineData } from '../services/okx-data-service';
-import { EnhancedOKXDataService, enhancedOKXDataService, getEffectiveTestingFGIOverride } from '../services/enhanced-okx-data-service';
-import { MLAnalyzer } from '../ml/ml-analyzer';
-import { config } from '../config';
+import { SmartSignalAnalyzer, SmartSignalResult } from '../analyzers/smart-signal-analyzer.js';
+import type { MarketData, KlineData } from '../services/okx-data-service.js';
+import { EnhancedOKXDataService, enhancedOKXDataService, getEffectiveTestingFGIOverride } from '../services/enhanced-okx-data-service.js';
+import { MLAnalyzer } from '../ml/ml-analyzer.js';
+import { config } from '../config.js';
 import axios from 'axios';
 import NodeCache from 'node-cache';
-import { riskManagementService, RiskAssessment, PositionRisk, PortfolioRisk } from '../services/risk-management-service';
-import { logger } from '../utils/logger';
+import { riskManagementService, RiskAssessment, PositionRisk, PortfolioRisk } from '../services/risk-management-service.js';
+import { logger } from '../utils/logger.js';
 import { EventEmitter } from 'events';
 
 // 计算基础EV阈值：支持 evThreshold 对象形式（default/byVolatility/byRegime）与兼容旧的 expectedValueThreshold
@@ -807,16 +807,20 @@ export class ETHStrategyEngine extends EventEmitter {
     marketData: MarketData,
     riskAssessment: RiskAssessment
   ): StrategyResult['riskManagement'] {
-    const basePositionSize = Math.min(riskAssessment.maxAllowedPosition, this.maxPositionSize);
-    
-    // 根据每日损失调整仓位
-    const dailyLossRatio = this.currentDailyLoss / this.dailyLossLimit;
-    const adjustedPositionSize = basePositionSize * (1 - dailyLossRatio * 0.5);
-    
-    // 使用风险管理服务推荐的杠杆
-    const recommendedLeverage = riskAssessment.recommendedLeverage;
-    
-    // 新增：根据情绪与布林带极端位置调整仓位与杠杆（风险权重）
+    // 使用新的自适应仓位与杠杆计算
+    const adaptiveSizing = riskManagementService.computeAdaptiveSizing(
+      {
+        confidence: signalResult.strength.confidence,
+        riskReward: signalResult.riskReward || riskAssessment.riskRewardRatio,
+        positionSize: signalResult.positionSize,
+        signal: signalResult.signal,
+        metadata: signalResult.metadata
+      },
+      marketData,
+      this.currentPosition ? [this.currentPosition] : []
+    );
+
+    // 应用情绪与布林带极端位置的额外调整
     const fgi = marketData.fgiScore;
     const bollPosAdj = signalResult.metadata?.bollingerPosition;
     const bollBandwidth = signalResult.metadata?.bollingerBandwidth;
@@ -831,41 +835,26 @@ export class ETHStrategyEngine extends EventEmitter {
       if ((signalResult.signal === 'SELL' || signalResult.signal === 'STRONG_SELL') && bollPosAdj < 0.2) sentimentAdj *= 0.85; // 下轨附近不追空
     }
 
-    const finalPositionSize = Math.max(0.01, adjustedPositionSize * sentimentAdj);
+    // 最终仓位大小（应用情绪调整）
+    const finalPositionSize = Math.max(0.01, adaptiveSizing.positionSize * sentimentAdj);
 
-    // 杠杆调整
-    let leverage = recommendedLeverage;
-    if (typeof fgi === 'number' && (fgi <= 20 || fgi >= 80)) {
-      leverage = Math.max(2, Math.floor(leverage * 0.7)); // 极端情绪下调杠杆，最低2x
-    }
-    if (typeof bollBandwidth === 'number' && bollBandwidth < 0.02) {
-      leverage = Math.max(2, Math.floor(leverage * 0.8)); // 窄带震荡降低杠杆，最低2x
-    }
+    // 杠杆调整（应用市场条件调整）
+     let leverage = adaptiveSizing.leverage;
+     if (typeof fgi === 'number' && (fgi <= 20 || fgi >= 80)) {
+       leverage = Math.max(3, Math.floor(leverage * 0.8)); // 极端情绪下调杠杆，最低3倍
+     }
+     if (typeof bollBandwidth === 'number' && bollBandwidth < 0.02) {
+       leverage = Math.max(3, Math.floor(leverage * 0.9)); // 窄带震荡降低杠杆，最低3倍
+     }
 
-    // 新增：Kelly 缩放（可选，默认关闭）
-    const kellyCfg = (((config as any).strategy?.kelly) || {});
-    let positionSize = finalPositionSize;
-    try {
-      if (kellyCfg.enabled === true) {
-        const perf = this.predictPerformance(signalResult);
-        const p = Math.max(0.001, Math.min(0.999, perf.expectedWinRate || 0));
-        const R = Math.max(0.0001, (signalResult as any)?.riskReward || perf.riskRewardRatio || 0);
-        const k = p - (1 - p) / R; // Kelly fraction
-        const kMax = Number(kellyCfg.maxFraction ?? 0.2);
-        const kMin = Number(kellyCfg.minFraction ?? 0.02);
-        const kClamped = Math.max(kMin, Math.min(kMax, k));
-        const scale = Math.max(0.1, Math.min(1.0, kClamped / kMax));
-        positionSize = Math.max(0.01, finalPositionSize * scale);
-      }
-    } catch {
-      // 安全兜底：忽略 Kelly 计算异常
-    }
+     // 确保杠杆在3-20倍范围内
+     leverage = Math.max(3, Math.min(20, leverage));
 
-    const maxLoss = positionSize * config.risk.stopLossPercent;
+    const maxLoss = finalPositionSize * config.risk.stopLossPercent;
     
     return {
       maxLoss,
-      positionSize,
+      positionSize: finalPositionSize,
       leverage,
       stopLoss: riskAssessment.stopLossPrice,
       takeProfit: riskAssessment.takeProfitPrice,

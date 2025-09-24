@@ -1,6 +1,6 @@
-import { SmartSignalResult } from '../analyzers/smart-signal-analyzer';
-import type { MarketData } from '../services/okx-data-service';
-import { riskManagementService } from '../services/risk-management-service';
+import { SmartSignalResult } from '../analyzers/smart-signal-analyzer.js';
+import type { MarketData } from '../services/okx-data-service.js';
+import { riskManagementService } from '../services/risk-management-service.js';
 
 // 回测交易记录
 export interface BacktestTrade {
