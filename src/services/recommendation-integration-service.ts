@@ -8,6 +8,7 @@ import { ETHStrategyEngine } from '../strategy/eth-strategy-engine.js';
 import { TradingSignalService } from './trading-signal-service.js';
 import { RiskManagementService } from './risk-management-service.js';
 import { DecisionChainMonitor } from './decision-chain-monitor.js';
+import { Mutex } from '../utils/mutex.js';
 import { EventEmitter } from 'events';
 import { config } from '../config.js';
 
@@ -26,6 +27,11 @@ export class RecommendationIntegrationService extends EventEmitter {
   private signalService: TradingSignalService;
   private riskService: RiskManagementService;
   private decisionChainMonitor: DecisionChainMonitor;
+  
+  // 并发控制
+  private readonly recommendationMutex = new Mutex();
+  private readonly autoRecommendationMutex = new Mutex();
+  
   // 新增：维护策略持仓与推荐记录的映射
   private positionToRecommendation: Map<string, string> = new Map();
   private isInitialized: boolean = false;
@@ -564,9 +570,19 @@ export class RecommendationIntegrationService extends EventEmitter {
   }
   
   /**
-   * 生成自动推荐
+   * 生成自动推荐（使用互斥锁保护）
    */
   private async generateAutoRecommendation(): Promise<void> {
+    // 使用互斥锁确保自动推荐生成的原子性
+    return await this.autoRecommendationMutex.runExclusive(async () => {
+      return await this.generateAutoRecommendationInternal();
+    });
+  }
+
+  /**
+   * 自动推荐生成的内部实现
+   */
+  private async generateAutoRecommendationInternal(): Promise<void> {
     const chainId = `AUTO_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     try {

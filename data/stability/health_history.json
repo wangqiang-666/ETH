@@ -1,0 +1,3202 @@
+[
+  {
+    "timestamp": 1758781793812,
+    "overall": "healthy",
+    "score": 73,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781793823,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781793832,
+        "responseTime": 9,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781793832,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781493832
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781793832,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781733832,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781793832,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781788832
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781794776,
+        "responseTime": 944,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 944,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 16991633408,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 21,
+        "available": 78.54093996647745,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 45,
+        "available": 55.02164588535661,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 9,
+        "available": 91.35839007555774,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781803813,
+    "overall": "healthy",
+    "score": 74,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781803824,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781803830,
+        "responseTime": 6,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781803830,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781503830
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781803830,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781743830,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781803830,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781798830
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781804847,
+        "responseTime": 1017,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1017,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17033805824,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 14,
+        "available": 85.94388128956162,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 34,
+        "available": 65.88371098278078,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 13,
+        "available": 87.00634011358076,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781813815,
+    "overall": "healthy",
+    "score": 71,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781813825,
+        "responseTime": 10,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781813830,
+        "responseTime": 5,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781813830,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781513830
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781813830,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781753830,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781813830,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781808830
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781815223,
+        "responseTime": 1393,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1393,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17062887424,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 33,
+        "available": 67.17517999552337,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 49,
+        "available": 50.74719788918216,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 17,
+        "available": 83.30322095863878,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781823815,
+    "overall": "healthy",
+    "score": 73,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781823826,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781823830,
+        "responseTime": 4,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781823830,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781523830
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781823830,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781763830,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781823830,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781818830
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781824768,
+        "responseTime": 938,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 938,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17043718144,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 32,
+        "available": 68.22711253034308,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 36,
+        "available": 64.49739221645646,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 5,
+        "available": 94.95287180359061,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781833817,
+    "overall": "healthy",
+    "score": 74,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781833828,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781833831,
+        "responseTime": 3,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781833831,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781533831
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781833831,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781773831,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781833831,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781828831
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781835002,
+        "responseTime": 1171,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1171,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17049387008,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 14,
+        "available": 85.7270064251908,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 34,
+        "available": 65.89846295784596,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 11,
+        "available": 89.40083805803158,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781843818,
+    "overall": "healthy",
+    "score": 72,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781843828,
+        "responseTime": 10,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781843830,
+        "responseTime": 2,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781843830,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781543830
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781843830,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781783830,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781843830,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781838830
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781844768,
+        "responseTime": 938,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 938,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17036492800,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 34,
+        "available": 65.97580469429302,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 50,
+        "available": 50.12707218319976,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 8,
+        "available": 91.75477024934,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781853818,
+    "overall": "healthy",
+    "score": 72,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781853828,
+        "responseTime": 10,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781853833,
+        "responseTime": 5,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781853833,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781553833
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781853833,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781793833,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781853833,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781848833
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781855121,
+        "responseTime": 1288,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1288,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17043685376,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 32,
+        "available": 67.93516369631315,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 46,
+        "available": 53.536523365074544,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 14,
+        "available": 86.22735559547993,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781863819,
+    "overall": "healthy",
+    "score": 75,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781863831,
+        "responseTime": 12,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781863833,
+        "responseTime": 1,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781863833,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781563833
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781863833,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781803833,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781863833,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781858833
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781864913,
+        "responseTime": 1080,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1080,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17039048704,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 15,
+        "available": 85.37413778741497,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 35,
+        "available": 65.060741251842,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 6,
+        "available": 94.07993240318889,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781873820,
+    "overall": "healthy",
+    "score": 72,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781873831,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781873835,
+        "responseTime": 3,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781873835,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781573835
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781873835,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781813835,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781873835,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781868835
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781874806,
+        "responseTime": 971,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 971,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17055432704,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 38,
+        "available": 62.000167391411146,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 33,
+        "available": 66.70961132153056,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 9,
+        "available": 91.11652876224593,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781883822,
+    "overall": "healthy",
+    "score": 73,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781883833,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781883835,
+        "responseTime": 2,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781883835,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781583835
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781883835,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781823835,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781883835,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781878835
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781884954,
+        "responseTime": 1119,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1119,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17049059328,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 18,
+        "available": 82.49037001181657,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 49,
+        "available": 51.10013988306039,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 13,
+        "available": 86.94518288230931,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781893823,
+    "overall": "healthy",
+    "score": 72,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781893834,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781893841,
+        "responseTime": 7,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781893841,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781593841
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781893841,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781833841,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781893841,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781888841
+        }
+      },
+      "network": {
+        "status": "warning",
+        "score": 65,
+        "lastCheck": 1758781896065,
+        "responseTime": 2224,
+        "errorRate": 0.08,
+        "uptime": 0.996,
+        "details": {
+          "latency": 2224,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17042898944,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 26,
+        "available": 73.87246733633701,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 35,
+        "available": 64.56894138359019,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 15,
+        "available": 84.81656542625015,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781903824,
+    "overall": "healthy",
+    "score": 71,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781903834,
+        "responseTime": 10,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781903837,
+        "responseTime": 3,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781903837,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781603837
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781903837,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781843837,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781903837,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781898837
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781904914,
+        "responseTime": 1077,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1077,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17050124288,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 35,
+        "available": 64.90247877867685,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 47,
+        "available": 52.82067462505968,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 19,
+        "available": 80.80796718612412,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781913824,
+    "overall": "healthy",
+    "score": 74,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781913835,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781913838,
+        "responseTime": 3,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781913838,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781613838
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781913838,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781853838,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781913838,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781908838
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781914895,
+        "responseTime": 1057,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1057,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17049206784,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 12,
+        "available": 88.16820948988008,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 49,
+        "available": 50.57593420586381,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 7,
+        "available": 92.59359025815974,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781923824,
+    "overall": "healthy",
+    "score": 72,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781923835,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781923839,
+        "responseTime": 4,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781923839,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781623839
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781923839,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781863839,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781923839,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781918839
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781924952,
+        "responseTime": 1113,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1113,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17048436736,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 28,
+        "available": 72.33165963892694,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 43,
+        "available": 56.817554409495955,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 18,
+        "available": 81.97902522804603,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781933824,
+    "overall": "healthy",
+    "score": 73,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781933835,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781933839,
+        "responseTime": 4,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781933839,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781633839
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781933839,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781873839,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781933839,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781928839
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781934909,
+        "responseTime": 1070,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1070,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17048076288,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 30,
+        "available": 69.63250098235936,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 35,
+        "available": 64.88301300678619,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 12,
+        "available": 88.35328111053005,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781943824,
+    "overall": "healthy",
+    "score": 72,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781943834,
+        "responseTime": 10,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781943838,
+        "responseTime": 4,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781943838,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781643838
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781943838,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781883838,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781943838,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781938838
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781945395,
+        "responseTime": 1557,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1557,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17062707200,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 36,
+        "available": 63.93989214245548,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 45,
+        "available": 55.083351013540195,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 9,
+        "available": 90.65235882947846,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781953826,
+    "overall": "healthy",
+    "score": 74,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781953837,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781953841,
+        "responseTime": 4,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781953841,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781653841
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781953841,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781893841,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781953841,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781948841
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781954840,
+        "responseTime": 999,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 999,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17062920192,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 16,
+        "available": 84.12004320187822,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 48,
+        "available": 51.83729531897431,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 9,
+        "available": 91.31210048225348,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781963826,
+    "overall": "healthy",
+    "score": 74,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781963837,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781963841,
+        "responseTime": 4,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781963841,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781663841
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781963841,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781903841,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781963841,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781958841
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781965138,
+        "responseTime": 1297,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1297,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17056514048,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 11,
+        "available": 89.47536326398713,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 42,
+        "available": 58.137672423527434,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 18,
+        "available": 81.68346445371895,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781973827,
+    "overall": "healthy",
+    "score": 74,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781973839,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781973842,
+        "responseTime": 3,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781973842,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781673842
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781973842,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781913842,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781973843,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781968843
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781974898,
+        "responseTime": 1055,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1055,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17055186944,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 14,
+        "available": 86.34059645922585,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 42,
+        "available": 58.140334323744014,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 8,
+        "available": 92.35476497218804,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781983829,
+    "overall": "healthy",
+    "score": 72,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781983840,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781983845,
+        "responseTime": 5,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781983845,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781683845
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781983846,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781923846,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781983846,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781978846
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781984786,
+        "responseTime": 940,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 940,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17054957568,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 36,
+        "available": 63.94894049550307,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 32,
+        "available": 67.9076760382294,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 15,
+        "available": 84.86689077370836,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758781993830,
+    "overall": "healthy",
+    "score": 75,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758781993842,
+        "responseTime": 12,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758781993844,
+        "responseTime": 2,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758781993844,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781693844
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758781993844,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781933844,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758781993844,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781988844
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758781994912,
+        "responseTime": 1068,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1068,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17052876800,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 11,
+        "available": 89.05138335780921,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 31,
+        "available": 69.40756508190492,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 12,
+        "available": 87.81457401923153,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758782003831,
+    "overall": "healthy",
+    "score": 73,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758782003842,
+        "responseTime": 11,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758782003844,
+        "responseTime": 2,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758782003844,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781703844
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758782003844,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781943844,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758782003844,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758781998844
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758782005201,
+        "responseTime": 1357,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1357,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17065754624,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 19,
+        "available": 81.12920842459022,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 43,
+        "available": 57.20559595914395,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 13,
+        "available": 86.93801394282494,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758782013831,
+    "overall": "healthy",
+    "score": 74,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758782013843,
+        "responseTime": 12,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758782013844,
+        "responseTime": 1,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758782013844,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781713844
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758782013844,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781953844,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758782013844,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758782008844
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758782015080,
+        "responseTime": 1236,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1236,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17066983424,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 15,
+        "available": 84.63162380822943,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 43,
+        "available": 57.218248076079625,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 14,
+        "available": 85.9172926842737,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758782023832,
+    "overall": "healthy",
+    "score": 74,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758782023842,
+        "responseTime": 10,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758782023844,
+        "responseTime": 2,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758782023844,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781723844
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758782023844,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781963844,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758782023844,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758782018844
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758782024806,
+        "responseTime": 962,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 962,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17054580736,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 20,
+        "available": 80.36935171717879,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 38,
+        "available": 62.43796939156541,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 11,
+        "available": 89.3180650697318,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  },
+  {
+    "timestamp": 1758782033832,
+    "overall": "healthy",
+    "score": 73,
+    "components": {
+      "database": {
+        "status": "healthy",
+        "score": 95,
+        "lastCheck": 1758782033844,
+        "responseTime": 12,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "connections": 5,
+          "activeQueries": 2,
+          "slowQueries": 0
+        }
+      },
+      "api": {
+        "status": "warning",
+        "score": 60,
+        "lastCheck": 1758782033851,
+        "responseTime": 7,
+        "errorRate": 0.1,
+        "uptime": 0.995,
+        "details": {
+          "statusCode": 404,
+          "endpoint": "/api/system/status"
+        }
+      },
+      "trading": {
+        "status": "healthy",
+        "score": 85,
+        "lastCheck": 1758782033851,
+        "responseTime": 50,
+        "errorRate": 0.05,
+        "uptime": 0.98,
+        "details": {
+          "activePositions": 2,
+          "pendingOrders": 1,
+          "lastTrade": 1758781733851
+        }
+      },
+      "ml": {
+        "status": "healthy",
+        "score": 68,
+        "lastCheck": 1758782033851,
+        "responseTime": 200,
+        "errorRate": 0.03,
+        "uptime": 0.97,
+        "details": {
+          "modelAccuracy": 0.68,
+          "isTraining": false,
+          "lastPrediction": 1758781973851,
+          "featuresCount": 47
+        }
+      },
+      "monitoring": {
+        "status": "healthy",
+        "score": 92,
+        "lastCheck": 1758782033851,
+        "responseTime": 30,
+        "errorRate": 0.01,
+        "uptime": 0.999,
+        "details": {
+          "metricsCount": 1000,
+          "alertsCount": 2,
+          "lastMetric": 1758782028851
+        }
+      },
+      "network": {
+        "status": "healthy",
+        "score": 88,
+        "lastCheck": 1758782034963,
+        "responseTime": 1112,
+        "errorRate": 0.02,
+        "uptime": 0.996,
+        "details": {
+          "latency": 1112,
+          "statusCode": 200
+        }
+      }
+    },
+    "resources": {
+      "memory": {
+        "usage": 1,
+        "available": 17045110784,
+        "total": 17179869184,
+        "trend": "stable",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      "cpu": {
+        "usage": 15,
+        "available": 85.39281735908153,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 75,
+          "critical": 85
+        }
+      },
+      "disk": {
+        "usage": 47,
+        "available": 52.68352653618176,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 85,
+          "critical": 95
+        }
+      },
+      "network": {
+        "usage": 16,
+        "available": 84.14900315150167,
+        "total": 100,
+        "trend": "stable",
+        "threshold": {
+          "warning": 70,
+          "critical": 85
+        }
+      }
+    },
+    "errors": [],
+    "warnings": []
+  }
+]

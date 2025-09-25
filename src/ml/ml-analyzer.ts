@@ -3,6 +3,7 @@ import * as ss from 'simple-statistics';
 import { TechnicalIndicatorResult, TechnicalIndicatorAnalyzer } from '../indicators/technical-indicators.js';
 import { config } from '../config.js';
 import { EnhancedMLAnalyzer } from './enhanced-ml-analyzer.js';
+import { enhancedMLEngine } from './enhanced-ml-engine.js';
 import { enhancedOKXDataService } from '../services/enhanced-okx-data-service.js';
 // 新增：离线模型加载所需
 import * as fs from 'fs/promises';
@@ -468,6 +469,30 @@ export class MLAnalyzer {
       if (this.isTraining) {
         console.log('⏳ ML模型正在后台训练中，使用降级分析...');
         return this.getFallbackAnalysis(marketData, technicalIndicators);
+      }
+      
+      // 新增：优先使用增强ML引擎
+      try {
+        console.log('🚀 使用增强机器学习引擎...');
+        
+        // 提取特征
+        const features = await enhancedMLEngine.extractFeatures(
+          marketData.symbol || config.trading.defaultSymbol,
+          config.strategy.primaryInterval
+        );
+        
+        // 生成预测
+        const prediction = await enhancedMLEngine.predict(features);
+        
+        // 转换为MLAnalysisResult格式
+        const result = this.convertEnhancedPredictionToResult(prediction, marketData, technicalIndicators);
+        
+        console.log(`[EnhancedML] 预测: ${prediction.direction}, 置信度: ${(prediction.confidence * 100).toFixed(1)}%, 期望收益: ${prediction.expectedReturn.toFixed(3)}`);
+        
+        return result;
+        
+      } catch (enhancedError) {
+        console.warn('[EnhancedML] 增强ML引擎失败，使用备用分析:', enhancedError);
       }
       
       // 如果启用了增强分析器，优先使用
@@ -1123,5 +1148,50 @@ export class MLAnalyzer {
       console.error('保存模型失败:', error);
       throw error;
     }
+  }
+
+  /**
+   * 将增强ML引擎的预测结果转换为MLAnalysisResult格式
+   */
+  private convertEnhancedPredictionToResult(
+    prediction: any,
+    marketData: MarketData,
+    technicalIndicators: TechnicalIndicatorResult
+  ): MLAnalysisResult {
+    // 转换预测方向
+    let mlPrediction: MLAnalysisResult['prediction'];
+    if (prediction.direction === 'LONG') {
+      mlPrediction = prediction.confidence > 0.8 ? 'STRONG_BUY' : 'BUY';
+    } else if (prediction.direction === 'SHORT') {
+      mlPrediction = prediction.confidence > 0.8 ? 'STRONG_SELL' : 'SELL';
+    } else {
+      mlPrediction = 'HOLD';
+    }
+    
+    // 计算目标价格和止损
+    const currentPrice = marketData.price;
+    const expectedReturn = prediction.expectedReturn || 0;
+    const targetPrice = currentPrice * (1 + expectedReturn);
+    const stopLoss = currentPrice * (1 - Math.abs(expectedReturn) * 0.5);
+    
+    // 计算各项得分
+    const technicalScore = this.calculateTechnicalScore(technicalIndicators, marketData);
+    const volumeScore = this.calculateVolumeScore(marketData);
+    const momentumScore = this.calculateMomentumScore(technicalIndicators);
+    
+    return {
+      prediction: mlPrediction,
+      confidence: prediction.confidence,
+      targetPrice,
+      stopLoss,
+      riskScore: prediction.riskScore * 10, // 转换为0-10分
+      reasoning: `增强ML引擎预测: ${prediction.direction}方向，置信度${(prediction.confidence * 100).toFixed(1)}%，期望收益${(expectedReturn * 100).toFixed(2)}%。基于${Object.keys(prediction.features.importance).length}个特征的综合分析。`,
+      features: {
+        technicalScore,
+        sentimentScore: 50, // 默认中性
+        volumeScore,
+        momentumScore
+      }
+    };
   }
 }

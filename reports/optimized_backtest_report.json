@@ -1,0 +1,48 @@
+{
+  "summary": {
+    "startDate": "2022-01-01T00:00:00.000Z",
+    "endDate": "2025-09-25T00:00:00.000Z",
+    "initialBalance": 10000,
+    "finalBalance": 10000,
+    "totalReturn": 0,
+    "totalTrades": 0,
+    "winningTrades": 0,
+    "losingTrades": 0,
+    "winRate": 0,
+    "maxDrawdown": 0,
+    "maxConsecutiveLosses": 0,
+    "processingTime": 0.572
+  },
+  "optimizedConfig": {
+    "initialBalance": 10000,
+    "leverage": 2,
+    "feeRate": 0.0005,
+    "rsiPeriod": 21,
+    "rsiOverbought": 75,
+    "rsiOversold": 25,
+    "maShortPeriod": 20,
+    "maLongPeriod": 50,
+    "stopLossPercent": 0.015,
+    "takeProfitPercent": 0.03,
+    "maxPositionPercent": 0.6,
+    "minSignalStrength": 1.5,
+    "volatilityFilter": true,
+    "trendFilter": true,
+    "volumeFilter": true,
+    "logInterval": 10000,
+    "detailedLog": false
+  },
+  "trades": [],
+  "comparison": {
+    "originalStrategy": {
+      "totalReturn": -91.3,
+      "winRate": 33.96,
+      "profitFactor": 0.92
+    },
+    "optimizedStrategy": {
+      "totalReturn": 0,
+      "winRate": 0,
+      "profitFactor": 0
+    }
+  }
+}

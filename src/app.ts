@@ -4,6 +4,7 @@ import { webServer } from './server/web-server.js'
 import { enhancedOKXDataService } from './services/enhanced-okx-data-service.js'
 import { recommendationDatabase } from './services/recommendation-database.js'
 import { enhancedDataIntegrationService } from './services/enhanced-data-integration-service.js'
+import { enhancedSystemStability } from './services/enhanced-system-stability.js'
 import axios from 'axios'
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process'
 import path from 'path'
@@ -78,6 +79,20 @@ class ETHStrategyApp {
       console.log('📊 启动滑点分析器...');
       await slippageAnalyzer.start();
       console.log('✅ 滑点分析器启动成功');
+
+      // 启动系统稳定性监控
+      console.log('🛡️ 启动系统稳定性监控...');
+      try {
+        await enhancedSystemStability.start();
+        console.log('✅ 系统稳定性监控启动成功');
+        
+        // 添加关闭处理
+        this.addShutdownHandler(async () => {
+          await enhancedSystemStability.stop();
+        });
+      } catch (error) {
+        console.warn('⚠️  系统稳定性监控启动失败:', error);
+      }
 
       // 启动 ML 标签回填定时任务
       await this.startMLLabelBackfillScheduler();
@@ -518,12 +533,14 @@ class ETHStrategyApp {
     status: 'healthy' | 'degraded' | 'unhealthy';
     checks: Record<string, boolean>;
     timestamp: number;
+    systemStability?: any;
   }> {
     const checks = {
       app: this.isRunning,
       webServer: webServer.getStatus().isRunning,
       strategy: ethStrategyEngine.getCurrentStatus().isRunning,
-      okxApi: await enhancedOKXDataService.checkConnection()
+      okxApi: await enhancedOKXDataService.checkConnection(),
+      systemStability: enhancedSystemStability.getStatistics().isRunning
     };
     
     const healthyCount = Object.values(checks).filter(Boolean).length;
@@ -538,10 +555,19 @@ class ETHStrategyApp {
       status = 'unhealthy';
     }
     
+    // 获取系统稳定性详细信息
+    const systemStability = {
+      health: enhancedSystemStability.getLatestHealth(),
+      statistics: enhancedSystemStability.getStatistics(),
+      unresolvedErrors: enhancedSystemStability.getUnresolvedErrors().length,
+      unacknowledgedWarnings: enhancedSystemStability.getUnacknowledgedWarnings().length
+    };
+    
     return {
       status,
       checks,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      systemStability
     };
   }
 }

@@ -1,6 +1,8 @@
 import { enhancedOKXDataService } from './enhanced-okx-data-service.js';
 import { recommendationDatabase } from './recommendation-database.js';
 import { riskManagementService } from './risk-management-service.js';
+import { enhancedRiskManagement } from './enhanced-risk-management.js';
+import { Mutex } from '../utils/mutex.js';
 import { config } from '../config.js';
 import { EventEmitter } from 'events';
 
@@ -93,6 +95,10 @@ type PriceCheckResult = {
 export class RecommendationTracker extends EventEmitter {
   private activeRecommendations: Map<string, RecommendationRecord> = new Map();
   
+  // 并发控制
+  private readonly addRecommendationMutex = new Mutex();
+  private readonly checkRecommendationsMutex = new Mutex();
+  
   // 对外读取活跃推荐列表
   public getActiveRecommendations(): RecommendationRecord[] {
     return Array.from(this.activeRecommendations.values());
@@ -167,6 +173,16 @@ export class RecommendationTracker extends EventEmitter {
 
   // 新增/修复：补全 addRecommendation 方法头与初始化逻辑
   async addRecommendation(recommendation: any, options?: { bypassCooldown?: boolean }): Promise<string> {
+    // 使用互斥锁确保推荐添加的原子性
+    return await this.addRecommendationMutex.runExclusive(async () => {
+      return await this.addRecommendationInternal(recommendation, options);
+    });
+  }
+
+  /**
+   * 添加推荐的内部实现
+   */
+  private async addRecommendationInternal(recommendation: any, options?: { bypassCooldown?: boolean }): Promise<string> {
     const DISABLE_EXTERNAL_MARKET_ON_CREATE = (process.env.WEB_DISABLE_EXTERNAL_MARKET === '1') || (process.env.DISABLE_EXTERNAL_MARKET_ON_CREATE === '1');
 
     const id: string = recommendation?.id || `REC_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -529,6 +545,68 @@ export class RecommendationTracker extends EventEmitter {
       }
     } catch (e) {
       // 将重复错误抛给上层，由 API 统一映射为 409
+      throw e;
+    }
+
+    // 新增：反向持仓约束检查（在冷却检查之前执行）
+    try {
+      const strat: any = (config as any)?.strategy || {};
+      const allowOpposite: boolean = strat.allowOppositeWhileOpen === true;
+      const oppositeMinConf: number = Number(strat.oppositeMinConfidence ?? 0.7);
+      
+      if (!allowOpposite) {
+        // 检查是否存在反向活跃推荐
+        const actives: RecommendationRecord[] = this.getActiveRecommendations();
+        const oppositeDir = record.direction === 'LONG' ? 'SHORT' : 'LONG';
+        const hasOpposite = actives.some(r => 
+          r.status === 'ACTIVE' && 
+          r.direction === oppositeDir && 
+          this.normalizeSymbol(r.symbol) === symbol
+        );
+        
+        if (hasOpposite) {
+          const err: any = new OppositeConstraintError(`反向持仓被禁止: 已存在${oppositeDir}推荐，不允许开${record.direction}仓`);
+          err.code = 'OPPOSITE_CONSTRAINT';
+          err.symbol = symbol;
+          err.direction = record.direction;
+          err.oppositeDirection = oppositeDir;
+          err.allowOppositeWhileOpen = false;
+          err.oppositeActiveCount = actives.filter(r => r.status === 'ACTIVE' && r.direction === oppositeDir).length;
+          throw err;
+        }
+      } else {
+        // 如果允许反向持仓，检查置信度是否满足最小要求
+        const confidence = Number(
+          recommendation?.confidence_score ??
+          (recommendation as any)?.confidence ??
+          (recommendation as any)?.strategy_confidence_level ??
+          (recommendation as any)?.signal_strength?.confidence ??
+          0.5
+        );
+        
+        const actives: RecommendationRecord[] = this.getActiveRecommendations();
+        const oppositeDir = record.direction === 'LONG' ? 'SHORT' : 'LONG';
+        const hasOpposite = actives.some(r => 
+          r.status === 'ACTIVE' && 
+          r.direction === oppositeDir && 
+          this.normalizeSymbol(r.symbol) === symbol
+        );
+        
+        if (hasOpposite && confidence < oppositeMinConf) {
+          const err: any = new OppositeConstraintError(`反向持仓置信度不足: 需要${oppositeMinConf}，当前${confidence.toFixed(3)}`);
+          err.code = 'OPPOSITE_CONSTRAINT';
+          err.symbol = symbol;
+          err.direction = record.direction;
+          err.oppositeDirection = oppositeDir;
+          err.confidence = confidence;
+          err.threshold = oppositeMinConf;
+          err.allowOppositeWhileOpen = true;
+          err.reason = 'INSUFFICIENT_CONFIDENCE';
+          throw err;
+        }
+      }
+    } catch (e) {
+      // 将反向持仓约束错误抛给上层，由 API 统一映射为 409
       throw e;
     }
 
@@ -1224,9 +1302,19 @@ console.warn('[RecommendationTracker] maybeUpdateTrailing error:', (e as any)?.m
                 }
 
                 /**
-                 * 检查所有活跃推荐：更新追踪止损、保存监控快照、根据条件触发平仓
+                 * 检查所有活跃推荐：更新追踪止损、保存监控快照、根据条件触发平仓（使用互斥锁保护）
                  */
                 private async checkRecommendations(): Promise<void> {
+                  // 使用互斥锁确保推荐检查的原子性
+                  return await this.checkRecommendationsMutex.runExclusive(async () => {
+                    return await this.checkRecommendationsInternal();
+                  });
+                }
+
+                /**
+                 * 检查推荐的内部实现
+                 */
+                private async checkRecommendationsInternal(): Promise<void> {
                   try {
                     const actives = Array.from(this.activeRecommendations.values());
                     for (const rec of actives) {
@@ -1251,7 +1339,68 @@ console.warn('[RecommendationTracker] maybeUpdateTrailing error:', (e as any)?.m
                           continue;
                         }
                         const currentPrice = priceResult.currentPrice;
-                        // （自动超时检查已前移到行情获取之前）
+                        
+                        // 新增：使用增强风险管理进行动态风险调整
+                        try {
+                          const holdingTime = Date.now() - rec.created_at.getTime();
+                          const riskParams = {
+                            entryPrice: rec.entry_price,
+                            currentPrice: currentPrice,
+                            direction: rec.direction,
+                            leverage: rec.leverage,
+                            atr: (rec as any).atr_value || undefined,
+                            volatility: (rec as any).market_volatility || undefined,
+                            holdingTime: holdingTime
+                          };
+                          
+                          // 检查分批止盈
+                          const originalRisk = {
+                            stopLoss: rec.stop_loss_price || 0,
+                            takeProfit: rec.take_profit_price || 0
+                          };
+                          
+                          const dynamicRisk = await enhancedRiskManagement.calculateDynamicRisk(riskParams);
+                          
+                          // 检查分批止盈触发
+                          const partialTP = enhancedRiskManagement.checkPartialTakeProfit(
+                            currentPrice, 
+                            dynamicRisk, 
+                            rec.direction
+                          );
+                          
+                          if (partialTP.triggered && partialTP.level) {
+                            // 记录分批止盈触发
+                            const tpField = `${partialTP.level}_hit` as 'tp1_hit' | 'tp2_hit' | 'tp3_hit';
+                            if (!(rec as any)[tpField]) {
+                              (rec as any)[tpField] = true;
+                              (rec as any).reduction_count = ((rec as any).reduction_count || 0) + 1;
+                              (rec as any).reduction_ratio = ((rec as any).reduction_ratio || 0) + partialTP.ratio;
+                              
+                              console.log(`[EnhancedRisk] 分批止盈触发: ${rec.id} ${partialTP.level} 减仓${(partialTP.ratio * 100).toFixed(1)}%`);
+                              
+                              // 更新数据库
+                              await this.updateDatabase(rec);
+                            }
+                          }
+                          
+                          // 检查时间止损
+                          if (enhancedRiskManagement.checkTimeStop(holdingTime, dynamicRisk)) {
+                            console.log(`[EnhancedRisk] 时间止损触发: ${rec.id} 持仓${(holdingTime / (1000 * 60 * 60)).toFixed(1)}小时`);
+                            await this.closeRecommendation(rec, 'TIMEOUT', currentPrice);
+                            continue;
+                          }
+                          
+                          // 更新动态止损（只允许向有利方向移动）
+                          const updatedRisk = await enhancedRiskManagement.updateDynamicRisk(riskParams, originalRisk);
+                          if (updatedRisk.stopLoss !== rec.stop_loss_price) {
+                            (rec as any).stop_loss_price = updatedRisk.stopLoss;
+                            console.log(`[EnhancedRisk] 动态止损更新: ${rec.id} ${updatedRisk.stopLoss.toFixed(2)}`);
+                            await this.updateDatabase(rec);
+                          }
+                          
+                        } catch (enhancedRiskError) {
+                          console.warn(`[EnhancedRisk] 增强风险管理处理失败: ${rec.id}`, enhancedRiskError);
+                        }
              
                         // 先尝试更新追踪止损（基于当前价）
                         try { await this.maybeUpdateTrailing(rec, currentPrice); } catch (e) { /* best-effort */ }

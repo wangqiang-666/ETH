@@ -1,6 +1,7 @@
 import { SmartSignalAnalyzer, SmartSignalResult } from '../analyzers/smart-signal-analyzer.js';
 import type { MarketData, KlineData } from '../services/okx-data-service.js';
 import { EnhancedOKXDataService, enhancedOKXDataService, getEffectiveTestingFGIOverride } from '../services/enhanced-okx-data-service.js';
+import { enhancedSignalQuality } from '../services/enhanced-signal-quality.js';
 import { MLAnalyzer } from '../ml/ml-analyzer.js';
 import { config } from '../config.js';
 import axios from 'axios';
@@ -416,14 +417,59 @@ export class ETHStrategyEngine extends EventEmitter {
     // 计算支撑阻力位
     const keyLevels = await this.calculateKeyLevels(marketData.price);
     
-    // 生成交易建议
-    const recommendation = this.generateRecommendation(signalResult, marketData, riskAssessment);
+    // 新增：使用增强信号质量服务生成高质量信号
+     let enhancedSignal;
+     try {
+       enhancedSignal = await enhancedSignalQuality.generateEnhancedSignal(
+         config.trading.defaultSymbol,
+         config.strategy.primaryInterval,
+         signalResult, // 技术信号
+         undefined, // ML信号 - 暂时禁用直到修复接口
+         marketData // 市场数据
+       );
+       
+       console.log(`[EnhancedSignal] 质量评分: ${enhancedSignal.qualityScore.toFixed(1)}, 置信度: ${(enhancedSignal.confidence * 100).toFixed(1)}%, EV: ${enhancedSignal.expectedValue.toFixed(3)}`);
+       
+     } catch (error) {
+       console.warn('[EnhancedSignal] 增强信号生成失败，使用原始信号:', error);
+       enhancedSignal = null;
+     }
+     
+     // 如果有增强信号，使用增强后的参数
+      let adjustedSignalResult = signalResult;
+      if (enhancedSignal && enhancedSignal.qualityScore > 60) {
+        // 使用增强信号的结果调整原始信号
+        const enhancedStrength = Math.min(100, Math.max(0, enhancedSignal.strength)) as any;
+        adjustedSignalResult = {
+          ...signalResult,
+          signal: enhancedSignal.direction === 'LONG' ? 'BUY' : 
+                  enhancedSignal.direction === 'SHORT' ? 'SELL' : 'HOLD',
+          strength: enhancedStrength,
+          metadata: {
+            ...signalResult.metadata,
+            // 将增强信号信息存储在现有字段中
+            volatility: enhancedSignal.marketRegime.volatility,
+            marketCondition: enhancedSignal.marketRegime.type === 'BULL' || enhancedSignal.marketRegime.type === 'BEAR' ? 'TRENDING' : 
+                            enhancedSignal.marketRegime.type === 'VOLATILE' ? 'VOLATILE' : 'RANGING'
+          }
+        };
+      }
     
-    // 计算风险管理参数
-    const riskManagement = this.calculateRiskManagement(signalResult, marketData, riskAssessment);
+    // 生成交易建议（使用调整后的信号）
+    const recommendation = this.generateRecommendation(adjustedSignalResult, marketData, riskAssessment);
     
-    // 预测性能指标
-    const performance = this.predictPerformance(signalResult);
+    // 计算风险管理参数（使用调整后的信号）
+    const riskManagement = this.calculateRiskManagement(adjustedSignalResult, marketData, riskAssessment);
+    
+    // 预测性能指标（使用增强EV如果可用）
+    let performance = this.predictPerformance(adjustedSignalResult);
+    if (enhancedSignal && enhancedSignal.qualityScore > 60) {
+      performance = {
+        ...performance,
+        expectedReturn: enhancedSignal.expectedValue,
+        riskRewardRatio: enhancedSignal.riskReward
+      };
+    }
 
     // 新增：计算动态EV门槛（与推荐逻辑中的门控保持一致），用于对外返回
     try {

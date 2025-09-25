@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETH智能交易系统 - 专业仪表板</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            overflow: hidden;
+        }
+        
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease;
+        }
+        
+        .loading-logo {
+            font-size: 4rem;
+            margin-bottom: 2rem;
+            animation: pulse 2s infinite;
+        }
+        
+        .loading-title {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            background: linear-gradient(45deg, #007acc, #00d4ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .loading-subtitle {
+            font-size: 1rem;
+            color: #cccccc;
+            margin-bottom: 3rem;
+        }
+        
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid #404040;
+            border-top: 3px solid #007acc;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        .loading-progress {
+            margin-top: 2rem;
+            text-align: center;
+        }
+        
+        .progress-bar {
+            width: 300px;
+            height: 4px;
+            background: #404040;
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 1rem auto;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007acc, #00d4ff);
+            border-radius: 2px;
+            width: 0%;
+            animation: progress 3s ease-in-out;
+        }
+        
+        .progress-text {
+            font-size: 0.875rem;
+            color: #999999;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @keyframes progress {
+            0% { width: 0%; }
+            25% { width: 30%; }
+            50% { width: 60%; }
+            75% { width: 85%; }
+            100% { width: 100%; }
+        }
+        
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        /* 通知样式 */
+        .notification {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            animation: slideIn 0.3s ease;
+            max-width: 100%;
+        }
+        
+        .notification-success {
+            border-left: 4px solid var(--success-color);
+        }
+        
+        .notification-warning {
+            border-left: 4px solid var(--warning-color);
+        }
+        
+        .notification-error {
+            border-left: 4px solid var(--danger-color);
+        }
+        
+        .notification-info {
+            border-left: 4px solid var(--accent-color);
+        }
+        
+        .notification-content {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .notification-icon {
+            font-size: 1.25rem;
+            flex-shrink: 0;
+        }
+        
+        .notification-message {
+            flex: 1;
+            font-size: 0.875rem;
+        }
+        
+        .notification-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 1.25rem;
+            padding: 0;
+            width: 1.5rem;
+            height: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.25rem;
+        }
+        
+        .notification-close:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        /* 错误页面样式 */
+        .error-page {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1a1a1a;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+        
+        .error-icon {
+            font-size: 4rem;
+            margin-bottom: 2rem;
+            color: #dc3545;
+        }
+        
+        .error-title {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #dc3545;
+        }
+        
+        .error-message {
+            font-size: 1rem;
+            color: #cccccc;
+            margin-bottom: 2rem;
+            text-align: center;
+            max-width: 500px;
+        }
+        
+        .error-actions {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .error-btn {
+            padding: 0.75rem 1.5rem;
+            border: 1px solid #007acc;
+            background: transparent;
+            color: #007acc;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        
+        .error-btn:hover {
+            background: #007acc;
+            color: white;
+        }
+        
+        .error-btn-primary {
+            background: #007acc;
+            color: white;
+        }
+        
+        .error-btn-primary:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <!-- 加载屏幕 -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-logo">🚀</div>
+        <h1 class="loading-title">ETH智能交易系统</h1>
+        <p class="loading-subtitle">企业级AI驱动智能交易平台</p>
+        <div class="loading-spinner"></div>
+        <div class="loading-progress">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <div class="progress-text" id="loadingText">正在初始化系统...</div>
+        </div>
+    </div>
+    
+    <!-- 错误页面 -->
+    <div id="errorPage" class="error-page">
+        <div class="error-icon">❌</div>
+        <h1 class="error-title">系统加载失败</h1>
+        <p class="error-message" id="errorMessage">
+            无法连接到交易系统服务器，请检查网络连接或稍后重试。
+        </p>
+        <div class="error-actions">
+            <button class="error-btn" onclick="location.reload()">重新加载</button>
+            <button class="error-btn error-btn-primary" onclick="checkSystemStatus()">检查状态</button>
+        </div>
+    </div>
+    
+    <!-- 主仪表板容器 -->
+    <div id="dashboardContainer"></div>
+    
+    <script>
+        // 加载进度管理
+        class LoadingManager {
+            constructor() {
+                this.steps = [
+                    { text: '正在初始化系统...', duration: 500 },
+                    { text: '连接交易服务器...', duration: 800 },
+                    { text: '加载市场数据...', duration: 600 },
+                    { text: '启动AI分析引擎...', duration: 700 },
+                    { text: '初始化监控系统...', duration: 500 },
+                    { text: '准备用户界面...', duration: 400 }
+                ];
+                this.currentStep = 0;
+            }
+            
+            async start() {
+                const loadingText = document.getElementById('loadingText');
+                
+                for (const step of this.steps) {
+                    if (loadingText) {
+                        loadingText.textContent = step.text;
+                    }
+                    await this.delay(step.duration);
+                    this.currentStep++;
+                }
+                
+                // 检查系统状态
+                try {
+                    await this.checkSystemHealth();
+                    await this.initializeDashboard();
+                } catch (error) {
+                    this.showError(error.message);
+                }
+            }
+            
+            async checkSystemHealth() {
+                try {
+                    const response = await fetch('/api/system/status', {
+                        timeout: 10000
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`服务器响应错误: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (!data.isRunning) {
+                        throw new Error('交易系统未运行');
+                    }
+                    
+                    return data;
+                } catch (error) {
+                    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                        throw new Error('无法连接到服务器，请检查网络连接');
+                    }
+                    throw error;
+                }
+            }
+            
+            async initializeDashboard() {
+                // 动态加载仪表板脚本
+                const script = document.createElement('script');
+                script.type = 'module';
+                script.textContent = `
+                    import { EnhancedDashboard } from './enhanced-dashboard.js';
+                    
+                    try {
+                        // 创建仪表板实例
+                        const dashboard = new EnhancedDashboard('dashboardContainer', {
+                            theme: 'dark',
+                            autoRefresh: true,
+                            refreshInterval: 5000,
+                            notifications: true
+                        });
+                        
+                        // 设置全局引用
+                        window.dashboard = dashboard;
+                        
+                        // 启动仪表板
+                        dashboard.start();
+                        
+                        // 隐藏加载屏幕
+                        document.getElementById('loadingScreen').classList.add('hidden');
+                        
+                        console.log('🎉 ETH智能交易系统仪表板启动成功！');
+                        
+                    } catch (error) {
+                        console.error('仪表板初始化失败:', error);
+                        loadingManager.showError('仪表板初始化失败: ' + error.message);
+                    }
+                `;
+                
+                document.head.appendChild(script);
+            }
+            
+            showError(message) {
+                const errorPage = document.getElementById('errorPage');
+                const errorMessage = document.getElementById('errorMessage');
+                const loadingScreen = document.getElementById('loadingScreen');
+                
+                if (errorMessage) {
+                    errorMessage.textContent = message;
+                }
+                
+                if (loadingScreen) {
+                    loadingScreen.classList.add('hidden');
+                }
+                
+                if (errorPage) {
+                    errorPage.style.display = 'flex';
+                }
+            }
+            
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+        }
+        
+        // 系统状态检查
+        async function checkSystemStatus() {
+            try {
+                const response = await fetch('/api/system/status');
+                const data = await response.json();
+                
+                alert(`系统状态检查结果:\n\n` +
+                      `运行状态: ${data.isRunning ? '✅ 正常运行' : '❌ 未运行'}\n` +
+                      `运行时间: ${data.uptime || '未知'}\n` +
+                      `检查时间: ${new Date().toLocaleString('zh-CN')}`);
+                      
+            } catch (error) {
+                alert(`系统状态检查失败:\n\n${error.message}`);
+            }
+        }
+        
+        // 错误处理
+        window.addEventListener('error', (event) => {
+            console.error('全局错误:', event.error);
+            
+            if (window.dashboard) {
+                // 如果仪表板已加载，显示通知
+                window.dashboard.showNotification('系统错误: ' + event.error.message, 'error');
+            } else {
+                // 否则显示错误页面
+                loadingManager.showError('系统错误: ' + event.error.message);
+            }
+        });
+        
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('未处理的Promise拒绝:', event.reason);
+            
+            if (window.dashboard) {
+                window.dashboard.showNotification('系统异常: ' + event.reason, 'error');
+            }
+        });
+        
+        // 网络状态监控
+        window.addEventListener('online', () => {
+            if (window.dashboard) {
+                window.dashboard.showNotification('网络连接已恢复', 'success');
+            }
+        });
+        
+        window.addEventListener('offline', () => {
+            if (window.dashboard) {
+                window.dashboard.showNotification('网络连接已断开', 'warning');
+            }
+        });
+        
+        // 启动加载管理器
+        const loadingManager = new LoadingManager();
+        
+        // 页面加载完成后启动
+        document.addEventListener('DOMContentLoaded', () => {
+            loadingManager.start();
+        });
+        
+        // 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            // F5 或 Ctrl+R: 刷新
+            if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+                e.preventDefault();
+                if (window.dashboard) {
+                    window.dashboard.refreshAllWidgets();
+                } else {
+                    location.reload();
+                }
+            }
+            
+            // F11: 全屏
+            if (e.key === 'F11') {
+                e.preventDefault();
+                if (window.dashboard) {
+                    window.dashboard.toggleFullscreen();
+                }
+            }
+            
+            // Ctrl+Shift+D: 切换主题
+            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                e.preventDefault();
+                if (window.dashboard) {
+                    window.dashboard.toggleTheme();
+                }
+            }
+        });
+        
+        // 页面可见性变化处理
+        document.addEventListener('visibilitychange', () => {
+            if (window.dashboard) {
+                if (document.hidden) {
+                    // 页面隐藏时暂停自动刷新
+                    console.log('页面隐藏，暂停自动刷新');
+                } else {
+                    // 页面显示时恢复自动刷新并立即刷新一次
+                    console.log('页面显示，恢复自动刷新');
+                    window.dashboard.refreshAllWidgets();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

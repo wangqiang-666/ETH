@@ -5,6 +5,7 @@ import { StatisticsCalculator, StrategyStatistics, OverallStatistics } from '../
 import { EnhancedOKXDataService } from '../services/enhanced-okx-data-service.js';
 import { ABTestingService, ABTestConfig, ABTestAnalysis } from '../services/ab-testing-service.js';
 import { DecisionChainMonitor } from '../services/decision-chain-monitor.js';
+import { enhancedPerformanceMonitor } from '../services/enhanced-performance-monitor.js';
 
 /**
  * 推荐API路由器
@@ -143,6 +144,20 @@ export class RecommendationAPI {
     this.router.get('/decision-chains/recent', this.getRecentDecisionChainsRoute.bind(this));
     this.router.get('/decision-chains/stats', this.getDecisionChainStatsRoute.bind(this));
     this.router.get('/decision-chains/failures', this.getFailedDecisionChainsRoute.bind(this));
+
+    // 新增：性能监控路由
+    this.router.get('/monitoring/metrics', this.getPerformanceMetrics.bind(this));
+    this.router.get('/monitoring/metrics/history', this.getMetricsHistory.bind(this));
+    this.router.get('/monitoring/alerts', this.getPerformanceAlerts.bind(this));
+    this.router.get('/monitoring/alerts/active', this.getActiveAlerts.bind(this));
+    this.router.post('/monitoring/alerts/:alertId/resolve', this.resolveAlert.bind(this));
+    this.router.get('/monitoring/rules', this.getAlertRules.bind(this));
+    this.router.post('/monitoring/rules', this.createAlertRule.bind(this));
+    this.router.put('/monitoring/rules/:ruleId', this.updateAlertRule.bind(this));
+    this.router.delete('/monitoring/rules/:ruleId', this.deleteAlertRule.bind(this));
+    this.router.get('/monitoring/reports', this.getPerformanceReport.bind(this));
+    this.router.post('/monitoring/start', this.startPerformanceMonitoring.bind(this));
+    this.router.post('/monitoring/stop', this.stopPerformanceMonitoring.bind(this));
   }
   
   /**
@@ -3112,6 +3127,245 @@ export class RecommendationAPI {
     } catch (error) {
       console.error('Error getting API decision metrics:', error);
       res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // 新增：性能监控API方法
+  private async getPerformanceMetrics(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const metrics = enhancedPerformanceMonitor.getCurrentMetrics();
+      res.json({
+        success: true,
+        data: metrics
+      });
+    } catch (error) {
+      console.error('获取性能指标失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '获取性能指标失败'
+      });
+    }
+  }
+
+  private async getMetricsHistory(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const history = enhancedPerformanceMonitor.getMetricsHistory(limit);
+      res.json({
+        success: true,
+        data: history
+      });
+    } catch (error) {
+      console.error('获取指标历史失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '获取指标历史失败'
+      });
+    }
+  }
+
+  private async getPerformanceAlerts(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const alerts = enhancedPerformanceMonitor.getAlertsHistory(limit);
+      res.json({
+        success: true,
+        data: alerts
+      });
+    } catch (error) {
+      console.error('获取预警历史失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '获取预警历史失败'
+      });
+    }
+  }
+
+  private async getActiveAlerts(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const alerts = enhancedPerformanceMonitor.getActiveAlerts();
+      res.json({
+        success: true,
+        data: alerts
+      });
+    } catch (error) {
+      console.error('获取活跃预警失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '获取活跃预警失败'
+      });
+    }
+  }
+
+  private async resolveAlert(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { alertId } = req.params;
+      const success = enhancedPerformanceMonitor.resolveAlert(alertId);
+      
+      if (success) {
+        res.json({
+          success: true,
+          message: '预警已解决'
+        });
+      } else {
+        res.status(404).json({
+          success: false,
+          error: '预警不存在或已解决'
+        });
+      }
+    } catch (error) {
+      console.error('解决预警失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '解决预警失败'
+      });
+    }
+  }
+
+  private async getAlertRules(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const rules = enhancedPerformanceMonitor.getAlertRules();
+      res.json({
+        success: true,
+        data: rules
+      });
+    } catch (error) {
+      console.error('获取预警规则失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '获取预警规则失败'
+      });
+    }
+  }
+
+  private async createAlertRule(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const ruleData = req.body;
+      const ruleId = enhancedPerformanceMonitor.addAlertRule(ruleData);
+      res.json({
+        success: true,
+        data: { id: ruleId },
+        message: '预警规则创建成功'
+      });
+    } catch (error) {
+      console.error('创建预警规则失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '创建预警规则失败'
+      });
+    }
+  }
+
+  private async updateAlertRule(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { ruleId } = req.params;
+      const updates = req.body;
+      const success = enhancedPerformanceMonitor.updateAlertRule(ruleId, updates);
+      
+      if (success) {
+        res.json({
+          success: true,
+          message: '预警规则更新成功'
+        });
+      } else {
+        res.status(404).json({
+          success: false,
+          error: '预警规则不存在'
+        });
+      }
+    } catch (error) {
+      console.error('更新预警规则失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '更新预警规则失败'
+      });
+    }
+  }
+
+  private async deleteAlertRule(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { ruleId } = req.params;
+      const success = enhancedPerformanceMonitor.removeAlertRule(ruleId);
+      
+      if (success) {
+        res.json({
+          success: true,
+          message: '预警规则删除成功'
+        });
+      } else {
+        res.status(404).json({
+          success: false,
+          error: '预警规则不存在'
+        });
+      }
+    } catch (error) {
+      console.error('删除预警规则失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '删除预警规则失败'
+      });
+    }
+  }
+
+  private async getPerformanceReport(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { startTime, endTime } = req.query;
+      
+      if (!startTime || !endTime) {
+        res.status(400).json({
+          success: false,
+          error: '请提供startTime和endTime参数'
+        });
+        return;
+      }
+      
+      const report = enhancedPerformanceMonitor.generatePerformanceReport(
+        parseInt(startTime as string),
+        parseInt(endTime as string)
+      );
+      
+      res.json({
+        success: true,
+        data: report
+      });
+    } catch (error) {
+      console.error('生成性能报告失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '生成性能报告失败'
+      });
+    }
+  }
+
+  private async startPerformanceMonitoring(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      await enhancedPerformanceMonitor.start();
+      res.json({
+        success: true,
+        message: '性能监控已启动'
+      });
+    } catch (error) {
+      console.error('启动性能监控失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '启动性能监控失败'
+      });
+    }
+  }
+
+  private async stopPerformanceMonitoring(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      await enhancedPerformanceMonitor.stop();
+      res.json({
+        success: true,
+        message: '性能监控已停止'
+      });
+    } catch (error) {
+      console.error('停止性能监控失败:', error);
+      res.status(500).json({
+        success: false,
+        error: '停止性能监控失败'
+      });
     }
   }
 

@@ -1,0 +1,1459 @@
+{
+  "summary": {
+    "startDate": "2022-01-01T00:00:00.000Z",
+    "endDate": "2025-09-25T00:00:00.000Z",
+    "initialBalance": 10000,
+    "finalBalance": 870.2053899253269,
+    "totalReturn": -91.29794610074674,
+    "totalTrades": 371,
+    "winningTrades": 126,
+    "losingTrades": 245,
+    "winRate": 33.9622641509434,
+    "maxDrawdown": 96.79052907017972,
+    "processingTime": 0.065
+  },
+  "config": {
+    "initialBalance": 10000,
+    "leverage": 3,
+    "feeRate": 0.0005,
+    "rsiPeriod": 14,
+    "rsiOverbought": 70,
+    "rsiOversold": 30,
+    "maShortPeriod": 10,
+    "maLongPeriod": 30,
+    "stopLossPercent": 0.02,
+    "takeProfitPercent": 0.04,
+    "maxPositionPercent": 0.8,
+    "logInterval": 10000,
+    "detailedLog": false
+  },
+  "trades": [
+    {
+      "side": "LONG",
+      "entryPrice": 2483.81,
+      "exitPrice": 2583.82,
+      "size": 1.7103967739582013,
+      "pnl": 168.84710266731574,
+      "pnlPercent": 3.9744622173193687,
+      "duration": 94500000,
+      "reason": "止盈",
+      "entryTime": "2024-08-28T13:45:00.000Z",
+      "exitTime": "2024-08-29T16:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2527.82,
+      "exitPrice": 2424.98,
+      "size": 1.8389108784618078,
+      "pnl": 186.8839336899864,
+      "pnlPercent": 4.020361813736742,
+      "duration": 188100000,
+      "reason": "止盈",
+      "entryTime": "2024-08-30T18:15:00.000Z",
+      "exitTime": "2024-09-01T22:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2441.4,
+      "exitPrice": 2516.19,
+      "size": 2.085434183178972,
+      "pnl": -158.59329687864175,
+      "pnlPercent": -3.114937945441138,
+      "duration": 27000000,
+      "reason": "止损",
+      "entryTime": "2024-09-02T02:15:00.000Z",
+      "exitTime": "2024-09-02T09:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2505.21,
+      "exitPrice": 2453.39,
+      "size": 1.8779445425679389,
+      "pnl": -99.61875137651629,
+      "pnlPercent": -2.1174550237305523,
+      "duration": 87300000,
+      "reason": "止损",
+      "entryTime": "2024-09-02T13:45:00.000Z",
+      "exitTime": "2024-09-03T14:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2452.16,
+      "exitPrice": 2393.58,
+      "size": 1.8187699292240325,
+      "pnl": -108.72022811753972,
+      "pnlPercent": -2.437719806211663,
+      "duration": 37800000,
+      "reason": "止损",
+      "entryTime": "2024-09-04T19:45:00.000Z",
+      "exitTime": "2024-09-05T06:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2381.08,
+      "exitPrice": 2330.88,
+      "size": 1.7612320561763284,
+      "pnl": -90.4664595076015,
+      "pnlPercent": -2.1572328523191078,
+      "duration": 31500000,
+      "reason": "止损",
+      "entryTime": "2024-09-06T05:30:00.000Z",
+      "exitTime": "2024-09-06T14:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2303.55,
+      "exitPrice": 2395.85,
+      "size": 1.7240704825998585,
+      "pnl": 157.06639841109802,
+      "pnlPercent": 3.954855549043855,
+      "duration": 356400000,
+      "reason": "止盈",
+      "entryTime": "2024-09-09T12:15:00.000Z",
+      "exitTime": "2024-09-13T15:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2298.81,
+      "exitPrice": 2354.19,
+      "size": 1.8895324699767744,
+      "pnl": -106.86646741006129,
+      "pnlPercent": -2.46027705639005,
+      "duration": 116100000,
+      "reason": "止损",
+      "entryTime": "2024-09-16T06:00:00.000Z",
+      "exitTime": "2024-09-17T14:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2350,
+      "exitPrice": 2295.35,
+      "size": 1.737014554961018,
+      "pnl": -96.92137360798468,
+      "pnlPercent": -2.374369148936174,
+      "duration": 54000000,
+      "reason": "止损",
+      "entryTime": "2024-09-17T18:45:00.000Z",
+      "exitTime": "2024-09-18T09:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2655,
+      "exitPrice": 2595.36,
+      "size": 1.4480130043142145,
+      "pnl": -88.23855309273804,
+      "pnlPercent": -2.295204519774007,
+      "duration": 113400000,
+      "reason": "止损",
+      "entryTime": "2024-09-23T06:45:00.000Z",
+      "exitTime": "2024-09-24T14:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2630.66,
+      "exitPrice": 2511.98,
+      "size": 1.3791552802718416,
+      "pnl": 161.94594342219332,
+      "pnlPercent": 4.463671093946001,
+      "duration": 120600000,
+      "reason": "止盈",
+      "entryTime": "2024-09-30T05:30:00.000Z",
+      "exitTime": "2024-10-01T15:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2484.89,
+      "exitPrice": 2425.07,
+      "size": 1.6147214514355435,
+      "pnl": -98.55054349999014,
+      "pnlPercent": -2.456146348530507,
+      "duration": 46800000,
+      "reason": "止损",
+      "entryTime": "2024-10-07T05:45:00.000Z",
+      "exitTime": "2024-10-07T18:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2454.29,
+      "exitPrice": 2351.24,
+      "size": 1.5365213551914165,
+      "pnl": 156.53216041688563,
+      "pnlPercent": 4.15086970162451,
+      "duration": 243900000,
+      "reason": "止盈",
+      "entryTime": "2024-10-07T22:15:00.000Z",
+      "exitTime": "2024-10-10T18:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2387.08,
+      "exitPrice": 2437.75,
+      "size": 1.735266894715329,
+      "pnl": -90.04104699152198,
+      "pnlPercent": -2.173738416810499,
+      "duration": 58500000,
+      "reason": "止损",
+      "entryTime": "2024-10-10T21:45:00.000Z",
+      "exitTime": "2024-10-11T14:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2533.8,
+      "exitPrice": 2410.7,
+      "size": 1.5475379750487688,
+      "pnl": 188.63659983027898,
+      "pnlPercent": 4.810744731233734,
+      "duration": 122400000,
+      "reason": "止盈",
+      "entryTime": "2024-10-24T13:00:00.000Z",
+      "exitTime": "2024-10-25T23:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2445.02,
+      "exitPrice": 2506.09,
+      "size": 1.78696868684339,
+      "pnl": -111.3693298837318,
+      "pnlPercent": -2.548978944957512,
+      "duration": 63000000,
+      "reason": "止损",
+      "entryTime": "2024-10-26T02:45:00.000Z",
+      "exitTime": "2024-10-26T20:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2638.8,
+      "exitPrice": 2692.19,
+      "size": 1.5524650515273695,
+      "pnl": -84.9758745445818,
+      "pnlPercent": -2.0742797862664797,
+      "duration": 36000000,
+      "reason": "止损",
+      "entryTime": "2024-10-29T23:45:00.000Z",
+      "exitTime": "2024-10-30T09:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2448.75,
+      "exitPrice": 2375.1,
+      "size": 1.5876617479652317,
+      "pnl": -118.81671544643558,
+      "pnlPercent": -3.0561531393568186,
+      "duration": 76500000,
+      "reason": "止损",
+      "entryTime": "2024-11-04T00:15:00.000Z",
+      "exitTime": "2024-11-04T21:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2437.76,
+      "exitPrice": 2509.19,
+      "size": 1.4759292318407145,
+      "pnl": -107.27731846500319,
+      "pnlPercent": -2.9816140637306305,
+      "duration": 6300000,
+      "reason": "止损",
+      "entryTime": "2024-11-05T23:15:00.000Z",
+      "exitTime": "2024-11-06T01:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2802.51,
+      "exitPrice": 2914.86,
+      "size": 1.1904250569678458,
+      "pnl": 132.00929395956072,
+      "pnlPercent": 3.956901848699912,
+      "duration": 52200000,
+      "reason": "止盈",
+      "entryTime": "2024-11-07T06:45:00.000Z",
+      "exitTime": "2024-11-07T21:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3279.33,
+      "exitPrice": 3213.34,
+      "size": 1.1127263856196907,
+      "pnl": -75.21659828902673,
+      "pnlPercent": -2.0612951426053425,
+      "duration": 61200000,
+      "reason": "止损",
+      "entryTime": "2024-11-12T10:30:00.000Z",
+      "exitTime": "2024-11-13T03:30:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3215.11,
+      "exitPrice": 3140.59,
+      "size": 1.0774431934953301,
+      "pnl": -81.98297043880173,
+      "pnlPercent": -2.3666467088217815,
+      "duration": 7200000,
+      "reason": "止损",
+      "entryTime": "2024-11-13T19:00:00.000Z",
+      "exitTime": "2024-11-13T21:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3184.46,
+      "exitPrice": 3054.66,
+      "size": 1.024720781144257,
+      "pnl": 131.44367060185968,
+      "pnlPercent": 4.028082312228767,
+      "duration": 81000000,
+      "reason": "止盈",
+      "entryTime": "2024-11-14T00:30:00.000Z",
+      "exitTime": "2024-11-14T23:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3111.56,
+      "exitPrice": 3040,
+      "size": 1.1488550210700215,
+      "pnl": -83.95832493979711,
+      "pnlPercent": -2.348661121752431,
+      "duration": 67500000,
+      "reason": "止损",
+      "entryTime": "2024-11-16T07:15:00.000Z",
+      "exitTime": "2024-11-17T02:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3362.66,
+      "exitPrice": 3265.96,
+      "size": 1.001868066325436,
+      "pnl": -98.51667252861759,
+      "pnlPercent": -2.9242617451660244,
+      "duration": 19800000,
+      "reason": "止损",
+      "entryTime": "2024-11-22T07:45:00.000Z",
+      "exitTime": "2024-11-22T13:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3419.99,
+      "exitPrice": 3344.22,
+      "size": 0.9147567471936808,
+      "pnl": -70.8406926394152,
+      "pnlPercent": -2.2643958023269066,
+      "duration": 63900000,
+      "reason": "止损",
+      "entryTime": "2024-11-23T18:00:00.000Z",
+      "exitTime": "2024-11-24T11:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3624.23,
+      "exitPrice": 3697.62,
+      "size": 0.815259272945403,
+      "pnl": -61.339137537877214,
+      "pnlPercent": -2.0759943491445045,
+      "duration": 126000000,
+      "reason": "止损",
+      "entryTime": "2024-12-02T14:00:00.000Z",
+      "exitTime": "2024-12-04T01:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3728.52,
+      "exitPrice": 3567.75,
+      "size": 0.7520215957426186,
+      "pnl": 119.56099942343542,
+      "pnlPercent": 4.2640545042000575,
+      "duration": 33300000,
+      "reason": "止盈",
+      "entryTime": "2024-12-10T06:30:00.000Z",
+      "exitTime": "2024-12-10T15:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3585.73,
+      "exitPrice": 3742.21,
+      "size": 0.8610545818291739,
+      "pnl": 133.12669743129567,
+      "pnlPercent": 4.311782956329674,
+      "duration": 46800000,
+      "reason": "止盈",
+      "entryTime": "2024-12-11T00:30:00.000Z",
+      "exitTime": "2024-12-11T13:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3870.35,
+      "exitPrice": 3953.5,
+      "size": 0.8793283058231404,
+      "pnl": -74.85436085773009,
+      "pnlPercent": -2.199458705285054,
+      "duration": 45000000,
+      "reason": "止损",
+      "entryTime": "2024-12-15T11:00:00.000Z",
+      "exitTime": "2024-12-15T23:30:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3953.8,
+      "exitPrice": 3871.17,
+      "size": 0.8142986171313438,
+      "pnl": -68.8616389224032,
+      "pnlPercent": -2.1388432647073725,
+      "duration": 151200000,
+      "reason": "止损",
+      "entryTime": "2024-12-16T04:30:00.000Z",
+      "exitTime": "2024-12-17T22:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3330.02,
+      "exitPrice": 3414.84,
+      "size": 0.9160432821284085,
+      "pnl": -79.26286181090344,
+      "pnlPercent": -2.5984054149824973,
+      "duration": 8100000,
+      "reason": "止损",
+      "entryTime": "2024-12-20T14:15:00.000Z",
+      "exitTime": "2024-12-20T16:30:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3469.9,
+      "exitPrice": 3363,
+      "size": 0.8232372838026026,
+      "pnl": -89.38833913121238,
+      "pnlPercent": -3.129240035735903,
+      "duration": 14400000,
+      "reason": "止损",
+      "entryTime": "2024-12-21T09:15:00.000Z",
+      "exitTime": "2024-12-21T13:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3277.47,
+      "exitPrice": 3441.79,
+      "size": 0.805069512730997,
+      "pnl": 130.90358223284636,
+      "pnlPercent": 4.961116501447768,
+      "duration": 51300000,
+      "reason": "止盈",
+      "entryTime": "2024-12-23T06:45:00.000Z",
+      "exitTime": "2024-12-23T21:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3383.34,
+      "exitPrice": 3526.39,
+      "size": 0.871799305963404,
+      "pnl": 123.17373854078657,
+      "pnlPercent": 4.1759564513173295,
+      "duration": 58500000,
+      "reason": "止盈",
+      "entryTime": "2024-12-24T01:45:00.000Z",
+      "exitTime": "2024-12-24T18:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3361.99,
+      "exitPrice": 3429.99,
+      "size": 0.9642119471442527,
+      "pnl": -67.22003107410184,
+      "pnlPercent": -2.0736229138099755,
+      "duration": 196200000,
+      "reason": "止损",
+      "entryTime": "2024-12-27T18:45:00.000Z",
+      "exitTime": "2024-12-30T01:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3391.6,
+      "exitPrice": 3315.54,
+      "size": 0.9070800933166194,
+      "pnl": -70.49624206395951,
+      "pnlPercent": -2.291478063450877,
+      "duration": 36000000,
+      "reason": "止损",
+      "entryTime": "2024-12-30T04:45:00.000Z",
+      "exitTime": "2024-12-30T14:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3399.58,
+      "exitPrice": 3467.95,
+      "size": 0.8540967178668402,
+      "pnl": -59.875574956918925,
+      "pnlPercent": -2.0621363521376135,
+      "duration": 229500000,
+      "reason": "止损",
+      "entryTime": "2024-12-30T18:00:00.000Z",
+      "exitTime": "2025-01-02T09:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3183.32,
+      "exitPrice": 3329.48,
+      "size": 0.8658835605861165,
+      "pnl": 125.11607021661652,
+      "pnlPercent": 4.539137127275921,
+      "duration": 93600000,
+      "reason": "止盈",
+      "entryTime": "2025-01-14T12:45:00.000Z",
+      "exitTime": "2025-01-15T14:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3354.28,
+      "exitPrice": 3435.24,
+      "size": 0.910286369431763,
+      "pnl": -75.26031054305854,
+      "pnlPercent": -2.4648395482786047,
+      "duration": 77400000,
+      "reason": "止损",
+      "entryTime": "2025-01-16T12:30:00.000Z",
+      "exitTime": "2025-01-17T10:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3475.04,
+      "exitPrice": 3382.66,
+      "size": 0.8256211702651839,
+      "pnl": -77.66728156300239,
+      "pnlPercent": -2.707057472719742,
+      "duration": 12600000,
+      "reason": "止损",
+      "entryTime": "2025-01-18T00:00:00.000Z",
+      "exitTime": "2025-01-18T03:30:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3300.72,
+      "exitPrice": 3230.16,
+      "size": 0.8117084259971451,
+      "pnl": -58.58512058301798,
+      "pnlPercent": -2.186646549843669,
+      "duration": 14400000,
+      "reason": "止损",
+      "entryTime": "2025-01-19T04:30:00.000Z",
+      "exitTime": "2025-01-19T08:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3276.99,
+      "exitPrice": 3365.81,
+      "size": 0.77369869293926,
+      "pnl": -70.02197930570614,
+      "pnlPercent": -2.7617693371050924,
+      "duration": 900000,
+      "reason": "止损",
+      "entryTime": "2025-01-19T13:45:00.000Z",
+      "exitTime": "2025-01-19T14:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3315.06,
+      "exitPrice": 3240.9,
+      "size": 0.7132020675298789,
+      "pnl": -54.0467736183445,
+      "pnlPercent": -2.2859450507683077,
+      "duration": 8100000,
+      "reason": "止损",
+      "entryTime": "2025-01-26T21:15:00.000Z",
+      "exitTime": "2025-01-26T23:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3145.38,
+      "exitPrice": 3216.12,
+      "size": 0.7095353248658003,
+      "pnl": -51.333504255510256,
+      "pnlPercent": -2.300137344295436,
+      "duration": 24300000,
+      "reason": "止损",
+      "entryTime": "2025-01-27T20:45:00.000Z",
+      "exitTime": "2025-01-28T03:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3105.04,
+      "exitPrice": 3171.99,
+      "size": 0.6782133885711664,
+      "pnl": -46.482029408046394,
+      "pnlPercent": -2.2072499871177125,
+      "duration": 92700000,
+      "reason": "止损",
+      "entryTime": "2025-01-29T01:15:00.000Z",
+      "exitTime": "2025-01-30T03:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3268,
+      "exitPrice": 3135.81,
+      "size": 0.6094846309148239,
+      "pnl": 79.61215936039609,
+      "pnlPercent": 3.9970041309669537,
+      "duration": 33300000,
+      "reason": "止盈",
+      "entryTime": "2025-02-01T13:00:00.000Z",
+      "exitTime": "2025-02-01T22:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2622.35,
+      "exitPrice": 2676.79,
+      "size": 0.831496482683852,
+      "pnl": -46.3795392522506,
+      "pnlPercent": -2.1270385341392286,
+      "duration": 27000000,
+      "reason": "止损",
+      "entryTime": "2025-02-03T07:45:00.000Z",
+      "exitTime": "2025-02-03T15:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2827.4,
+      "exitPrice": 2716.09,
+      "size": 0.7309002395837018,
+      "pnl": -82.34910108392725,
+      "pnlPercent": -3.984864009337198,
+      "duration": 9000000,
+      "reason": "止损",
+      "entryTime": "2025-02-04T02:30:00.000Z",
+      "exitTime": "2025-02-04T05:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2776.88,
+      "exitPrice": 2835.23,
+      "size": 0.6721319027083108,
+      "pnl": -40.171720790287715,
+      "pnlPercent": -2.152329772982625,
+      "duration": 21600000,
+      "reason": "止损",
+      "entryTime": "2025-02-04T11:00:00.000Z",
+      "exitTime": "2025-02-04T17:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2741.74,
+      "exitPrice": 2800.01,
+      "size": 0.6447649275753253,
+      "pnl": -38.47312645224458,
+      "pnlPercent": -2.1763553436868714,
+      "duration": 38700000,
+      "reason": "止损",
+      "entryTime": "2025-02-05T01:00:00.000Z",
+      "exitTime": "2025-02-05T11:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2658.99,
+      "exitPrice": 2552.38,
+      "size": 0.6293069758419358,
+      "pnl": 66.28730142500886,
+      "pnlPercent": 3.9614218180587253,
+      "duration": 163800000,
+      "reason": "止盈",
+      "entryTime": "2025-02-08T00:15:00.000Z",
+      "exitTime": "2025-02-09T21:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2693.68,
+      "exitPrice": 2634.47,
+      "size": 0.6795174237352385,
+      "pnl": -41.12931079301738,
+      "pnlPercent": -2.247009110213538,
+      "duration": 12600000,
+      "reason": "止损",
+      "entryTime": "2025-02-11T10:15:00.000Z",
+      "exitTime": "2025-02-11T13:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2697.27,
+      "exitPrice": 2752.97,
+      "size": 0.6412022767728612,
+      "pnl": -36.59757213219195,
+      "pnlPercent": -2.11608348441201,
+      "duration": 153000000,
+      "reason": "止损",
+      "entryTime": "2025-02-18T09:45:00.000Z",
+      "exitTime": "2025-02-20T04:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2797.69,
+      "exitPrice": 2738.54,
+      "size": 0.5860499544823726,
+      "pnl": -35.46731542880647,
+      "pnlPercent": -2.1631871293817433,
+      "duration": 57600000,
+      "reason": "止损",
+      "entryTime": "2025-02-23T11:15:00.000Z",
+      "exitTime": "2025-02-24T03:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2482.82,
+      "exitPrice": 2433.11,
+      "size": 0.6252958477900397,
+      "pnl": -31.844163383751106,
+      "pnlPercent": -2.05115775609992,
+      "duration": 41400000,
+      "reason": "止损",
+      "entryTime": "2025-02-26T01:15:00.000Z",
+      "exitTime": "2025-02-26T12:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2209.94,
+      "exitPrice": 2267.1,
+      "size": 0.6670805760540519,
+      "pnl": -38.886494914235584,
+      "pnlPercent": -2.6377888087459325,
+      "duration": 84600000,
+      "reason": "止损",
+      "entryTime": "2025-03-01T16:45:00.000Z",
+      "exitTime": "2025-03-02T16:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2368.74,
+      "exitPrice": 2273.62,
+      "size": 0.5822130798622189,
+      "pnl": 54.718242505176036,
+      "pnlPercent": 3.9676448238303865,
+      "duration": 12600000,
+      "reason": "止盈",
+      "entryTime": "2025-03-03T12:30:00.000Z",
+      "exitTime": "2025-03-03T16:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2094.44,
+      "exitPrice": 2142.8,
+      "size": 0.7203740661524337,
+      "pnl": -35.6090986136075,
+      "pnlPercent": -2.360124902121814,
+      "duration": 46800000,
+      "reason": "止损",
+      "entryTime": "2025-03-04T05:00:00.000Z",
+      "exitTime": "2025-03-04T18:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2165.1,
+      "exitPrice": 2255.73,
+      "size": 0.6565553028168264,
+      "pnl": 58.76310134767755,
+      "pnlPercent": 4.13385686573369,
+      "duration": 34200000,
+      "reason": "止盈",
+      "entryTime": "2025-03-05T00:45:00.000Z",
+      "exitTime": "2025-03-05T10:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2201.5,
+      "exitPrice": 2149.39,
+      "size": 0.708986381966742,
+      "pnl": -37.70722448405476,
+      "pnlPercent": -2.4158389734272143,
+      "duration": 39600000,
+      "reason": "止损",
+      "entryTime": "2025-03-08T23:15:00.000Z",
+      "exitTime": "2025-03-09T10:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2021.12,
+      "exitPrice": 1944.31,
+      "size": 0.7265591260856216,
+      "pnl": -56.51333456185632,
+      "pnlPercent": -3.8484679286732084,
+      "duration": 9900000,
+      "reason": "止损",
+      "entryTime": "2025-03-10T14:15:00.000Z",
+      "exitTime": "2025-03-10T17:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1908.01,
+      "exitPrice": 1826.95,
+      "size": 0.6976216173650134,
+      "pnl": 55.91194839668544,
+      "pnlPercent": 4.2005296093835955,
+      "duration": 124200000,
+      "reason": "止盈",
+      "entryTime": "2025-03-12T07:15:00.000Z",
+      "exitTime": "2025-03-13T17:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 1894.19,
+      "exitPrice": 1973.51,
+      "size": 0.7727104543230013,
+      "pnl": 60.52891733254493,
+      "pnlPercent": 4.135448133502972,
+      "duration": 190800000,
+      "reason": "止盈",
+      "entryTime": "2025-03-17T05:45:00.000Z",
+      "exitTime": "2025-03-19T10:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 1862.36,
+      "exitPrice": 1824.79,
+      "size": 0.8629767738641427,
+      "pnl": -33.20941308766556,
+      "pnlPercent": -2.0663241800725927,
+      "duration": 124200000,
+      "reason": "止损",
+      "entryTime": "2025-04-01T11:45:00.000Z",
+      "exitTime": "2025-04-02T22:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1827.02,
+      "exitPrice": 1748.54,
+      "size": 0.8349893405949246,
+      "pnl": 64.79995731908777,
+      "pnlPercent": 4.247667239548555,
+      "duration": 301500000,
+      "reason": "止盈",
+      "entryTime": "2025-04-03T02:00:00.000Z",
+      "exitTime": "2025-04-06T13:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1506.51,
+      "exitPrice": 1550.47,
+      "size": 1.1146500666769457,
+      "pnl": -49.86413267555888,
+      "pnlPercent": -2.9694615369297273,
+      "duration": 12600000,
+      "reason": "止损",
+      "entryTime": "2025-04-07T10:15:00.000Z",
+      "exitTime": "2025-04-07T13:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1582.18,
+      "exitPrice": 1496.42,
+      "size": 0.9844281154873685,
+      "pnl": 83.68799622390792,
+      "pnlPercent": 5.373079548471097,
+      "duration": 18000000,
+      "reason": "止盈",
+      "entryTime": "2025-04-08T11:30:00.000Z",
+      "exitTime": "2025-04-08T16:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1528.1,
+      "exitPrice": 1560,
+      "size": 1.1494827666568093,
+      "pnl": -37.56509681434463,
+      "pnlPercent": -2.1386034945357038,
+      "duration": 45900000,
+      "reason": "止损",
+      "entryTime": "2025-04-10T20:30:00.000Z",
+      "exitTime": "2025-04-11T09:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1615.82,
+      "exitPrice": 1662.71,
+      "size": 1.029978929481606,
+      "pnl": -49.15199013631179,
+      "pnlPercent": -2.953383111980301,
+      "duration": 61200000,
+      "reason": "止损",
+      "entryTime": "2025-04-13T17:15:00.000Z",
+      "exitTime": "2025-04-14T10:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 1581.45,
+      "exitPrice": 1648.21,
+      "size": 0.9765080557989303,
+      "pnl": 64.3869326338124,
+      "pnlPercent": 4.169331626039393,
+      "duration": 295200000,
+      "reason": "止盈",
+      "entryTime": "2025-04-17T19:45:00.000Z",
+      "exitTime": "2025-04-21T05:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1755.1,
+      "exitPrice": 1790.49,
+      "size": 0.9668817416480865,
+      "pnl": -35.08354088172762,
+      "pnlPercent": -2.067417526066897,
+      "duration": 86400000,
+      "reason": "止损",
+      "entryTime": "2025-04-24T11:45:00.000Z",
+      "exitTime": "2025-04-25T11:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1771.02,
+      "exitPrice": 1806.99,
+      "size": 0.9094969439513332,
+      "pnl": -33.53633101530479,
+      "pnlPercent": -2.082048480536641,
+      "duration": 9900000,
+      "reason": "止损",
+      "entryTime": "2025-04-30T17:15:00.000Z",
+      "exitTime": "2025-04-30T20:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 1833.96,
+      "exitPrice": 1760.1,
+      "size": 0.8333427111315116,
+      "pnl": 60.81730939124226,
+      "pnlPercent": 3.979364326375718,
+      "duration": 353700000,
+      "reason": "止盈",
+      "entryTime": "2025-05-02T11:00:00.000Z",
+      "exitTime": "2025-05-06T13:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 1826.25,
+      "exitPrice": 1901.1,
+      "size": 0.9157808407433377,
+      "pnl": 67.67570045147016,
+      "pnlPercent": 4.046513347022582,
+      "duration": 83700000,
+      "reason": "止盈",
+      "entryTime": "2025-05-07T04:30:00.000Z",
+      "exitTime": "2025-05-08T03:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2513.02,
+      "exitPrice": 2573.49,
+      "size": 0.7293453724119028,
+      "pnl": -45.04199618097177,
+      "pnlPercent": -2.4574712895241504,
+      "duration": 72000000,
+      "reason": "止损",
+      "entryTime": "2025-05-11T11:00:00.000Z",
+      "exitTime": "2025-05-12T07:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2474.19,
+      "exitPrice": 2408.2,
+      "size": 0.6962114007149383,
+      "pnl": -46.781298480779796,
+      "pnlPercent": -2.7158019392205217,
+      "duration": 6300000,
+      "reason": "止损",
+      "entryTime": "2025-05-18T18:00:00.000Z",
+      "exitTime": "2025-05-18T19:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2455.93,
+      "exitPrice": 2353.69,
+      "size": 0.6548301857293897,
+      "pnl": 66.17920455904796,
+      "pnlPercent": 4.115066593917572,
+      "duration": 26100000,
+      "reason": "止盈",
+      "entryTime": "2025-05-18T23:30:00.000Z",
+      "exitTime": "2025-05-19T06:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2576.59,
+      "exitPrice": 2638.28,
+      "size": 0.6850594500725568,
+      "pnl": -43.16500679794477,
+      "pnlPercent": -2.44544688910537,
+      "duration": 319500000,
+      "reason": "止损",
+      "entryTime": "2025-05-23T15:30:00.000Z",
+      "exitTime": "2025-05-27T08:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2723.6,
+      "exitPrice": 2659.22,
+      "size": 0.6092683108214227,
+      "pnl": -40.034783089434534,
+      "pnlPercent": -2.4126013364664454,
+      "duration": 27000000,
+      "reason": "止损",
+      "entryTime": "2025-05-29T06:00:00.000Z",
+      "exitTime": "2025-05-29T13:30:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2814.11,
+      "exitPrice": 2695,
+      "size": 0.5548213851388042,
+      "pnl": 65.3371533674085,
+      "pnlPercent": 4.184715593917797,
+      "duration": 112500000,
+      "reason": "止盈",
+      "entryTime": "2025-06-11T12:30:00.000Z",
+      "exitTime": "2025-06-12T19:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2502.82,
+      "exitPrice": 2553.6,
+      "size": 0.6857320870557934,
+      "pnl": -35.69701810944585,
+      "pnlPercent": -2.0799258436483545,
+      "duration": 22500000,
+      "reason": "止损",
+      "entryTime": "2025-06-13T06:00:00.000Z",
+      "exitTime": "2025-06-13T12:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2597.88,
+      "exitPrice": 2544.17,
+      "size": 0.6268694558192685,
+      "pnl": -34.466589703758785,
+      "pnlPercent": -2.1164212742697903,
+      "duration": 45000000,
+      "reason": "止损",
+      "entryTime": "2025-06-16T11:15:00.000Z",
+      "exitTime": "2025-06-16T23:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2606.24,
+      "exitPrice": 2496.26,
+      "size": 0.5923696853123579,
+      "pnl": 64.40946361532394,
+      "pnlPercent": 4.171982242617701,
+      "duration": 42300000,
+      "reason": "止盈",
+      "entryTime": "2025-06-17T03:30:00.000Z",
+      "exitTime": "2025-06-17T15:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2494.34,
+      "exitPrice": 2417.81,
+      "size": 0.6801749770451818,
+      "pnl": -52.87605792389271,
+      "pnlPercent": -3.1166122100435465,
+      "duration": 239400000,
+      "reason": "止损",
+      "entryTime": "2025-06-17T22:45:00.000Z",
+      "exitTime": "2025-06-20T17:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2391.91,
+      "exitPrice": 2493.3,
+      "size": 0.6553964020564507,
+      "pnl": 65.63359127988008,
+      "pnlPercent": 4.186752427975984,
+      "duration": 172800000,
+      "reason": "止盈",
+      "entryTime": "2025-06-24T02:45:00.000Z",
+      "exitTime": "2025-06-26T02:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 2473.24,
+      "exitPrice": 2534.97,
+      "size": 0.696773725180292,
+      "pnl": -43.89499230043958,
+      "pnlPercent": -2.54716424609015,
+      "duration": 182700000,
+      "reason": "止损",
+      "entryTime": "2025-06-30T13:15:00.000Z",
+      "exitTime": "2025-07-02T16:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2570.41,
+      "exitPrice": 2514.29,
+      "size": 0.6286439595886154,
+      "pnl": -36.06979562269006,
+      "pnlPercent": -2.2322176228694994,
+      "duration": 137700000,
+      "reason": "止损",
+      "entryTime": "2025-07-02T23:45:00.000Z",
+      "exitTime": "2025-07-04T14:00:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 2555.49,
+      "exitPrice": 2662.55,
+      "size": 0.5976803522641517,
+      "pnl": 63.19198160243987,
+      "pnlPercent": 4.137317109438911,
+      "duration": 213300000,
+      "reason": "止盈",
+      "entryTime": "2025-07-07T01:00:00.000Z",
+      "exitTime": "2025-07-09T12:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3654.8,
+      "exitPrice": 3745.95,
+      "size": 0.458901740138252,
+      "pnl": -42.68840510033695,
+      "pnlPercent": -2.545227509029212,
+      "duration": 26100000,
+      "reason": "止损",
+      "entryTime": "2025-07-25T19:00:00.000Z",
+      "exitTime": "2025-07-26T02:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3829.99,
+      "exitPrice": 3747.84,
+      "size": 0.4106353475389352,
+      "pnl": -34.503191590783544,
+      "pnlPercent": -2.193841759377953,
+      "duration": 18900000,
+      "reason": "止损",
+      "entryTime": "2025-07-29T11:00:00.000Z",
+      "exitTime": "2025-07-29T16:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3819.52,
+      "exitPrice": 3658.96,
+      "size": 0.3895867385883831,
+      "pnl": 61.839305601238095,
+      "pnlPercent": 4.155771405831097,
+      "duration": 119700000,
+      "reason": "止盈",
+      "entryTime": "2025-07-30T14:45:00.000Z",
+      "exitTime": "2025-08-01T00:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 3518.85,
+      "exitPrice": 3375.09,
+      "size": 0.46454467567766317,
+      "pnl": 65.99900253070429,
+      "pnlPercent": 4.037468349034479,
+      "duration": 76500000,
+      "reason": "止盈",
+      "entryTime": "2025-08-02T02:00:00.000Z",
+      "exitTime": "2025-08-02T23:15:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 3661.75,
+      "exitPrice": 3812.15,
+      "size": 0.48913744587796143,
+      "pnl": 72.63393920289361,
+      "pnlPercent": 4.055272069365744,
+      "duration": 46800000,
+      "reason": "止盈",
+      "entryTime": "2025-08-06T21:30:00.000Z",
+      "exitTime": "2025-08-07T10:30:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 4280.41,
+      "exitPrice": 4472.62,
+      "size": 0.45866428161779776,
+      "pnl": 87.13414605013223,
+      "pnlPercent": 4.438212460955844,
+      "duration": 72900000,
+      "reason": "止盈",
+      "entryTime": "2025-08-11T19:30:00.000Z",
+      "exitTime": "2025-08-12T15:45:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 4595.96,
+      "exitPrice": 4765.64,
+      "size": 0.4721618993173873,
+      "pnl": -81.24150789310586,
+      "pnlPercent": -3.7437841060409633,
+      "duration": 7200000,
+      "reason": "止损",
+      "entryTime": "2025-08-22T14:00:00.000Z",
+      "exitTime": "2025-08-22T16:00:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 4392.8,
+      "exitPrice": 4488.12,
+      "size": 0.4490196547076901,
+      "pnl": -43.808180533080225,
+      "pnlPercent": -2.2209993625933278,
+      "duration": 141300000,
+      "reason": "止损",
+      "entryTime": "2025-08-29T12:30:00.000Z",
+      "exitTime": "2025-08-31T03:45:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 4401.4,
+      "exitPrice": 4272.02,
+      "size": 0.4237167632284066,
+      "pnl": -55.725538069914414,
+      "pnlPercent": -2.9880494842549914,
+      "duration": 33300000,
+      "reason": "止损",
+      "entryTime": "2025-09-01T11:15:00.000Z",
+      "exitTime": "2025-09-01T20:30:00.000Z"
+    },
+    {
+      "side": "LONG",
+      "entryPrice": 4291.49,
+      "exitPrice": 4473,
+      "size": 0.40288285279744473,
+      "pnl": 72.2262191109828,
+      "pnlPercent": 4.177418565579792,
+      "duration": 510300000,
+      "reason": "止盈",
+      "entryTime": "2025-09-05T14:30:00.000Z",
+      "exitTime": "2025-09-11T12:15:00.000Z"
+    },
+    {
+      "side": "SHORT",
+      "entryPrice": 4651.88,
+      "exitPrice": 4455.3,
+      "size": 0.4084877293776544,
+      "pnl": 79.39055015071114,
+      "pnlPercent": 4.177931287995389,
+      "duration": 234000000,
+      "reason": "止盈",
+      "entryTime": "2025-09-13T20:30:00.000Z",
+      "exitTime": "2025-09-16T13:30:00.000Z"
+    }
+  ],
+  "monthlyPerformance": [
+    {
+      "month": "2022-01",
+      "trades": 15,
+      "return": -34.519215728658665
+    },
+    {
+      "month": "2022-02",
+      "trades": 12,
+      "return": 33.66175064254024
+    },
+    {
+      "month": "2022-03",
+      "trades": 9,
+      "return": -7.974037916648631
+    },
+    {
+      "month": "2022-04",
+      "trades": 8,
+      "return": 32.50379786186963
+    },
+    {
+      "month": "2022-05",
+      "trades": 16,
+      "return": -12.988347916263635
+    },
+    {
+      "month": "2022-06",
+      "trades": 17,
+      "return": -2.6892729531328543
+    },
+    {
+      "month": "2022-07",
+      "trades": 11,
+      "return": 60.52320650177722
+    },
+    {
+      "month": "2022-08",
+      "trades": 14,
+      "return": -43.39531003610605
+    },
+    {
+      "month": "2022-09",
+      "trades": 12,
+      "return": -3.180220825509947
+    },
+    {
+      "month": "2022-10",
+      "trades": 10,
+      "return": 5.403109072368628
+    },
+    {
+      "month": "2022-11",
+      "trades": 13,
+      "return": -17.604755335619675
+    },
+    {
+      "month": "2022-12",
+      "trades": 2,
+      "return": 6.248687706425476
+    },
+    {
+      "month": "2023-01",
+      "trades": 8,
+      "return": -0.1915368860801425
+    },
+    {
+      "month": "2023-02",
+      "trades": 9,
+      "return": -15.548199299114627
+    },
+    {
+      "month": "2023-03",
+      "trades": 7,
+      "return": -30.458910435218726
+    },
+    {
+      "month": "2023-04",
+      "trades": 6,
+      "return": 4.528382785737801
+    },
+    {
+      "month": "2023-05",
+      "trades": 8,
+      "return": -12.571235104227513
+    },
+    {
+      "month": "2023-06",
+      "trades": 7,
+      "return": 4.355662697528283
+    },
+    {
+      "month": "2023-07",
+      "trades": 4,
+      "return": -3.0053737850186093
+    },
+    {
+      "month": "2023-08",
+      "trades": 3,
+      "return": 7.20001777549263
+    },
+    {
+      "month": "2023-09",
+      "trades": 5,
+      "return": 9.450290974691033
+    },
+    {
+      "month": "2023-10",
+      "trades": 3,
+      "return": -0.5084461247821412
+    },
+    {
+      "month": "2023-11",
+      "trades": 5,
+      "return": 2.8540722111173102
+    },
+    {
+      "month": "2023-12",
+      "trades": 6,
+      "return": -17.356861535503235
+    },
+    {
+      "month": "2024-01",
+      "trades": 7,
+      "return": -3.394951879349247
+    },
+    {
+      "month": "2024-02",
+      "trades": 4,
+      "return": -7.483975499774267
+    },
+    {
+      "month": "2024-03",
+      "trades": 8,
+      "return": -4.496080869947223
+    },
+    {
+      "month": "2024-04",
+      "trades": 10,
+      "return": -3.246856817780317
+    },
+    {
+      "month": "2024-05",
+      "trades": 7,
+      "return": -4.717605904370544
+    },
+    {
+      "month": "2024-06",
+      "trades": 5,
+      "return": 0.38372925108273914
+    },
+    {
+      "month": "2024-07",
+      "trades": 8,
+      "return": 2.2413733217361576
+    },
+    {
+      "month": "2024-08",
+      "trades": 13,
+      "return": 0.39502143796097183
+    },
+    {
+      "month": "2024-09",
+      "trades": 9,
+      "return": -4.0547479788999885
+    },
+    {
+      "month": "2024-10",
+      "trades": 7,
+      "return": 1.2217790874953227
+    },
+    {
+      "month": "2024-11",
+      "trades": 9,
+      "return": -3.7315632818567672
+    },
+    {
+      "month": "2024-12",
+      "trades": 11,
+      "return": -0.04657593769823649
+    },
+    {
+      "month": "2025-01",
+      "trades": 9,
+      "return": -3.6815650401698865
+    },
+    {
+      "month": "2025-02",
+      "trades": 10,
+      "return": -2.065123885310721
+    },
+    {
+      "month": "2025-03",
+      "trades": 8,
+      "return": 0.6120605700832978
+    },
+    {
+      "month": "2025-04",
+      "trades": 8,
+      "return": 0.08000712581199608
+    },
+    {
+      "month": "2025-05",
+      "trades": 8,
+      "return": -0.13887201162675275
+    },
+    {
+      "month": "2025-06",
+      "trades": 6,
+      "return": 0.723405425255152
+    },
+    {
+      "month": "2025-07",
+      "trades": 5,
+      "return": -0.9396440301181027
+    },
+    {
+      "month": "2025-08",
+      "trades": 6,
+      "return": 1.6255670495878214
+    },
+    {
+      "month": "2025-09",
+      "trades": 3,
+      "return": 0.9589123119177952
+    }
+  ]
+}
