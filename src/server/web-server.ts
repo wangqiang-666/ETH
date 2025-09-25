@@ -18,6 +18,7 @@ import backtestRoutes from '../api/backtest-routes.js';
 import { dataValidator } from '../utils/data-validator.js';
 import { TechnicalIndicatorAnalyzer } from '../indicators/technical-indicators.js';
 import { RSI, MACD, BollingerBands  } from 'technicalindicators';
+import { enhancedDataAPI } from '../api/enhanced-data-api.js';
 
 import fs from 'fs';
 import { RecommendationIntegrationService } from '../services/recommendation-integration-service.js';
@@ -214,6 +215,7 @@ export class WebServer {
     this.app.get('/api/diagnostics/validate', this.handleDiagnosticsValidate.bind(this));
     
     // 技术指标API
+    this.app.get('/api/market/indicators', this.handleLatestIndicators.bind(this));
     this.app.get('/api/indicators/latest', this.handleLatestIndicators.bind(this));
     this.app.get('/api/indicators/rsi-series', this.handleRSISeries.bind(this));
     this.app.get('/api/indicators/rsi-validate', this.handleRSIValidate.bind(this));
@@ -442,6 +444,9 @@ export class WebServer {
     
     // 回测API
     this.app.use('/api/backtest', backtestRoutes);
+    
+    // 增强数据API
+    this.app.use('/api/enhanced-data', enhancedDataAPI.getRouter());
     
     // 推荐系统API
     this.app.use('/api', this.recommendationService.getAPIRouter());

@@ -79,8 +79,8 @@ export const config = {
             'DOGE-USDT-SWAP'
         ],
         intervals: ['1m', '5m', '15m', '1H', '4H', '1D'],
-        defaultLeverage: parseInt(process.env.DEFAULT_LEVERAGE || '3'),
-        maxLeverage: parseInt(process.env.MAX_LEVERAGE || '20'),
+        defaultLeverage: parseInt(process.env.DEFAULT_LEVERAGE || '2'),
+        maxLeverage: parseInt(process.env.MAX_LEVERAGE || '10'),
         maxPositions: parseInt(process.env.MAX_POSITIONS || '5')
     },
     

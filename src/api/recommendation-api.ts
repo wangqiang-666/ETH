@@ -92,6 +92,7 @@ export class RecommendationAPI {
     this.router.get('/statistics/overall', this.getOverallStatistics.bind(this));
     this.router.get('/statistics/strategy/:type', this.getStrategyStatistics.bind(this));
     this.router.get('/statistics/strategies', this.getAllStrategyStatistics.bind(this));
+    this.router.get('/recommendations/statistics', this.getRecommendationStatistics.bind(this));
     
     // 新增：EV 对齐统计与监控
     this.router.get('/stats', this.getEVvsPnLStats.bind(this));
@@ -1022,6 +1023,38 @@ export class RecommendationAPI {
     }
   }
   
+  /**
+   * 获取推荐统计信息
+   * GET /api/recommendations/statistics
+   */
+  private async getRecommendationStatistics(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const statistics = await this.statisticsCalculator.calculateOverallStatistics();
+      
+      // 获取活跃推荐数量
+      const activeRecommendations = this.tracker.getActiveRecommendations();
+      const activeCount = activeRecommendations ? activeRecommendations.length : 0;
+      
+      res.json({
+          success: true,
+          data: {
+            total: statistics.total_recommendations || 0,
+            active: activeCount,
+            completed: (statistics.total_recommendations || 0) - activeCount,
+            winRate: statistics.overall_win_rate || 0,
+            totalPnL: statistics.overall_total_pnl || 0,
+            avgReturn: statistics.overall_avg_pnl || 0
+          }
+        });
+    } catch (error) {
+      console.error('[RecommendationAPI] Failed to get recommendation statistics:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get recommendation statistics'
+      });
+    }
+  }
+
   /**
    * 获取所有策略统计信息
    * GET /api/statistics/strategies

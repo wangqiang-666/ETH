@@ -1,0 +1,254 @@
+{
+  "testDate": "2025-09-25",
+  "debugConfig": {
+    "symbol": "ETH-USDT-SWAP",
+    "initialCapital": 100000,
+    "signalFilters": {
+      "minConfidence": 0.1,
+      "timeframeAgreement": 0.1,
+      "dataQualityThreshold": 0.1,
+      "marketStateFilter": [
+        "BULL",
+        "BEAR",
+        "SIDEWAYS",
+        "VOLATILE",
+        "ANY"
+      ]
+    },
+    "longShortConfig": {
+      "longConditions": {
+        "minTrendStrength": 0.001,
+        "maxRSI": 95,
+        "macdRequired": false,
+        "supportBounce": false
+      },
+      "shortConditions": {
+        "minTrendStrength": -0.001,
+        "minRSI": 5,
+        "macdRequired": false,
+        "resistanceReject": false
+      }
+    },
+    "debug": {
+      "enabled": true,
+      "logSignals": true,
+      "logFilters": true,
+      "logTrades": true,
+      "maxLogs": 50,
+      "sampleInterval": 100
+    }
+  },
+  "debugStats": {
+    "totalDataPoints": 1000,
+    "signalsGenerated": 10,
+    "signalsFiltered": 0,
+    "signalsExecuted": 3,
+    "longSignals": 2,
+    "shortSignals": 1,
+    "holdSignals": 7,
+    "filterReasons": {},
+    "signalDetails": [
+      {
+        "index": 50,
+        "price": 1695.3694802796851,
+        "signal": {
+          "action": "HOLD",
+          "confidence": 0.5,
+          "trend": -0.01746816824198865,
+          "rsi": 0,
+          "macd": {
+            "macd": 29.883541078437474,
+            "signal": 26.895186970593727,
+            "histogram": 2.9883541078437474
+          },
+          "volatility": 0.0008525888562355424,
+          "volumeRatio": 0.9308046054558201,
+          "nearSupport": false,
+          "nearResistance": false
+        },
+        "timestamp": 1758806674999
+      },
+      {
+        "index": 150,
+        "price": 1193.582078273126,
+        "signal": {
+          "action": "HOLD",
+          "confidence": 0.5,
+          "trend": -0.0189794915626555,
+          "rsi": 0,
+          "macd": {
+            "macd": 25.505503589979753,
+            "signal": 22.95495323098178,
+            "histogram": 2.550550358997974
+          },
+          "volatility": 0.0010583570850882082,
+          "volumeRatio": 1.0442350917757475,
+          "nearSupport": true,
+          "nearResistance": true
+        },
+        "timestamp": 1758896674999
+      },
+      {
+        "index": 250,
+        "price": 1000.9824541156805,
+        "signal": {
+          "action": "HOLD",
+          "confidence": 0.5,
+          "trend": 0.0005567659529949097,
+          "rsi": 51.882165341224415,
+          "macd": {
+            "macd": -0.605605438048201,
+            "signal": -0.5450448942433809,
+            "histogram": -0.06056054380482012
+          },
+          "volatility": 0.0011183814666195814,
+          "volumeRatio": 0.8833278102729474,
+          "nearSupport": true,
+          "nearResistance": true
+        },
+        "timestamp": 1758986674999
+      },
+      {
+        "index": 350,
+        "price": 1006.0218281284808,
+        "signal": {
+          "action": "WEAK_LONG",
+          "confidence": 0.5233639526426058,
+          "trend": 0.002336395264260578,
+          "rsi": 72.563559906715,
+          "macd": {
+            "macd": -0.47568081942483786,
+            "signal": -0.42811273748235407,
+            "histogram": -0.0475680819424838
+          },
+          "volatility": 0.0011950908202769406,
+          "volumeRatio": 0.9402454310456421,
+          "nearSupport": true,
+          "nearResistance": false
+        },
+        "timestamp": 1759076674999
+      },
+      {
+        "index": 450,
+        "price": 1192.2946619535767,
+        "signal": {
+          "action": "HOLD",
+          "confidence": 0.5,
+          "trend": 0.01896178868855997,
+          "rsi": 100,
+          "macd": {
+            "macd": -22.268348559754713,
+            "signal": -20.04151370377924,
+            "histogram": -2.226834855975472
+          },
+          "volatility": 0.0009618700318365964,
+          "volumeRatio": 0.9163087325296484,
+          "nearSupport": false,
+          "nearResistance": false
+        },
+        "timestamp": 1759166674999
+      },
+      {
+        "index": 550,
+        "price": 1713.5866678170698,
+        "signal": {
+          "action": "HOLD",
+          "confidence": 0.5,
+          "trend": 0.017564543200842667,
+          "rsi": 100,
+          "macd": {
+            "macd": -30.909853964164085,
+            "signal": -27.81886856774768,
+            "histogram": -3.090985396416407
+          },
+          "volatility": 0.0007378150311089449,
+          "volumeRatio": 0.9207831298728282,
+          "nearSupport": false,
+          "nearResistance": false
+        },
+        "timestamp": 1759256674999
+      },
+      {
+        "index": 650,
+        "price": 2041.6870390125534,
+        "signal": {
+          "action": "WEAK_SHORT",
+          "confidence": 0.6922214328714418,
+          "trend": -0.019222143287144174,
+          "rsi": 30.202138823698647,
+          "macd": {
+            "macd": 21.691635810505204,
+            "signal": 19.522472229454685,
+            "histogram": 2.169163581050519
+          },
+          "volatility": 0.006148698385845787,
+          "volumeRatio": 0.8577687343182182,
+          "nearSupport": true,
+          "nearResistance": true
+        },
+        "timestamp": 1759346674999
+      },
+      {
+        "index": 750,
+        "price": 1961.3315328515928,
+        "signal": {
+          "action": "WEAK_LONG",
+          "confidence": 0.6463064062366468,
+          "trend": 0.014630640623664683,
+          "rsi": 57.136323897911126,
+          "macd": {
+            "macd": -25.330637822919925,
+            "signal": -22.797574040627932,
+            "histogram": -2.5330637822919932
+          },
+          "volatility": 0.0057920677790718475,
+          "volumeRatio": 0.9003134145320045,
+          "nearSupport": true,
+          "nearResistance": false
+        },
+        "timestamp": 1759436675000
+      },
+      {
+        "index": 850,
+        "price": 1937.429030890707,
+        "signal": {
+          "action": "HOLD",
+          "confidence": 0.5,
+          "trend": -0.0005683763327896279,
+          "rsi": 43.641884537184204,
+          "macd": {
+            "macd": 0.6989628182031993,
+            "signal": 0.6290665363828793,
+            "histogram": 0.06989628182031993
+          },
+          "volatility": 0.0002772484142912226,
+          "volumeRatio": 1.109899510485131,
+          "nearSupport": false,
+          "nearResistance": true
+        },
+        "timestamp": 1759526675000
+      },
+      {
+        "index": 950,
+        "price": 1933.733026338715,
+        "signal": {
+          "action": "HOLD",
+          "confidence": 0.5,
+          "trend": -0.0008839332061341093,
+          "rsi": 37.77966517937464,
+          "macd": {
+            "macd": 1.2993004102593204,
+            "signal": 1.1693703692333883,
+            "histogram": 0.12993004102593209
+          },
+          "volatility": 0.00031970350084061064,
+          "volumeRatio": 0.9622066886911229,
+          "nearSupport": false,
+          "nearResistance": true
+        },
+        "timestamp": 1759616675000
+      }
+    ]
+  },
+  "conclusion": "FILTER_TOO_STRICT"
+}

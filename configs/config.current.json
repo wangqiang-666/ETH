@@ -38,7 +38,7 @@
       "signalThreshold": 0.5,
       "minWinRate": 55,
       "useMLAnalysis": true,
-      "analysisInterval": 30000,
+      "analysisInterval": 15000,
       "signalCooldownMs": 1800000,
       "oppositeCooldownMs": 300000,
       "globalMinIntervalMs": 0,
@@ -72,8 +72,8 @@
         "require1hWith5mTrend": false
       },
       "kronos": {
-        "enabled": false,
-        "baseUrl": "http://127.0.0.1:5000",
+        "enabled": true,
+        "baseUrl": "http://127.0.0.1:8001",
         "timeoutMs": 2000,
         "interval": "5m",
         "lookback": 288,
@@ -87,7 +87,9 @@
         "LONG": null,
         "SHORT": null
       },
-      "allowAutoOnHighRisk": false
+      "allowAutoOnHighRisk": false,
+      "duplicateWindowMinutes": 15,
+      "duplicatePriceBps": 25
     },
     "webServer": {
       "port": 3031,
@@ -104,5 +106,5 @@
     "commission": 0.001,
     "slippage": 0.0005
   },
-  "timestamp": 1758160890325
+  "timestamp": 1758509504853
 }

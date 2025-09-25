@@ -2298,13 +2298,24 @@
                 }
                 // 并行请求资金费率(8h)
                 try {
-                    const frRes = await fetch('/api/market/funding-rate?symbol=ETH-USDT-SWAP');
+                    const frRes = await fetch('/api/market/funding-rate?symbol=ETH-USDT-SWAP', {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        cache: 'no-cache'
+                    });
+                    if (!frRes.ok) {
+                        throw new Error(`HTTP ${frRes.status}: ${frRes.statusText}`);
+                    }
                     const frJson = await frRes.json();
                     const val = (typeof frJson?.data?.fundingRate === 'number') ? frJson.data.fundingRate : null;
                     if (fundingEl) {
                         fundingEl.textContent = (val === null || !isFinite(val)) ? '--' : (val * 100).toFixed(4) + '%';
                     }
                 } catch (e) {
+                    console.warn('获取资金费率失败:', e);
                     if (fundingEl) fundingEl.textContent = '--';
                 }
             } catch (error) {

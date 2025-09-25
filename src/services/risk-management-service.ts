@@ -119,7 +119,7 @@ export class RiskManagementService {
         riskLevel = 'HIGH';
       }
       
-      const maxL = Math.min(20, this.riskConfig.maxLeverage);
+      const maxL = Math.min(10, this.riskConfig.maxLeverage);
       
       return {
         riskLevel,
@@ -329,12 +329,12 @@ export class RiskManagementService {
          leverageMultiplier = 1.5; // 中等置信度：1.5倍杠杆
        }
        
-       // 基础杠杆（来自风险评估），最低3倍起步
-       const baseLeverage = Math.max(3, Number(ra.recommendedLeverage ?? 3));
+       // 基础杠杆（来自风险评估），最低2倍起步
+       const baseLeverage = Math.max(2, Number(ra.recommendedLeverage ?? 2));
        
-       // 应用置信度分段杠杆，杠杆范围3-20倍
-       const maxSystemLeverage = Math.min(20, this.riskConfig.maxLeverage); // 杠杆上限20x
-       const leverage = Math.max(3, Math.min(maxSystemLeverage, Math.floor(baseLeverage * leverageMultiplier)));
+       // 应用置信度分段杠杆，杠杆范围2-10倍
+       const maxSystemLeverage = Math.min(10, this.riskConfig.maxLeverage); // 杠杆上限10x
+       const leverage = Math.max(2, Math.min(maxSystemLeverage, Math.floor(baseLeverage * leverageMultiplier)));
 
        return { positionSize, leverage, kelly, confidence, riskReward };
     } catch (e) {
@@ -345,7 +345,7 @@ export class RiskManagementService {
       // 简化的Kelly计算
        const kelly = Math.min(Math.max(0.01, 2 * confidence - 1) * 0.25, 0.25);
        const positionSize = Math.max(0.01, Math.min(this.riskConfig.maxPositionSize, kelly));
-       const leverage = Math.max(3, Math.min(20, confidence >= 0.7 ? 6 : (confidence >= 0.64 ? 4.5 : 3))); // 3-20倍范围
+       const leverage = Math.max(2, Math.min(10, confidence >= 0.7 ? 6 : (confidence >= 0.64 ? 4 : 2))); // 2-10倍范围
        
        return { positionSize, leverage, kelly, confidence, riskReward };
     }
@@ -447,10 +447,10 @@ export class RiskManagementService {
     
     // 5. 检查总杠杆约束
      const totalLeverage = this.calculateTotalLeverage(currentPositions, adaptiveSizing);
-     if (totalLeverage > 20) { // 调整为20倍上限
+     if (totalLeverage > 10) { // 调整为10倍上限
        return { 
          allowed: false, 
-         reason: `总杠杆超过20x限制 (当前: ${totalLeverage.toFixed(2)}x)` 
+         reason: `总杠杆超过10x限制 (当前: ${totalLeverage.toFixed(2)}x)` 
        };
      }
 

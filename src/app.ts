@@ -3,6 +3,7 @@ import { ethStrategyEngine } from './strategy/eth-strategy-engine.js'
 import { webServer } from './server/web-server.js'
 import { enhancedOKXDataService } from './services/enhanced-okx-data-service.js'
 import { recommendationDatabase } from './services/recommendation-database.js'
+import { enhancedDataIntegrationService } from './services/enhanced-data-integration-service.js'
 import axios from 'axios'
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process'
 import path from 'path'
@@ -48,6 +49,21 @@ class ETHStrategyApp {
       console.log('🌐 启动Web服务器...');
       await webServer.start();
       console.log('✅ Web服务器启动成功');
+      
+      // 启动增强数据集成服务
+      console.log('📊 启动增强数据集成服务...');
+      try {
+        await enhancedDataIntegrationService.initialize();
+        await enhancedDataIntegrationService.start();
+        console.log('✅ 增强数据集成服务启动成功');
+        
+        // 添加关闭处理
+        this.addShutdownHandler(async () => {
+          await enhancedDataIntegrationService.stop();
+        });
+      } catch (error) {
+        console.warn('⚠️  增强数据集成服务启动失败，将在基础模式下运行:', error);
+      }
       
       // 启动策略引擎
       console.log('🤖 启动策略引擎...');
