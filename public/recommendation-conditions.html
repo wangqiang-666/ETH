@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>推荐单生成条件 - ETH Agent合约策略分析系统</title>
+    <link rel="icon" type="image/svg+xml" href="/eth-logo.svg" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .logo {
+            width: 48px;
+            height: 48px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            color: #666;
+            margin-bottom: 20px;
+        }
+        
+        .back-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: transform 0.2s;
+        }
+        
+        .back-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .conditions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        .condition-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+        
+        .condition-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .condition-card h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .condition-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .condition-item:last-child {
+            border-bottom: none;
+        }
+        
+        .condition-label {
+            color: #7f8c8d;
+            font-weight: 500;
+        }
+        
+        .condition-value {
+            color: #2c3e50;
+            font-weight: 600;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+        
+        .condition-value.success {
+            color: #27ae60;
+        }
+        
+        .condition-value.warning {
+            color: #f39c12;
+        }
+        
+        .condition-value.danger {
+            color: #e74c3c;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-indicator.success {
+            background: #27ae60;
+        }
+        
+        .status-indicator.warning {
+            background: #f39c12;
+        }
+        
+        .status-indicator.danger {
+            background: #e74c3c;
+        }
+        
+        .real-time-data {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .real-time-data h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 15px;
+        }
+        
+        .data-item {
+            text-align: center;
+            padding: 12px 8px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            min-width: 0;
+        }
+        
+        .data-value {
+            font-size: 1.3em;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 4px;
+            word-break: break-all;
+        }
+        
+        .data-label {
+            color: #7f8c8d;
+            font-size: 0.8em;
+            line-height: 1.2;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        
+        .error {
+            text-align: center;
+            color: #e74c3c;
+            background: #fdf2f2;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .refresh-info {
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 0.9em;
+            margin-top: 20px;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @media (max-width: 1200px) {
+            .data-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .conditions-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .data-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .header h1 {
+                font-size: 2em;
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <img src="/eth-logo.svg" alt="ETH Logo" class="logo">
+                推荐单生成条件
+            </h1>
+            <p>实时监控策略推荐系统的门控条件和参数设置</p>
+            <button class="back-btn" onclick="window.close() || (window.location.href = '/')">
+                ← 返回主页
+            </button>
+        </div>
+
+        <!-- 实时数据概览 -->
+        <div class="real-time-data">
+            <h3>📊 实时市场数据</h3>
+            <div class="data-grid" id="realTimeData">
+                <div class="loading">正在加载实时数据...</div>
+            </div>
+        </div>
+
+        <!-- 条件参数网格 -->
+        <div class="conditions-grid">
+            <!-- EV门控条件 -->
+            <div class="condition-card">
+                <h3>💰 EV门控条件</h3>
+                <div id="evConditions">
+                    <div class="loading">正在加载EV条件...</div>
+                </div>
+            </div>
+
+            <!-- 技术指标条件 -->
+            <div class="condition-card">
+                <h3>📈 技术指标条件</h3>
+                <div id="technicalConditions">
+                    <div class="loading">正在加载技术指标...</div>
+                </div>
+            </div>
+
+            <!-- 风险管理条件 -->
+            <div class="condition-card">
+                <h3>🛡️ 风险管理条件</h3>
+                <div id="riskConditions">
+                    <div class="loading">正在加载风险参数...</div>
+                </div>
+            </div>
+
+            <!-- 市场状态条件 -->
+            <div class="condition-card">
+                <h3>🌍 市场状态条件</h3>
+                <div id="marketConditions">
+                    <div class="loading">正在加载市场状态...</div>
+                </div>
+            </div>
+
+            <!-- 冷却时间设置 -->
+            <div class="condition-card">
+                <h3>⏰ 冷却时间设置</h3>
+                <div id="cooldownSettings">
+                    <div class="loading">正在加载冷却设置...</div>
+                </div>
+            </div>
+
+            <!-- 系统配置 -->
+            <div class="condition-card">
+                <h3>⚙️ 系统配置</h3>
+                <div id="systemConfig">
+                    <div class="loading">正在加载系统配置...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="refresh-info">
+            <span class="pulse">🔄</span> 数据每5秒自动刷新
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval;
+
+        // 页面加载完成后开始数据刷新
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAllData();
+            startAutoRefresh();
+        });
+
+        // 开始自动刷新
+        function startAutoRefresh() {
+            refreshInterval = setInterval(loadAllData, 5000); // 每5秒刷新
+        }
+
+        // 停止自动刷新
+        function stopAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+
+        // 页面卸载时停止刷新
+        window.addEventListener('beforeunload', stopAutoRefresh);
+
+        // 加载所有数据
+        async function loadAllData() {
+            try {
+                // 分别加载各部分数据，避免一个失败影响其他
+                try {
+                    await loadRealTimeData();
+                } catch (error) {
+                    console.error('加载实时数据失败:', error);
+                }
+                
+                try {
+                    await loadStrategyAnalysis();
+                } catch (error) {
+                    console.error('加载策略分析失败:', error);
+                }
+                
+                try {
+                    await loadSystemConfig();
+                } catch (error) {
+                    console.error('加载系统配置失败:', error);
+                }
+            } catch (error) {
+                console.error('加载数据失败:', error);
+            }
+        }
+
+        // 加载实时数据
+        async function loadRealTimeData() {
+            try {
+                // 添加超时和错误处理
+                const tickerPromise = fetch('/api/market/ticker', { 
+                    signal: AbortSignal.timeout(3000) // 3秒超时
+                });
+                const analysisPromise = fetch('/api/strategy/analysis', { 
+                    signal: AbortSignal.timeout(3000) // 3秒超时
+                });
+                
+                const [tickerRes, analysisRes] = await Promise.all([
+                    tickerPromise,
+                    analysisPromise
+                ]);
+
+                const ticker = await tickerRes.json();
+                const analysis = await analysisRes.json();
+
+                const container = document.getElementById('realTimeData');
+                const marketData = ticker.data || {};
+                const strategyData = analysis.data || {};
+
+                // 格式化价格显示
+                const currentPrice = marketData.price || marketData.currentPrice || '--';
+                const priceDisplay = typeof currentPrice === 'number' ? 
+                    `$${currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 
+                    currentPrice;
+
+                // 格式化24小时变化
+                const change24h = marketData.change24h || marketData.changeFromSodUtc8 || 0;
+                const changeDisplay = typeof change24h === 'number' ? 
+                    `${change24h >= 0 ? '+' : ''}${change24h.toFixed(2)}%` : 
+                    '--';
+
+                // 格式化成交量 - 与主页面保持一致
+                const volume = marketData.volume || 0;
+                const price = marketData.price || 0;
+                // 计算成交额：成交量(张) × 价格 × 0.1
+                const turnoverUSDT = (typeof volume === 'number' && typeof price === 'number') ? 
+                    volume * price * 0.1 : 0;
+                
+                // 格式化成交额，与主页面一致
+                const volumeDisplay = typeof turnoverUSDT === 'number' && turnoverUSDT > 0 ? 
+                    turnoverUSDT >= 1e9 ? `${(turnoverUSDT / 1e9).toFixed(2)}B USDT` :
+                    turnoverUSDT >= 1e6 ? `${(turnoverUSDT / 1e6).toFixed(2)}M USDT` :
+                    turnoverUSDT >= 1e3 ? `${(turnoverUSDT / 1e3).toFixed(2)}K USDT` :
+                    `${turnoverUSDT.toFixed(2)} USDT` : 
+                    '--';
+
+                // 格式化最高最低价
+                const high24h = marketData.high24h || 0;
+                const low24h = marketData.low24h || 0;
+                const highDisplay = typeof high24h === 'number' ? 
+                    `$${high24h.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 
+                    '--';
+                const lowDisplay = typeof low24h === 'number' ? 
+                    `$${low24h.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 
+                    '--';
+
+                container.innerHTML = `
+                    <div class="data-item">
+                        <div class="data-value" style="color: ${change24h >= 0 ? '#27ae60' : '#e74c3c'}">${priceDisplay}</div>
+                        <div class="data-label">当前价格</div>
+                    </div>
+                    <div class="data-item">
+                        <div class="data-value" style="color: ${change24h >= 0 ? '#27ae60' : '#e74c3c'}">${changeDisplay}</div>
+                        <div class="data-label">24H涨跌</div>
+                    </div>
+                    <div class="data-item">
+                        <div class="data-value">${highDisplay}</div>
+                        <div class="data-label">24H最高</div>
+                    </div>
+                    <div class="data-item">
+                        <div class="data-value">${lowDisplay}</div>
+                        <div class="data-label">24H最低</div>
+                    </div>
+                    <div class="data-item">
+                        <div class="data-value">${volumeDisplay}</div>
+                        <div class="data-label">24H成交额</div>
+                    </div>
+                    <div class="data-item">
+                        <div class="data-value" style="color: ${strategyData.recommendation?.action === 'LONG' ? '#27ae60' : strategyData.recommendation?.action === 'SHORT' ? '#e74c3c' : '#f39c12'}">${strategyData.recommendation?.action || 'HOLD'}</div>
+                        <div class="data-label">当前建议</div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('实时数据加载失败:', error);
+                document.getElementById('realTimeData').innerHTML = 
+                    '<div class="error">实时数据加载失败: ' + error.message + '</div>';
+            }
+        }
+
+        // 加载策略分析数据
+        async function loadStrategyAnalysis() {
+            try {
+                const response = await fetch('/api/strategy/analysis');
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                    updateEVConditions(data.data);
+                    updateTechnicalConditions(data.data);
+                    updateMarketConditions(data.data);
+                }
+            } catch (error) {
+                console.error('策略分析数据加载失败:', error);
+            }
+        }
+
+        // 更新EV条件
+        function updateEVConditions(data) {
+            const container = document.getElementById('evConditions');
+            const gating = data.gating || {};
+            
+            const evOk = gating.evOk;
+            const evValue = gating.ev || 0;
+            const evThreshold = gating.evThreshold || 0;
+
+            container.innerHTML = `
+                <div class="condition-item">
+                    <span class="condition-label">EV门控状态</span>
+                    <span class="condition-value ${evOk ? 'success' : 'danger'}">
+                        <span class="status-indicator ${evOk ? 'success' : 'danger'}"></span>
+                        ${evOk ? '✅ 通过' : '❌ 未通过'}
+                    </span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">当前EV值</span>
+                    <span class="condition-value ${evValue >= evThreshold ? 'success' : 'danger'}">
+                        ${evValue.toFixed(3)}
+                    </span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">EV阈值</span>
+                    <span class="condition-value">${evThreshold.toFixed(3)}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">基础EV</span>
+                    <span class="condition-value">${(gating.components?.baseEv || 0).toFixed(3)}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">波动调整</span>
+                    <span class="condition-value">${(gating.components?.volAdjust || 0).toFixed(3)}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">交易成本</span>
+                    <span class="condition-value">${(gating.components?.cost || 0).toFixed(3)}</span>
+                </div>
+            `;
+        }
+
+        // 更新技术指标条件
+        function updateTechnicalConditions(data) {
+            const container = document.getElementById('technicalConditions');
+            const signal = data.signal || {};
+            const strength = signal.strength || {};
+
+            container.innerHTML = `
+                <div class="condition-item">
+                    <span class="condition-label">综合强度</span>
+                    <span class="condition-value ${strength.combined >= 55 ? 'success' : 'danger'}">
+                        ${strength.combined || '--'}
+                    </span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">技术强度</span>
+                    <span class="condition-value">${strength.technical || '--'}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">ML强度</span>
+                    <span class="condition-value">${strength.ml || '--'}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">信号类型</span>
+                    <span class="condition-value">${signal.signal || 'HOLD'}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">置信度要求</span>
+                    <span class="condition-value">≥ 70%</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">当前置信度</span>
+                    <span class="condition-value ${(strength.confidence || 0) >= 0.7 ? 'success' : 'danger'}">
+                        ${((strength.confidence || 0) * 100).toFixed(1)}%
+                    </span>
+                </div>
+            `;
+        }
+
+        // 更新市场条件
+        function updateMarketConditions(data) {
+            const container = document.getElementById('marketConditions');
+            const gating = data.gating || {};
+            const metadata = data.signal?.metadata || {};
+
+            container.innerHTML = `
+                <div class="condition-item">
+                    <span class="condition-label">市场状态门控</span>
+                    <span class="condition-value ${gating.regimeOk ? 'success' : 'danger'}">
+                        <span class="status-indicator ${gating.regimeOk ? 'success' : 'danger'}"></span>
+                        ${gating.regimeOk ? '✅ 通过' : '❌ 未通过'}
+                    </span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">恐慌贪婪指数</span>
+                    <span class="condition-value">${gating.fgi || '--'}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">资金费率</span>
+                    <span class="condition-value">${(gating.funding || 0).toFixed(6)}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">市场趋势</span>
+                    <span class="condition-value">${metadata.trendDirection || '--'}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">波动率</span>
+                    <span class="condition-value">${metadata.volatility || '--'}</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">成交量</span>
+                    <span class="condition-value">${metadata.volume || '--'}</span>
+                </div>
+            `;
+        }
+
+        // 加载系统配置
+        async function loadSystemConfig() {
+            try {
+                // 模拟配置数据，实际应该从API获取
+                updateRiskConditions();
+                updateCooldownSettings();
+                updateSystemConfigDisplay();
+            } catch (error) {
+                console.error('系统配置加载失败:', error);
+            }
+        }
+
+        // 更新风险条件
+        function updateRiskConditions() {
+            const container = document.getElementById('riskConditions');
+            
+            container.innerHTML = `
+                <div class="condition-item">
+                    <span class="condition-label">最大日亏损</span>
+                    <span class="condition-value">5%</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">最大仓位</span>
+                    <span class="condition-value">20%</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">止损比例</span>
+                    <span class="condition-value">2%</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">止盈比例</span>
+                    <span class="condition-value">2.8%</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">最大杠杆</span>
+                    <span class="condition-value">20x</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">同向最大持仓</span>
+                    <span class="condition-value">2个</span>
+                </div>
+            `;
+        }
+
+        // 更新冷却设置
+        function updateCooldownSettings() {
+            const container = document.getElementById('cooldownSettings');
+            
+            container.innerHTML = `
+                <div class="condition-item">
+                    <span class="condition-label">同方向冷却</span>
+                    <span class="condition-value">30分钟</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">反方向冷却</span>
+                    <span class="condition-value">5分钟</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">自动推荐间隔</span>
+                    <span class="condition-value">15秒</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">信号阈值</span>
+                    <span class="condition-value">0.5</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">最小胜率</span>
+                    <span class="condition-value">55%</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">绕过冷却</span>
+                    <span class="condition-value">支持</span>
+                </div>
+            `;
+        }
+
+        // 更新系统配置显示
+        function updateSystemConfigDisplay() {
+            const container = document.getElementById('systemConfig');
+            
+            container.innerHTML = `
+                <div class="condition-item">
+                    <span class="condition-label">交易标的</span>
+                    <span class="condition-value">ETH-USDT-SWAP</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">ML分析</span>
+                    <span class="condition-value success">✅ 启用</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">Kronos AI</span>
+                    <span class="condition-value success">✅ 就绪</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">手续费</span>
+                    <span class="condition-value">0.1%</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">滑点设置</span>
+                    <span class="condition-value">0.05%</span>
+                </div>
+                <div class="condition-item">
+                    <span class="condition-label">A/B测试</span>
+                    <span class="condition-value success">✅ 启用</span>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
