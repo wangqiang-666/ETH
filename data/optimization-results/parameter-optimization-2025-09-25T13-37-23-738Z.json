@@ -1,0 +1,113 @@
+{
+  "timestamp": 1758807443738,
+  "optimizationDate": "2025-09-25T13:37:23.738Z",
+  "totalParameterSets": 5,
+  "bestScore": 53.740224265905,
+  "results": [
+    {
+      "params": {
+        "name": "当前优化参数",
+        "rsiOversold": 20,
+        "rsiOverbought": 80,
+        "takeProfit": 0.012,
+        "stopLoss": 0.006,
+        "minConfidence": 0.75,
+        "description": "基于回测结果的优化参数"
+      },
+      "score": 53.740224265905,
+      "summary": {
+        "winRate": 45.97701149425287,
+        "profitFactor": 1.102027425413255,
+        "netProfit": -17.58053607527962,
+        "netProfitPercent": -0.1758053607527962,
+        "maxDrawdownPercent": 0.013454435354288164,
+        "totalTrades": 87,
+        "avgHoldingTime": 57.3448275862069
+      }
+    },
+    {
+      "params": {
+        "name": "更保守参数",
+        "rsiOversold": 15,
+        "rsiOverbought": 85,
+        "takeProfit": 0.01,
+        "stopLoss": 0.005,
+        "minConfidence": 0.8,
+        "description": "更严格的信号筛选，更小的止盈止损"
+      },
+      "score": 52.80708615338291,
+      "summary": {
+        "winRate": 39.21568627450981,
+        "profitFactor": 1.2620704145774917,
+        "netProfit": -36.97287768831866,
+        "netProfitPercent": -0.3697287768831866,
+        "maxDrawdownPercent": 0.010988672034595406,
+        "totalTrades": 51,
+        "avgHoldingTime": 53.23529411764706
+      }
+    },
+    {
+      "params": {
+        "name": "平衡参数",
+        "rsiOversold": 18,
+        "rsiOverbought": 82,
+        "takeProfit": 0.011,
+        "stopLoss": 0.0055,
+        "minConfidence": 0.78,
+        "description": "保守与激进之间的平衡"
+      },
+      "score": 51.696736969375955,
+      "summary": {
+        "winRate": 40.845070422535215,
+        "profitFactor": 1.1951718382484333,
+        "netProfit": -43.59840856469561,
+        "netProfitPercent": -0.4359840856469561,
+        "maxDrawdownPercent": 0.01334668282409387,
+        "totalTrades": 71,
+        "avgHoldingTime": 56.056338028169016
+      }
+    },
+    {
+      "params": {
+        "name": "更激进参数",
+        "rsiOversold": 25,
+        "rsiOverbought": 75,
+        "takeProfit": 0.015,
+        "stopLoss": 0.008,
+        "minConfidence": 0.7,
+        "description": "更宽松的信号条件，更大的止盈止损"
+      },
+      "score": 36.799714711715204,
+      "summary": {
+        "winRate": 36.75213675213676,
+        "profitFactor": 1.2536752110316067,
+        "netProfit": -140.39750747292152,
+        "netProfitPercent": -1.4039750747292152,
+        "maxDrawdownPercent": 0.02468265433325695,
+        "totalTrades": 117,
+        "avgHoldingTime": 56.92307692307692
+      }
+    },
+    {
+      "params": {
+        "name": "高频参数",
+        "rsiOversold": 30,
+        "rsiOverbought": 70,
+        "takeProfit": 0.008,
+        "stopLoss": 0.004,
+        "minConfidence": 0.65,
+        "description": "更高频率交易，更小止盈止损"
+      },
+      "score": 28.060886731803148,
+      "summary": {
+        "winRate": 44.632768361581924,
+        "profitFactor": 0.8655096076448219,
+        "netProfit": -217.07240016892578,
+        "netProfitPercent": -2.1707240016892575,
+        "maxDrawdownPercent": 0.0273447221827364,
+        "totalTrades": 177,
+        "avgHoldingTime": 47.898305084745765
+      }
+    }
+  ]
+}

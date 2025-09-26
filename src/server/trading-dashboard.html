@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V5-激进优化版 实时交易监控面板</title>
+    <link rel="icon" type="image/svg+xml" href="/eth-logo.svg">
+    <link rel="shortcut icon" href="/eth-logo.svg">
+    <link rel="apple-touch-icon" href="/eth-logo.svg">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #ffffff;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.disconnected {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .dashboard {
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+        }
+
+        .card h3 {
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.8rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        .metric-label {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+        }
+
+        .metric-value {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .positive {
+            color: #4CAF50;
+        }
+
+        .negative {
+            color: #f44336;
+        }
+
+        .neutral {
+            color: #FFC107;
+        }
+
+        .chart-container {
+            grid-column: span 2;
+            height: 400px;
+            position: relative;
+        }
+
+        .positions-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .positions-table th,
+        .positions-table td {
+            padding: 0.8rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .positions-table th {
+            background: rgba(255, 255, 255, 0.1);
+            font-weight: 600;
+        }
+
+        .log-container {
+            grid-column: span 2;
+            max-height: 300px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .log-entry {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-timestamp {
+            color: rgba(255, 255, 255, 0.6);
+            margin-right: 1rem;
+        }
+
+        .log-info { color: #2196F3; }
+        .log-success { color: #4CAF50; }
+        .log-warning { color: #FFC107; }
+        .log-error { color: #f44336; }
+
+        .config-panel {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 400px;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(20px);
+            padding: 2rem;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .config-panel.open {
+            right: 0;
+        }
+
+        .config-group {
+            margin-bottom: 2rem;
+        }
+
+        .config-group h4 {
+            margin-bottom: 1rem;
+            color: #4CAF50;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            display: none;
+        }
+
+        .overlay.show {
+            display: block;
+        }
+
+        .config-display-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        .config-display-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.8rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            border-left: 3px solid #4CAF50;
+        }
+
+        .config-label {
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+            flex: 1;
+        }
+
+        .config-value {
+            font-weight: 600;
+            color: #4CAF50;
+            margin: 0 1rem;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .config-desc {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.6);
+            flex: 1;
+            text-align: right;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+                padding: 1rem;
+            }
+            
+            .chart-container {
+                grid-column: span 1;
+            }
+            
+            .log-container {
+                grid-column: span 1;
+            }
+            
+            .header {
+                padding: 1rem;
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>
+            <span class="status-indicator" id="connectionStatus"></span>
+            V5-激进优化版实时交易监控
+        </h1>
+        <div class="controls">
+            <button class="btn btn-primary" id="startBtn">🚀 启动交易</button>
+            <button class="btn btn-danger" id="stopBtn" style="display: none;">🛑 停止交易</button>
+            <button class="btn btn-secondary" id="configBtn">⚙️ 配置</button>
+            <button class="btn btn-secondary" id="exportBtn">📊 导出数据</button>
+        </div>
+    </div>
+
+    <div class="dashboard">
+        <!-- 账户信息 -->
+        <div class="card">
+            <h3>💰 账户信息</h3>
+            <div class="metric">
+                <span class="metric-label">USDT余额</span>
+                <span class="metric-value" id="balance">0.00</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">总盈亏</span>
+                <span class="metric-value" id="totalPnl">0.00</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">今日盈亏</span>
+                <span class="metric-value" id="dailyPnl">0.00</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">最大回撤</span>
+                <span class="metric-value" id="maxDrawdown">0.00%</span>
+            </div>
+        </div>
+
+        <!-- 交易统计 -->
+        <div class="card">
+            <h3>📈 交易统计</h3>
+            <div class="metric">
+                <span class="metric-label">总交易数</span>
+                <span class="metric-value" id="totalTrades">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">胜率</span>
+                <span class="metric-value" id="winRate">0.00%</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">利润因子</span>
+                <span class="metric-value" id="profitFactor">0.00</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">今日交易</span>
+                <span class="metric-value" id="dailyTrades">0</span>
+            </div>
+        </div>
+
+        <!-- 当前价格 -->
+        <div class="card">
+            <h3>💹 市场信息</h3>
+            <div class="metric">
+                    <span class="metric-label">ETH/USDT (合约)</span>
+                    <span class="metric-value" id="currentPrice">0.00</span>
+                </div>
+            <div class="metric">
+                <span class="metric-label">24h涨跌</span>
+                <span class="metric-value" id="priceChange">0.00%</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">24h成交量</span>
+                <span class="metric-value" id="volume">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">连接状态</span>
+                <span class="metric-value" id="connectionText">断开</span>
+            </div>
+        </div>
+
+        <!-- 风险控制 -->
+        <div class="card">
+            <h3>🛡️ 风险控制</h3>
+            <div class="metric">
+                <span class="metric-label">连续亏损</span>
+                <span class="metric-value" id="consecutiveLosses">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">风险等级</span>
+                <span class="metric-value" id="riskLevel">低</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">仓位使用率</span>
+                <span class="metric-value" id="positionUsage">0%</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">交易状态</span>
+                <span class="metric-value" id="tradingStatus">停止</span>
+            </div>
+        </div>
+
+        <!-- 价格图表 -->
+        <div class="card chart-container">
+            <h3>📊 价格走势</h3>
+            <canvas id="priceChart"></canvas>
+        </div>
+
+        <!-- 盈亏图表 -->
+        <div class="card chart-container">
+            <h3>💰 盈亏曲线</h3>
+            <canvas id="pnlChart"></canvas>
+        </div>
+
+        <!-- 当前持仓 -->
+        <div class="card">
+            <h3>📋 当前持仓</h3>
+            <table class="positions-table">
+                <thead>
+                    <tr>
+                        <th>方向</th>
+                        <th>入场价</th>
+                        <th>数量</th>
+                        <th>盈亏</th>
+                    </tr>
+                </thead>
+                <tbody id="positionsTable">
+                    <tr>
+                        <td colspan="4" style="text-align: center; color: rgba(255,255,255,0.6);">
+                            暂无持仓
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 最近交易 -->
+        <div class="card">
+            <h3>🔄 最近交易</h3>
+            <div id="recentTrades">
+                <div style="text-align: center; color: rgba(255,255,255,0.6); padding: 2rem;">
+                    暂无交易记录
+                </div>
+            </div>
+        </div>
+
+        <!-- 系统日志 -->
+        <div class="card log-container">
+            <h3>📝 系统日志</h3>
+            <div id="systemLogs">
+                <div class="log-entry log-info">
+                    <span class="log-timestamp">[等待连接]</span>
+                    系统启动，等待WebSocket连接...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 配置面板 -->
+    <div class="overlay" id="overlay"></div>
+    <div class="config-panel" id="configPanel">
+        <h2>⚙️ 策略配置</h2>
+        
+        <div class="config-group">
+            <h4>📊 V5-激进优化版策略参数 (已优化)</h4>
+            <div style="background: rgba(76, 175, 80, 0.1); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <p style="color: #4CAF50; margin: 0; font-size: 0.9rem;">
+                    ✅ 以下参数已通过大量回测优化，建议保持默认值以获得最佳性能
+                </p>
+            </div>
+            
+            <div class="config-display-group">
+                <div class="config-display-item">
+                    <span class="config-label">止损比例</span>
+                    <span class="config-value">1.7%</span>
+                    <span class="config-desc">严格风控，保护资金</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">第一层止盈</span>
+                    <span class="config-value">1.2% (70%仓位)</span>
+                    <span class="config-desc">快速获利，降低风险</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">第二层止盈</span>
+                    <span class="config-value">4.0% (20%仓位)</span>
+                    <span class="config-desc">中等收益目标</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">第三层止盈</span>
+                    <span class="config-value">9.0% (10%仓位)</span>
+                    <span class="config-desc">高收益追求</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">基础仓位</span>
+                    <span class="config-value">750 USDT</span>
+                    <span class="config-desc">单笔交易金额</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="config-group">
+            <h4>🔍 技术指标参数 (激进优化)</h4>
+            <div class="config-display-group">
+                <div class="config-display-item">
+                    <span class="config-label">RSI周期</span>
+                    <span class="config-value">15</span>
+                    <span class="config-desc">快速响应市场变化</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">RSI超卖阈值</span>
+                    <span class="config-value">35</span>
+                    <span class="config-desc">激进买入信号</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">RSI超买阈值</span>
+                    <span class="config-value">65</span>
+                    <span class="config-desc">激进卖出信号</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">快速EMA</span>
+                    <span class="config-value">9</span>
+                    <span class="config-desc">短期趋势跟踪</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">慢速EMA</span>
+                    <span class="config-value">27</span>
+                    <span class="config-desc">长期趋势确认</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="config-group">
+            <h4>🛡️ 风险控制参数 (严格管控)</h4>
+            <div class="config-display-group">
+                <div class="config-display-item">
+                    <span class="config-label">最大日交易数</span>
+                    <span class="config-value">80笔</span>
+                    <span class="config-desc">激进交易频次</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">最大连续亏损</span>
+                    <span class="config-value">4次</span>
+                    <span class="config-desc">自动暂停保护</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">冷却期</span>
+                    <span class="config-value">45分钟</span>
+                    <span class="config-desc">亏损后休息时间</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">最小持仓时间</span>
+                    <span class="config-value">8分钟</span>
+                    <span class="config-desc">避免频繁交易</span>
+                </div>
+                <div class="config-display-item">
+                    <span class="config-label">最大持仓时间</span>
+                    <span class="config-value">135分钟</span>
+                    <span class="config-desc">强制平仓保护</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="config-group">
+            <h4>🔑 API配置</h4>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="useMainnet" checked>
+                    使用正式网 (取消勾选使用测试网)
+                </label>
+            </div>
+            <div class="form-group">
+                <label>币安API密钥</label>
+                <input type="password" id="apiKey" placeholder="请输入您的币安API密钥" style="width: 100%;">
+                <small style="color: #888; font-size: 0.8rem;">
+                    ⚠️ 请确保API密钥只开启现货交易权限，禁用提现权限
+                </small>
+            </div>
+            <div class="form-group">
+                <label>币安API密钥密码</label>
+                <input type="password" id="apiSecret" placeholder="请输入您的币安API密钥密码" style="width: 100%;">
+                <small style="color: #888; font-size: 0.8rem;">
+                    🔒 密钥信息仅在本次会话中使用，不会被存储
+                </small>
+            </div>
+            <div class="form-group">
+                <label>单笔交易金额 (USDT)</label>
+                <input type="number" id="positionSize" placeholder="100" value="100" min="10" max="10000" step="10" style="width: 100%;">
+                <small style="color: #888; font-size: 0.8rem;">
+                    💰 建议范围: 100-2000 USDT，默认100 USDT
+                </small>
+            </div>
+            <div class="form-group">
+                <button class="btn btn-secondary" id="testApiBtn" style="width: 100%; margin-top: 0.5rem;">
+                    🔍 测试API连接
+                </button>
+            </div>
+            <div class="form-group">
+                <div id="apiTestResult" style="display: none; margin-top: 0.5rem; padding: 0.8rem; border-radius: 6px; font-size: 0.9rem;">
+                    <div id="apiTestMessage"></div>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 2rem;">
+            <div style="background: rgba(255, 193, 7, 0.1); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <p style="color: #FFC107; margin: 0; font-size: 0.9rem; text-align: center;">
+                    ⚠️ 策略参数已优化固定，仅API配置可修改
+                </p>
+            </div>
+            <button class="btn btn-secondary" id="closeConfigBtn" style="width: 100%;">❌ 关闭</button>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket连接
+        let socket = null;
+        let priceChart = null;
+        let pnlChart = null;
+        let isConnected = false;
+        let tradingActive = false;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+            setupEventListeners();
+            connectWebSocket();
+            addLog('系统初始化完成', 'info');
+        });
+
+        // 初始化图表
+        function initializeCharts() {
+            // 价格图表
+            const priceCtx = document.getElementById('priceChart').getContext('2d');
+            priceChart = new Chart(priceCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'ETH/USDT',
+                        data: [],
+                        borderColor: '#4CAF50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#ffffff' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#ffffff' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        y: {
+                            ticks: { color: '#ffffff' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        }
+                    }
+                }
+            });
+
+            // 盈亏图表
+            const pnlCtx = document.getElementById('pnlChart').getContext('2d');
+            pnlChart = new Chart(pnlCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '累计盈亏',
+                        data: [],
+                        borderColor: '#2196F3',
+                        backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#ffffff' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#ffffff' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        y: {
+                            ticks: { color: '#ffffff' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 设置事件监听器
+        function setupEventListeners() {
+            document.getElementById('startBtn').addEventListener('click', startTrading);
+            document.getElementById('stopBtn').addEventListener('click', stopTrading);
+            document.getElementById('configBtn').addEventListener('click', openConfig);
+            document.getElementById('exportBtn').addEventListener('click', exportData);
+            document.getElementById('closeConfigBtn').addEventListener('click', closeConfig);
+            document.getElementById('testApiBtn').addEventListener('click', testApiConnection);
+            document.getElementById('overlay').addEventListener('click', closeConfig);
+            
+            // API密钥输入框事件
+            document.getElementById('apiKey').addEventListener('input', clearApiKeyHighlight);
+            document.getElementById('apiSecret').addEventListener('input', clearApiKeyHighlight);
+        }
+
+        // 连接WebSocket
+        function connectWebSocket() {
+            try {
+                socket = io('http://localhost:3001');
+                
+                socket.on('connect', () => {
+                    isConnected = true;
+                    updateConnectionStatus(true);
+                    addLog('WebSocket连接成功', 'success');
+                    
+                    // 请求初始状态和市场数据
+                    requestInitialData();
+                });
+
+                socket.on('disconnect', () => {
+                    isConnected = false;
+                    updateConnectionStatus(false);
+                    addLog('WebSocket连接断开', 'warning');
+                });
+
+                socket.on('initialState', (state) => {
+                    updateTradingState(state);
+                    addLog('初始状态加载完成', 'info');
+                });
+
+                socket.on('kline', (data) => {
+                    updatePrice(data);
+                });
+
+                socket.on('tradingState', (state) => {
+                    updateTradingState(state);
+                });
+
+                socket.on('positionUpdate', (data) => {
+                    if (data.type === 'opened') {
+                        updatePositions([data.position]);
+                        addLog(`开仓: ${data.position.side.toUpperCase()} ${data.position.quantity.toFixed(6)} @ ${data.position.entryPrice.toFixed(2)}`, 'info');
+                    } else if (data.type === 'closed') {
+                        updatePositions([]);
+                        addLog(`平仓: ${data.position.side.toUpperCase()} PnL: ${data.position.pnl.toFixed(2)} USDT`, data.position.pnl > 0 ? 'success' : 'error');
+                    }
+                });
+
+                socket.on('tradeCompleted', (trade) => {
+                    addTradeToHistory(trade);
+                    addLog(`交易完成: ${trade.side} ${trade.pnl > 0 ? '盈利' : '亏损'} ${Math.abs(trade.pnl).toFixed(2)} USDT`, trade.pnl > 0 ? 'success' : 'error');
+                });
+
+                socket.on('marketData', (data) => {
+                    updateMarketData(data);
+                });
+
+                socket.on('systemMessage', (message) => {
+                    addLog(message.message, message.type);
+                    
+                    // 如果是API测试相关的消息，显示在配置面板中
+                    if (message.type === 'error' && (
+                        message.message.includes('API') || 
+                        message.message.includes('密钥') ||
+                        message.message.includes('连接失败') ||
+                        message.message.includes('格式无效') ||
+                        message.message.includes('签名无效')
+                    )) {
+                        showApiTestResult(false, message.message);
+                    } else if (message.type === 'success' && message.message.includes('API连接测试成功')) {
+                        showApiTestResult(true, message.message);
+                    }
+                });
+
+                socket.on('error', (error) => {
+                    addLog(`错误: ${error.message}`, 'error');
+                    
+                    // 如果是API相关错误，也显示在配置面板中
+                    if (error.message.includes('API')) {
+                        showApiTestResult(false, error.message);
+                    }
+                });
+
+            } catch (error) {
+                addLog(`连接失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 请求初始数据
+        function requestInitialData() {
+            // 请求当前价格数据 (优化超时时间)
+            fetch('/api/status', { timeout: 3000 })
+                .then(response => response.json())
+                .then(data => {
+                    addLog('系统状态获取成功', 'info');
+                })
+                .catch(error => {
+                    addLog('获取系统状态失败', 'warning');
+                });
+
+            // 立即获取真实价格数据
+            updateInitialPrice();
+            
+            // 优化更新频率：每20秒更新一次价格数据
+            setInterval(() => {
+                updateInitialPrice();
+            }, 20000);
+        }
+
+        // 获取真实价格数据 (合约价格)
+        function updateInitialPrice() {
+            // 从币安期货API获取合约价格数据 (优化超时时间)
+            fetch('https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=ETHUSDT', {
+                timeout: 5000,
+                headers: {
+                    'Accept': 'application/json',
+                    'Cache-Control': 'no-cache'
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    const price = parseFloat(data.lastPrice);
+                    const priceChange = parseFloat(data.priceChangePercent);
+                    // 使用quoteVolume获取USDT成交量，而不是volume (ETH数量)
+                    const quoteVolume = parseFloat(data.quoteVolume);
+                    
+                    document.getElementById('currentPrice').textContent = price.toFixed(2);
+                    document.getElementById('priceChange').textContent = `${priceChange > 0 ? '+' : ''}${priceChange.toFixed(2)}%`;
+                    document.getElementById('priceChange').className = `metric-value ${priceChange > 0 ? 'positive' : priceChange < 0 ? 'negative' : ''}`;
+                    // 显示USDT成交量，格式化为百万/十亿单位
+                    document.getElementById('volume').textContent = formatVolume(quoteVolume);
+                    
+                    // 添加真实价格到图表
+                    const now = new Date().toLocaleTimeString();
+                    priceChart.data.labels.push(now);
+                    priceChart.data.datasets[0].data.push(price);
+                    priceChart.update('none');
+                    
+                    addLog(`合约价格加载: $${price.toFixed(2)} (${priceChange > 0 ? '+' : ''}${priceChange.toFixed(2)}%) [期货]`, 'success');
+                })
+                .catch(error => {
+                    addLog('获取合约价格失败，请检查网络连接', 'error');
+                    console.error('Futures price fetch error:', error);
+                });
+        }
+
+        // 格式化成交量显示
+        function formatVolume(volume) {
+            if (volume >= 1000000000) {
+                return (volume / 1000000000).toFixed(2) + 'B';
+            } else if (volume >= 1000000) {
+                return (volume / 1000000).toFixed(2) + 'M';
+            } else if (volume >= 1000) {
+                return (volume / 1000).toFixed(2) + 'K';
+            } else {
+                return Math.round(volume).toLocaleString();
+            }
+        }
+
+        // 更新市场数据
+        function updateMarketData(data) {
+            if (data.price) {
+                document.getElementById('currentPrice').textContent = parseFloat(data.price).toFixed(2);
+            }
+            if (data.priceChange) {
+                const changeElement = document.getElementById('priceChange');
+                const change = parseFloat(data.priceChange);
+                changeElement.textContent = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
+                changeElement.className = `metric-value ${change > 0 ? 'positive' : change < 0 ? 'negative' : ''}`;
+            }
+            if (data.volume) {
+                document.getElementById('volume').textContent = parseFloat(data.volume).toLocaleString();
+            }
+        }
+
+        // 更新连接状态
+        function updateConnectionStatus(connected) {
+            const indicator = document.getElementById('connectionStatus');
+            const text = document.getElementById('connectionText');
+            
+            if (connected) {
+                indicator.classList.remove('disconnected');
+                text.textContent = '已连接';
+                text.className = 'metric-value positive';
+            } else {
+                indicator.classList.add('disconnected');
+                text.textContent = '断开';
+                text.className = 'metric-value negative';
+            }
+        }
+
+        // 更新价格
+        function updatePrice(kline) {
+            const price = parseFloat(kline.close);
+            document.getElementById('currentPrice').textContent = price.toFixed(2);
+            
+            // 更新价格图表
+            const now = new Date().toLocaleTimeString();
+            priceChart.data.labels.push(now);
+            priceChart.data.datasets[0].data.push(price);
+            
+            // 保持最近50个数据点
+            if (priceChart.data.labels.length > 50) {
+                priceChart.data.labels.shift();
+                priceChart.data.datasets[0].data.shift();
+            }
+            
+            priceChart.update('none');
+        }
+
+        // 更新交易状态
+        function updateTradingState(state) {
+            // 安全地更新数值，提供默认值
+            document.getElementById('balance').textContent = (state.balance || 0).toFixed(2);
+            document.getElementById('totalPnl').textContent = (state.totalPnl || 0).toFixed(2);
+            document.getElementById('totalTrades').textContent = state.totalTrades || 0;
+            document.getElementById('dailyTrades').textContent = state.dailyTrades || 0;
+            document.getElementById('consecutiveLosses').textContent = state.consecutiveLosses || 0;
+            document.getElementById('maxDrawdown').textContent = ((state.maxDrawdown || 0) * 100).toFixed(2) + '%';
+            
+            const winRate = (state.totalTrades > 0 && state.winningTrades) ? 
+                (state.winningTrades / state.totalTrades * 100) : 0;
+            document.getElementById('winRate').textContent = winRate.toFixed(2) + '%';
+            
+            document.getElementById('profitFactor').textContent = (state.profitFactor || 0).toFixed(2);
+            
+            // 更新每日盈亏
+            const dailyPnl = state.dailyPnl || 0;
+            document.getElementById('dailyPnl').textContent = dailyPnl.toFixed(2);
+            
+            // 更新风险等级
+            const riskLevel = state.consecutiveLosses >= 3 ? '高' : 
+                             state.consecutiveLosses >= 2 ? '中' : '低';
+            document.getElementById('riskLevel').textContent = riskLevel;
+            document.getElementById('riskLevel').className = `metric-value ${
+                riskLevel === '高' ? 'negative' : riskLevel === '中' ? 'neutral' : 'positive'
+            }`;
+            
+            // 更新仓位使用率
+            const positionUsage = state.positions ? 
+                (Array.from(state.positions).length > 0 ? '100%' : '0%') : '0%';
+            document.getElementById('positionUsage').textContent = positionUsage;
+            
+            // 更新交易状态
+            const tradingStatus = state.isActive ? '运行中' : '已停止';
+            document.getElementById('tradingStatus').textContent = tradingStatus;
+            document.getElementById('tradingStatus').className = `metric-value ${
+                state.isActive ? 'positive' : 'negative'
+            }`;
+            
+            // 更新盈亏图表
+            const now = new Date().toLocaleTimeString();
+            pnlChart.data.labels.push(now);
+            pnlChart.data.datasets[0].data.push(state.totalPnl || 0);
+            
+            if (pnlChart.data.labels.length > 50) {
+                pnlChart.data.labels.shift();
+                pnlChart.data.datasets[0].data.shift();
+            }
+            
+            pnlChart.update('none');
+            
+            // 更新持仓显示
+            if (state.positions) {
+                const positionsArray = Array.isArray(state.positions) ? 
+                    state.positions : Array.from(state.positions.values ? state.positions.values() : []);
+                updatePositions(positionsArray);
+            }
+            
+            // 更新状态颜色
+            updateMetricColors();
+        }
+
+        // 更新指标颜色
+        function updateMetricColors() {
+            // 更新总盈亏颜色
+            const totalPnl = parseFloat(document.getElementById('totalPnl').textContent);
+            const totalPnlElement = document.getElementById('totalPnl');
+            
+            if (totalPnl > 0) {
+                totalPnlElement.className = 'metric-value positive';
+            } else if (totalPnl < 0) {
+                totalPnlElement.className = 'metric-value negative';
+            } else {
+                totalPnlElement.className = 'metric-value';
+            }
+            
+            // 更新每日盈亏颜色
+            const dailyPnl = parseFloat(document.getElementById('dailyPnl').textContent);
+            const dailyPnlElement = document.getElementById('dailyPnl');
+            
+            if (dailyPnl > 0) {
+                dailyPnlElement.className = 'metric-value positive';
+            } else if (dailyPnl < 0) {
+                dailyPnlElement.className = 'metric-value negative';
+            } else {
+                dailyPnlElement.className = 'metric-value';
+            }
+            
+            // 更新价格变化颜色
+            const priceChangeText = document.getElementById('priceChange').textContent;
+            if (priceChangeText && priceChangeText !== '0.00%') {
+                const priceChangeElement = document.getElementById('priceChange');
+                if (priceChangeText.startsWith('+')) {
+                    priceChangeElement.className = 'metric-value positive';
+                } else if (priceChangeText.startsWith('-')) {
+                    priceChangeElement.className = 'metric-value negative';
+                }
+            }
+        }
+
+        // 启动交易
+        function startTrading() {
+            if (!isConnected) {
+                addLog('请先连接到服务器', 'error');
+                return;
+            }
+
+            // 验证API密钥
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const apiSecret = document.getElementById('apiSecret').value.trim();
+            
+            if (!apiKey || !apiSecret) {
+                addLog('❌ 请先在配置面板中输入API密钥', 'error');
+                // 自动打开配置面板
+                openConfig();
+                // 高亮API密钥输入框
+                setTimeout(() => {
+                    document.getElementById('apiKey').focus();
+                    document.getElementById('apiKey').style.borderColor = '#ff4444';
+                    document.getElementById('apiSecret').style.borderColor = '#ff4444';
+                }, 300);
+                return;
+            }
+
+            // 验证API密钥格式
+            if (apiKey.length < 20 || apiSecret.length < 20) {
+                addLog('❌ API密钥格式不正确，请检查输入', 'error');
+                return;
+            }
+            
+            // 获取网络配置和交易金额
+            const useMainnet = document.getElementById('useMainnet').checked;
+            const positionSize = parseFloat(document.getElementById('positionSize').value) || 100;
+            
+            addLog(`🔑 使用${useMainnet ? '正式网' : '测试网'}环境`, 'info');
+            addLog(`💰 单笔交易金额: ${positionSize} USDT`, 'info');
+            addLog('🚀 正在启动交易引擎...', 'info');
+            
+            // 发送启动请求，包含API配置和交易金额
+            socket.emit('startTrading', {
+                apiKey: apiKey,
+                apiSecret: apiSecret,
+                testnet: !useMainnet,
+                positionSize: positionSize
+            });
+            
+            tradingActive = true;
+            
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-flex';
+            document.getElementById('tradingStatus').textContent = '启动中...';
+            document.getElementById('tradingStatus').className = 'metric-value neutral';
+        }
+
+        // 停止交易
+        function stopTrading() {
+            socket.emit('stopTrading');
+            tradingActive = false;
+            
+            document.getElementById('startBtn').style.display = 'inline-flex';
+            document.getElementById('stopBtn').style.display = 'none';
+            document.getElementById('tradingStatus').textContent = '已停止';
+            document.getElementById('tradingStatus').className = 'metric-value negative';
+            
+            addLog('交易引擎停止', 'warning');
+        }
+
+        // 打开配置面板
+        function openConfig() {
+            document.getElementById('configPanel').classList.add('open');
+            document.getElementById('overlay').classList.add('show');
+        }
+
+        // 关闭配置面板
+        function closeConfig() {
+            document.getElementById('configPanel').classList.remove('open');
+            document.getElementById('overlay').classList.remove('show');
+        }
+
+        // 保存配置 (已禁用 - 策略参数固化)
+        // function saveConfig() {
+        //     // 策略参数已固化，不允许修改
+        //     addLog('⚠️ 策略参数已优化固定，无需修改', 'warning');
+        //     closeConfig();
+        // }
+
+        // 导出数据
+        function exportData() {
+            socket.emit('exportData');
+            addLog('数据导出请求已发送', 'info');
+        }
+
+        // 测试API连接
+        function testApiConnection() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const apiSecret = document.getElementById('apiSecret').value.trim();
+            const useMainnet = document.getElementById('useMainnet').checked;
+            
+            if (!apiKey || !apiSecret) {
+                addLog('❌ 请先输入API密钥', 'error');
+                showApiTestResult(false, '请先输入API密钥');
+                return;
+            }
+
+            if (apiKey.length < 20 || apiSecret.length < 20) {
+                addLog('❌ API密钥格式不正确', 'error');
+                showApiTestResult(false, 'API密钥格式不正确，请检查输入');
+                return;
+            }
+
+            addLog(`🔍 正在测试${useMainnet ? '正式网' : '测试网'}API连接...`, 'info');
+            
+            // 禁用测试按钮
+            const testBtn = document.getElementById('testApiBtn');
+            testBtn.disabled = true;
+            testBtn.textContent = '🔄 测试中...';
+            
+            // 发送测试请求
+            socket.emit('testApiConnection', {
+                apiKey: apiKey,
+                apiSecret: apiSecret,
+                testnet: !useMainnet
+            });
+            
+            // 5秒后重新启用按钮
+            setTimeout(() => {
+                testBtn.disabled = false;
+                testBtn.textContent = '🔍 测试API连接';
+            }, 5000);
+        }
+
+        // 清除API密钥高亮
+        function clearApiKeyHighlight() {
+            document.getElementById('apiKey').style.borderColor = '';
+            document.getElementById('apiSecret').style.borderColor = '';
+            // 同时隐藏测试结果
+            document.getElementById('apiTestResult').style.display = 'none';
+        }
+
+        // 显示API测试结果
+        function showApiTestResult(success, message) {
+            const resultDiv = document.getElementById('apiTestResult');
+            const messageDiv = document.getElementById('apiTestMessage');
+            
+            if (success) {
+                resultDiv.style.background = 'rgba(76, 175, 80, 0.1)';
+                resultDiv.style.border = '1px solid #4CAF50';
+                resultDiv.style.color = '#4CAF50';
+                messageDiv.innerHTML = `✅ ${message}`;
+            } else {
+                resultDiv.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultDiv.style.border = '1px solid #f44336';
+                resultDiv.style.color = '#f44336';
+                messageDiv.innerHTML = `❌ ${message}`;
+            }
+            
+            resultDiv.style.display = 'block';
+            
+            // 5秒后自动隐藏
+            setTimeout(() => {
+                resultDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // 添加日志
+        function addLog(message, type = 'info') {
+            const logsContainer = document.getElementById('systemLogs');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span>${message}`;
+            
+            logsContainer.appendChild(logEntry);
+            
+            // 保持最近50条日志
+            const logs = logsContainer.children;
+            if (logs.length > 50) {
+                logsContainer.removeChild(logs[0]);
+            }
+            
+            // 滚动到底部
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+        }
+
+        // 更新持仓表格
+        function updatePositions(positions) {
+            const tbody = document.getElementById('positionsTable');
+            tbody.innerHTML = '';
+            
+            if (positions.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" style="text-align: center; color: rgba(255,255,255,0.6);">
+                            暂无持仓
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            positions.forEach(position => {
+                const row = document.createElement('tr');
+                const pnlClass = position.pnl > 0 ? 'positive' : position.pnl < 0 ? 'negative' : '';
+                
+                row.innerHTML = `
+                    <td>${position.side.toUpperCase()}</td>
+                    <td>${position.entryPrice.toFixed(4)}</td>
+                    <td>${position.quantity.toFixed(6)}</td>
+                    <td class="${pnlClass}">${position.pnl.toFixed(2)}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+        }
+
+        // 添加交易历史
+        function addTradeToHistory(trade) {
+            const container = document.getElementById('recentTrades');
+            
+            // 如果是第一笔交易，清空占位符
+            if (container.children.length === 1 && container.children[0].textContent.includes('暂无交易记录')) {
+                container.innerHTML = '';
+            }
+            
+            const tradeElement = document.createElement('div');
+            tradeElement.className = 'metric';
+            tradeElement.style.marginBottom = '0.5rem';
+            
+            const pnlClass = trade.pnl > 0 ? 'positive' : 'negative';
+            const time = new Date(trade.timestamp).toLocaleTimeString();
+            
+            tradeElement.innerHTML = `
+                <span class="metric-label">${time} ${trade.side.toUpperCase()}</span>
+                <span class="metric-value ${pnlClass}">${trade.pnl.toFixed(2)}</span>
+            `;
+            
+            container.insertBefore(tradeElement, container.firstChild);
+            
+            // 保持最近10笔交易
+            if (container.children.length > 10) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        // 定期更新真实数据
+        setInterval(() => {
+            if (isConnected) {
+                // 定期获取实时合约K线数据 (优化频率和超时)
+                if (Math.random() < 0.3) { // 30%概率更新价格，约7秒一次，减少API调用
+                    fetch('https://fapi.binance.com/fapi/v1/klines?symbol=ETHUSDT&interval=1m&limit=1', {
+                        timeout: 3000,
+                        headers: {
+                            'Accept': 'application/json',
+                            'Cache-Control': 'no-cache'
+                        }
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data && data.length > 0) {
+                                const kline = data[0];
+                                const price = parseFloat(kline[4]); // 收盘价
+                                
+                                // 创建K线数据对象
+                                const klineData = {
+                                    close: price.toString(),
+                                    symbol: 'ETHUSDT',
+                                    isFinal: true
+                                };
+                                
+                                // 使用现有的updatePrice函数
+                                updatePrice(klineData);
+                            }
+                        })
+                        .catch(error => {
+                            // 静默处理价格获取错误
+                            console.error('Real-time futures kline fetch error:', error);
+                        });
+                }
+                
+                // 定期请求系统状态
+                if (Math.random() < 0.1) { // 10%概率请求状态
+                    fetch('/api/status')
+                        .then(response => response.json())
+                        .then(data => {
+                            // 可以根据需要处理状态数据
+                        })
+                        .catch(error => {
+                            // 静默处理错误
+                        });
+                }
+            }
+        }, 2000); // 每2秒检查一次
+    </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "name": "hf-trading",
+  "version": "1.0.0",
+  "description": "1倍合约高频波段交易策略 - 快准狠",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "trading",
+    "cryptocurrency",
+    "high-frequency",
+    "swing-trading",
+    "okx",
+    "ethereum",
+    "technical-analysis"
+  ],
+  "author": "HF Trading System",
+  "license": "MIT",
+  "dependencies": {
+    "@types/express": "^5.0.3",
+    "@types/sqlite3": "^3.1.11",
+    "@types/ws": "^8.18.1",
+    "axios": "^1.12.2",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "lodash": "^4.17.21",
+    "socket.io": "^4.8.1",
+    "sqlite3": "^5.1.7",
+    "technicalindicators": "^3.1.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.14.200",
+    "@types/node": "^20.19.17",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "@typescript-eslint/parser": "^6.7.0",
+    "eslint": "^8.50.0",
+    "jest": "^29.7.0",
+    "tsx": "^3.14.0",
+    "typescript": "^5.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

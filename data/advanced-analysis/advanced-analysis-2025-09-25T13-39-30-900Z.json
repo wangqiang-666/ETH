@@ -1,0 +1,1853 @@
+{
+  "timestamp": 1758807570900,
+  "analysisDate": "2025-09-25T13:39:30.900Z",
+  "marketAnalysis": {
+    "avgVolatility": 0.06911716784180635,
+    "avgVolume": 256.01055989814853,
+    "totalReturn": -13.188331006010564,
+    "volatilityRatio": 3.5744050375034724,
+    "rsiDistribution": {
+      "oversold": 13.842017430001855,
+      "overbought": 11.042091600222511,
+      "neutral": 75.11589096977563
+    },
+    "marketType": "横盘震荡市场"
+  },
+  "failureAnalysis": {
+    "rsiSignalAnalysis": {
+      "oversoldSignals": 464,
+      "oversoldSuccessful": 2,
+      "overboughtSignals": 294,
+      "overboughtSuccessful": 0
+    },
+    "feeImpact": {
+      "makerFee": 0.0002,
+      "takerFee": 0.0005,
+      "totalFeePerTrade": 0.0007,
+      "avgPriceMove": 0.04163446364917033,
+      "feeToMoveRatio": 168.12994299590292
+    },
+    "recommendations": [
+      "RSI超卖信号成功率过低，需要调整RSI阈值或增加其他确认指标",
+      "RSI超买信号成功率过低，建议减少做空交易或调整参数",
+      "手续费占价格波动比例过高，需要增加止盈目标或减少交易频率",
+      "市场波动过小，不适合高频交易，建议使用更长时间框架"
+    ]
+  },
+  "newStrategies": [
+    {
+      "name": "趋势跟随策略",
+      "description": "基于市场趋势方向进行交易",
+      "type": "trend_following",
+      "params": {
+        "trendThreshold": 0.005,
+        "stopLoss": 0.008,
+        "takeProfit": 0.02,
+        "holdingTime": 120
+      }
+    },
+    {
+      "name": "增强均值回归策略",
+      "description": "在震荡市场中捕捉价格回归",
+      "type": "mean_reversion",
+      "params": {
+        "rsiOversold": 15,
+        "rsiOverbought": 85,
+        "stopLoss": 0.004,
+        "takeProfit": 0.008,
+        "volumeConfirmation": true
+      }
+    },
+    {
+      "name": "低频高胜率策略",
+      "description": "减少交易频率，提高信号质量",
+      "type": "low_frequency",
+      "params": {
+        "rsiOversold": 10,
+        "rsiOverbought": 90,
+        "stopLoss": 0.01,
+        "takeProfit": 0.025,
+        "minConfidence": 0.85,
+        "additionalConfirmation": true
+      }
+    }
+  ],
+  "testResults": [
+    {
+      "strategy": {
+        "name": "低频高胜率策略",
+        "description": "减少交易频率，提高信号质量",
+        "type": "low_frequency",
+        "params": {
+          "rsiOversold": 10,
+          "rsiOverbought": 90,
+          "stopLoss": 0.01,
+          "takeProfit": 0.025,
+          "minConfidence": 0.85,
+          "additionalConfirmation": true
+        }
+      },
+      "result": {
+        "totalTrades": 38,
+        "successfulTrades": 19,
+        "winRate": 50,
+        "totalPnl": -25.773589426742134,
+        "netProfit": -2685.773589426742,
+        "trades": [
+          {
+            "entryPrice": 4561.62,
+            "exitPrice": 4580.14,
+            "direction": "LONG",
+            "pnl": 8.119922308302943,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4605.21,
+            "exitPrice": 4601.76,
+            "direction": "SHORT",
+            "pnl": 1.4983030089832245,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4503.08,
+            "exitPrice": 4453.27,
+            "direction": "LONG",
+            "pnl": -22.122636062428157,
+            "holdingTime": 35,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4474.71,
+            "exitPrice": 4464.58,
+            "direction": "SHORT",
+            "pnl": 4.52766771477933,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4466.07,
+            "exitPrice": 4465.91,
+            "direction": "LONG",
+            "pnl": -0.0716513623834174,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4492.71,
+            "exitPrice": 4497.51,
+            "direction": "SHORT",
+            "pnl": -2.136794941138058,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4491.15,
+            "exitPrice": 4480.54,
+            "direction": "LONG",
+            "pnl": -4.72484775614249,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4489.82,
+            "exitPrice": 4481.42,
+            "direction": "LONG",
+            "pnl": -3.7417981121736,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4485.64,
+            "exitPrice": 4479.44,
+            "direction": "SHORT",
+            "pnl": 2.764376989682956,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4476.31,
+            "exitPrice": 4487.87,
+            "direction": "SHORT",
+            "pnl": -5.164968467331123,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4480.48,
+            "exitPrice": 4478.32,
+            "direction": "LONG",
+            "pnl": -0.9641824090275394,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4455.81,
+            "exitPrice": 4463.03,
+            "direction": "LONG",
+            "pnl": 3.2407126874796477,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4470.39,
+            "exitPrice": 4483.81,
+            "direction": "LONG",
+            "pnl": 6.003950438328679,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4492.92,
+            "exitPrice": 4496.31,
+            "direction": "SHORT",
+            "pnl": -1.5090408910019886,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4493.26,
+            "exitPrice": 4486,
+            "direction": "SHORT",
+            "pnl": 3.2315067456591504,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4482.49,
+            "exitPrice": 4476.93,
+            "direction": "LONG",
+            "pnl": -2.4807640396295323,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4453.49,
+            "exitPrice": 4453.69,
+            "direction": "LONG",
+            "pnl": 0.0898171995445451,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4328.22,
+            "exitPrice": 4282.35,
+            "direction": "LONG",
+            "pnl": -21.19578025146591,
+            "holdingTime": 33,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4219.39,
+            "exitPrice": 4163.55,
+            "direction": "LONG",
+            "pnl": -26.468280960044055,
+            "holdingTime": 2,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4163.55,
+            "exitPrice": 4091.57,
+            "direction": "LONG",
+            "pnl": -34.57626304475748,
+            "holdingTime": 1,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4091.57,
+            "exitPrice": 4195,
+            "direction": "LONG",
+            "pnl": 50.557609915020315,
+            "holdingTime": 23,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4172.13,
+            "exitPrice": 4160.69,
+            "direction": "LONG",
+            "pnl": -5.484009366918341,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4169.28,
+            "exitPrice": 4167.02,
+            "direction": "SHORT",
+            "pnl": 1.0841200399106363,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4156.25,
+            "exitPrice": 4191.09,
+            "direction": "LONG",
+            "pnl": 16.765112781954958,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4155.82,
+            "exitPrice": 4163.02,
+            "direction": "LONG",
+            "pnl": 3.4650201404299166,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4176.56,
+            "exitPrice": 4154.42,
+            "direction": "SHORT",
+            "pnl": 10.602026548164195,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4188.34,
+            "exitPrice": 4172.16,
+            "direction": "SHORT",
+            "pnl": 7.7262113390986835,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4191.67,
+            "exitPrice": 4187,
+            "direction": "SHORT",
+            "pnl": 2.2282288443508547,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4167.04,
+            "exitPrice": 4164.25,
+            "direction": "LONG",
+            "pnl": -1.339080018430331,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4153.99,
+            "exitPrice": 4163.36,
+            "direction": "SHORT",
+            "pnl": -4.511325255958676,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4201.24,
+            "exitPrice": 4171.88,
+            "direction": "SHORT",
+            "pnl": 13.976825889499136,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4158.21,
+            "exitPrice": 4156.05,
+            "direction": "LONG",
+            "pnl": -1.03890856883123,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4168.48,
+            "exitPrice": 4164.88,
+            "direction": "SHORT",
+            "pnl": 1.7272483015389084,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4138.94,
+            "exitPrice": 4154.62,
+            "direction": "LONG",
+            "pnl": 7.576819185588722,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4136.62,
+            "exitPrice": 4105.99,
+            "direction": "LONG",
+            "pnl": -14.80919204567986,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4085.5,
+            "exitPrice": 4081.26,
+            "direction": "LONG",
+            "pnl": -2.0756333374126945,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4064.99,
+            "exitPrice": 4020.01,
+            "direction": "LONG",
+            "pnl": -22.13043574522917,
+            "holdingTime": 55,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4045.45,
+            "exitPrice": 4034.15,
+            "direction": "SHORT",
+            "pnl": 5.586523130924731,
+            "holdingTime": 61,
+            "reason": "超时"
+          }
+        ]
+      },
+      "score": 52.333333333333336
+    },
+    {
+      "strategy": {
+        "name": "增强均值回归策略",
+        "description": "在震荡市场中捕捉价格回归",
+        "type": "mean_reversion",
+        "params": {
+          "rsiOversold": 15,
+          "rsiOverbought": 85,
+          "stopLoss": 0.004,
+          "takeProfit": 0.008,
+          "volumeConfirmation": true
+        }
+      },
+      "result": {
+        "totalTrades": 85,
+        "successfulTrades": 44,
+        "winRate": 51.76470588235295,
+        "totalPnl": 44.732469492946265,
+        "netProfit": -5905.267530507053,
+        "trades": [
+          {
+            "entryPrice": 4632.19,
+            "exitPrice": 4614.98,
+            "direction": "SHORT",
+            "pnl": 7.430610575127548,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4590.99,
+            "exitPrice": 4570.76,
+            "direction": "LONG",
+            "pnl": -8.812913990228497,
+            "holdingTime": 43,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4561.61,
+            "exitPrice": 4578.58,
+            "direction": "LONG",
+            "pnl": 7.440355488522805,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4590.57,
+            "exitPrice": 4600.34,
+            "direction": "SHORT",
+            "pnl": -4.256552018594831,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4601.38,
+            "exitPrice": 4564.23,
+            "direction": "SHORT",
+            "pnl": 16.147329714129476,
+            "holdingTime": 8,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4599.25,
+            "exitPrice": 4599.49,
+            "direction": "LONG",
+            "pnl": 0.10436484209372472,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4616.54,
+            "exitPrice": 4635.21,
+            "direction": "SHORT",
+            "pnl": -8.08830856009049,
+            "holdingTime": 23,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4600.56,
+            "exitPrice": 4613.51,
+            "direction": "LONG",
+            "pnl": 5.629749421809439,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4616.99,
+            "exitPrice": 4594,
+            "direction": "SHORT",
+            "pnl": 9.958869306626084,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4605.21,
+            "exitPrice": 4601.76,
+            "direction": "SHORT",
+            "pnl": 1.4983030089832245,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4538.73,
+            "exitPrice": 4534.58,
+            "direction": "LONG",
+            "pnl": -1.8287053867489966,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4535.29,
+            "exitPrice": 4539.83,
+            "direction": "LONG",
+            "pnl": 2.0020770446873137,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4525,
+            "exitPrice": 4528.35,
+            "direction": "LONG",
+            "pnl": 1.4806629834255751,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4503.08,
+            "exitPrice": 4484.57,
+            "direction": "LONG",
+            "pnl": -8.22103982163329,
+            "holdingTime": 17,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4459.22,
+            "exitPrice": 4460.82,
+            "direction": "SHORT",
+            "pnl": -0.7176142912883663,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4474,
+            "exitPrice": 4464,
+            "direction": "SHORT",
+            "pnl": 4.470272686633884,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4464,
+            "exitPrice": 4469.66,
+            "direction": "LONG",
+            "pnl": 2.535842293906745,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4473.99,
+            "exitPrice": 4469.55,
+            "direction": "SHORT",
+            "pnl": 1.9848055091761938,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4462.74,
+            "exitPrice": 4461.9,
+            "direction": "LONG",
+            "pnl": -0.37645034216653694,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4475,
+            "exitPrice": 4472.41,
+            "direction": "SHORT",
+            "pnl": 1.157541899441406,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4476.1,
+            "exitPrice": 4470.26,
+            "direction": "SHORT",
+            "pnl": 2.6094144456111996,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4468.11,
+            "exitPrice": 4466.61,
+            "direction": "LONG",
+            "pnl": -0.6714248306330866,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4469.66,
+            "exitPrice": 4464.38,
+            "direction": "SHORT",
+            "pnl": 2.362595812656777,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4484.1,
+            "exitPrice": 4502.75,
+            "direction": "SHORT",
+            "pnl": -8.318280145402483,
+            "holdingTime": 31,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4508.28,
+            "exitPrice": 4484.44,
+            "direction": "SHORT",
+            "pnl": 10.576095539762457,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4484.03,
+            "exitPrice": 4481.48,
+            "direction": "SHORT",
+            "pnl": 1.1373697321383587,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4489.82,
+            "exitPrice": 4481.42,
+            "direction": "LONG",
+            "pnl": -3.7417981121736,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4476.97,
+            "exitPrice": 4487.4,
+            "direction": "LONG",
+            "pnl": 4.659401336171285,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4479.97,
+            "exitPrice": 4477.9,
+            "direction": "LONG",
+            "pnl": -0.9241133311163326,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4476.31,
+            "exitPrice": 4487.87,
+            "direction": "SHORT",
+            "pnl": -5.164968467331123,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4486.01,
+            "exitPrice": 4476.06,
+            "direction": "LONG",
+            "pnl": -4.436013294664888,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4473.86,
+            "exitPrice": 4463.09,
+            "direction": "LONG",
+            "pnl": -4.814634342603267,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4455.81,
+            "exitPrice": 4463.03,
+            "direction": "LONG",
+            "pnl": 3.2407126874796477,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4470.39,
+            "exitPrice": 4483.81,
+            "direction": "LONG",
+            "pnl": 6.003950438328679,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4483.11,
+            "exitPrice": 4481.54,
+            "direction": "SHORT",
+            "pnl": 0.7004066373565266,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4492.92,
+            "exitPrice": 4496.31,
+            "direction": "SHORT",
+            "pnl": -1.5090408910019886,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4478.32,
+            "exitPrice": 4484.44,
+            "direction": "LONG",
+            "pnl": 2.7331677950659583,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4482.77,
+            "exitPrice": 4475.79,
+            "direction": "LONG",
+            "pnl": -3.114145941014361,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4453.49,
+            "exitPrice": 4453.69,
+            "direction": "LONG",
+            "pnl": 0.0898171995445451,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4380.51,
+            "exitPrice": 4358.65,
+            "direction": "LONG",
+            "pnl": -9.98057303829946,
+            "holdingTime": 1,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4358.65,
+            "exitPrice": 4337.11,
+            "direction": "LONG",
+            "pnl": -9.88379429410481,
+            "holdingTime": 16,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4328.22,
+            "exitPrice": 4308.92,
+            "direction": "LONG",
+            "pnl": -8.918215802339152,
+            "holdingTime": 28,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4219.39,
+            "exitPrice": 4178.09,
+            "direction": "LONG",
+            "pnl": -19.576289463642933,
+            "holdingTime": 1,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4178.09,
+            "exitPrice": 4091.57,
+            "direction": "LONG",
+            "pnl": -41.41605374704709,
+            "holdingTime": 2,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4091.57,
+            "exitPrice": 4142.09,
+            "direction": "LONG",
+            "pnl": 24.694677104387793,
+            "holdingTime": 1,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4156.28,
+            "exitPrice": 4189.63,
+            "direction": "LONG",
+            "pnl": 16.048004465531854,
+            "holdingTime": 41,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4173.84,
+            "exitPrice": 4175.95,
+            "direction": "SHORT",
+            "pnl": -1.0110593602053135,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4156.66,
+            "exitPrice": 4135.59,
+            "direction": "LONG",
+            "pnl": -10.137947294221664,
+            "holdingTime": 43,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4174.62,
+            "exitPrice": 4192.4,
+            "direction": "SHORT",
+            "pnl": -8.518140573273612,
+            "holdingTime": 45,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4207,
+            "exitPrice": 4207.02,
+            "direction": "SHORT",
+            "pnl": -0.009507962919152155,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4195.49,
+            "exitPrice": 4178.37,
+            "direction": "LONG",
+            "pnl": -8.161144467034788,
+            "holdingTime": 28,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4172.13,
+            "exitPrice": 4160.69,
+            "direction": "LONG",
+            "pnl": -5.484009366918341,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4117.33,
+            "exitPrice": 4151.79,
+            "direction": "LONG",
+            "pnl": 16.739003188959853,
+            "holdingTime": 7,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4169.28,
+            "exitPrice": 4186.46,
+            "direction": "SHORT",
+            "pnl": -8.241231099854312,
+            "holdingTime": 5,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4186.46,
+            "exitPrice": 4161.95,
+            "direction": "SHORT",
+            "pnl": 11.70917672687675,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4156.25,
+            "exitPrice": 4189.88,
+            "direction": "LONG",
+            "pnl": 16.1828571428572,
+            "holdingTime": 59,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4189.88,
+            "exitPrice": 4205.79,
+            "direction": "SHORT",
+            "pnl": -7.594489579653763,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4201.52,
+            "exitPrice": 4191.47,
+            "direction": "LONG",
+            "pnl": -4.783982939507693,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4182.9,
+            "exitPrice": 4194.33,
+            "direction": "LONG",
+            "pnl": 5.465107939467973,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4190.99,
+            "exitPrice": 4172.43,
+            "direction": "SHORT",
+            "pnl": 8.857095817455775,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4157.52,
+            "exitPrice": 4138.42,
+            "direction": "LONG",
+            "pnl": -9.188169870499896,
+            "holdingTime": 10,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4150.76,
+            "exitPrice": 4143.06,
+            "direction": "LONG",
+            "pnl": -3.7101639217877294,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4188.34,
+            "exitPrice": 4172.16,
+            "direction": "SHORT",
+            "pnl": 7.7262113390986835,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4191.67,
+            "exitPrice": 4187,
+            "direction": "SHORT",
+            "pnl": 2.2282288443508547,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4178.75,
+            "exitPrice": 4158.94,
+            "direction": "LONG",
+            "pnl": -9.481304217768663,
+            "holdingTime": 58,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4081.74,
+            "exitPrice": 4118.08,
+            "direction": "LONG",
+            "pnl": 17.806131698736394,
+            "holdingTime": 16,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4143.63,
+            "exitPrice": 4154.63,
+            "direction": "SHORT",
+            "pnl": -5.309354358376593,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4172.21,
+            "exitPrice": 4179.22,
+            "direction": "SHORT",
+            "pnl": -3.3603294177427396,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4181.35,
+            "exitPrice": 4172.12,
+            "direction": "SHORT",
+            "pnl": 4.414842096452328,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4170.48,
+            "exitPrice": 4188.63,
+            "direction": "LONG",
+            "pnl": 8.70403406802121,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4196.47,
+            "exitPrice": 4173,
+            "direction": "SHORT",
+            "pnl": 11.185591699690574,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4172.95,
+            "exitPrice": 4155.7,
+            "direction": "LONG",
+            "pnl": -8.267532560898166,
+            "holdingTime": 16,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4168.96,
+            "exitPrice": 4169.99,
+            "direction": "LONG",
+            "pnl": 0.4941280319311029,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4160.52,
+            "exitPrice": 4155.4,
+            "direction": "LONG",
+            "pnl": -2.461230807687885,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4167.94,
+            "exitPrice": 4164.74,
+            "direction": "SHORT",
+            "pnl": 1.535530741805217,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4152.73,
+            "exitPrice": 4154.26,
+            "direction": "LONG",
+            "pnl": 0.7368646649315775,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4158.59,
+            "exitPrice": 4125.05,
+            "direction": "SHORT",
+            "pnl": 16.130467297810057,
+            "holdingTime": 54,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4112.93,
+            "exitPrice": 4073.09,
+            "direction": "SHORT",
+            "pnl": 19.373050355829125,
+            "holdingTime": 14,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4073.09,
+            "exitPrice": 4109.19,
+            "direction": "LONG",
+            "pnl": 17.726099840661245,
+            "holdingTime": 12,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4072.9,
+            "exitPrice": 4055.68,
+            "direction": "LONG",
+            "pnl": -8.455891379606793,
+            "holdingTime": 5,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4055.68,
+            "exitPrice": 4037.79,
+            "direction": "LONG",
+            "pnl": -8.822195044973899,
+            "holdingTime": 5,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4037.79,
+            "exitPrice": 4020.01,
+            "direction": "LONG",
+            "pnl": -8.80679777799229,
+            "holdingTime": 48,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4010.62,
+            "exitPrice": 4043.06,
+            "direction": "LONG",
+            "pnl": 16.177049932429426,
+            "holdingTime": 31,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4045.45,
+            "exitPrice": 4034.15,
+            "direction": "SHORT",
+            "pnl": 5.586523130924731,
+            "holdingTime": 61,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4012.95,
+            "exitPrice": 4004.59,
+            "direction": "LONG",
+            "pnl": -4.166510920893444,
+            "holdingTime": 61,
+            "reason": "超时"
+          }
+        ]
+      },
+      "score": 42.00980392156863
+    },
+    {
+      "strategy": {
+        "name": "趋势跟随策略",
+        "description": "基于市场趋势方向进行交易",
+        "type": "trend_following",
+        "params": {
+          "trendThreshold": 0.005,
+          "stopLoss": 0.008,
+          "takeProfit": 0.02,
+          "holdingTime": 120
+        }
+      },
+      "result": {
+        "totalTrades": 90,
+        "successfulTrades": 48,
+        "winRate": 53.333333333333336,
+        "totalPnl": -11.42984121380319,
+        "netProfit": -6311.429841213803,
+        "trades": [
+          {
+            "entryPrice": 4613.52,
+            "exitPrice": 4616.27,
+            "direction": "LONG",
+            "pnl": 1.192148294577676,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4615.58,
+            "exitPrice": 4569,
+            "direction": "SHORT",
+            "pnl": 20.183812218616048,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4568.65,
+            "exitPrice": 4590.57,
+            "direction": "LONG",
+            "pnl": 9.595832466921333,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4590.84,
+            "exitPrice": 4575,
+            "direction": "SHORT",
+            "pnl": 6.900697911493385,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4578.78,
+            "exitPrice": 4565.62,
+            "direction": "SHORT",
+            "pnl": 5.748256085682149,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4581.16,
+            "exitPrice": 4599.26,
+            "direction": "LONG",
+            "pnl": 7.9019287691328675,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4600.73,
+            "exitPrice": 4609.14,
+            "direction": "SHORT",
+            "pnl": -3.6559415571010536,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4609.14,
+            "exitPrice": 4600.67,
+            "direction": "SHORT",
+            "pnl": 3.6753060223817258,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4592.68,
+            "exitPrice": 4595.59,
+            "direction": "SHORT",
+            "pnl": -1.2672339461925735,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4596.6,
+            "exitPrice": 4590.89,
+            "direction": "LONG",
+            "pnl": -2.4844450245834033,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4588.58,
+            "exitPrice": 4603.32,
+            "direction": "SHORT",
+            "pnl": -6.424645533040628,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4605.33,
+            "exitPrice": 4563.86,
+            "direction": "LONG",
+            "pnl": -18.009567175425108,
+            "holdingTime": 83,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4567.7,
+            "exitPrice": 4528.86,
+            "direction": "LONG",
+            "pnl": -17.006370821201106,
+            "holdingTime": 114,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4528.86,
+            "exitPrice": 4533.93,
+            "direction": "LONG",
+            "pnl": 2.2389740464490484,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4540.69,
+            "exitPrice": 4523.17,
+            "direction": "SHORT",
+            "pnl": 7.716888842884905,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4521.34,
+            "exitPrice": 4515,
+            "direction": "SHORT",
+            "pnl": 2.8044783183747053,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4513.8,
+            "exitPrice": 4526.3,
+            "direction": "LONG",
+            "pnl": 5.538570605698082,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4537.37,
+            "exitPrice": 4498.82,
+            "direction": "LONG",
+            "pnl": -16.992222366701498,
+            "holdingTime": 37,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4464.92,
+            "exitPrice": 4465.52,
+            "direction": "SHORT",
+            "pnl": -0.2687618143215842,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4467.26,
+            "exitPrice": 4456.68,
+            "direction": "SHORT",
+            "pnl": 4.736684231497574,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4445.42,
+            "exitPrice": 4467.7,
+            "direction": "LONG",
+            "pnl": 10.023799775949064,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4467.7,
+            "exitPrice": 4468.17,
+            "direction": "LONG",
+            "pnl": 0.21039908677854585,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4468.59,
+            "exitPrice": 4465.98,
+            "direction": "LONG",
+            "pnl": -1.1681537129164152,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4460.43,
+            "exitPrice": 4468.14,
+            "direction": "SHORT",
+            "pnl": -3.4570657985889417,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4468.14,
+            "exitPrice": 4472.28,
+            "direction": "SHORT",
+            "pnl": -1.8531200902386307,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4474.81,
+            "exitPrice": 4477.18,
+            "direction": "SHORT",
+            "pnl": -1.0592628513835851,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4467.98,
+            "exitPrice": 4463.9,
+            "direction": "SHORT",
+            "pnl": 1.8263286764935955,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4463.9,
+            "exitPrice": 4466.24,
+            "direction": "SHORT",
+            "pnl": -1.0484105826744083,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4466.24,
+            "exitPrice": 4487.76,
+            "direction": "LONG",
+            "pnl": 9.636741420076143,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4487.41,
+            "exitPrice": 4496.92,
+            "direction": "LONG",
+            "pnl": 4.238525118052604,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4496.92,
+            "exitPrice": 4475.51,
+            "direction": "LONG",
+            "pnl": -9.522072885441528,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4475.61,
+            "exitPrice": 4486.11,
+            "direction": "SHORT",
+            "pnl": -4.692097836942898,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4486.62,
+            "exitPrice": 4488.73,
+            "direction": "LONG",
+            "pnl": 0.9405744190502751,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4488.69,
+            "exitPrice": 4484.97,
+            "direction": "SHORT",
+            "pnl": 1.6574991812753144,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4487.4,
+            "exitPrice": 4477.94,
+            "direction": "LONG",
+            "pnl": -4.216249944288468,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4476.18,
+            "exitPrice": 4471.06,
+            "direction": "SHORT",
+            "pnl": 2.2876649285774437,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4470.64,
+            "exitPrice": 4482.06,
+            "direction": "LONG",
+            "pnl": 5.108888212873357,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4480.73,
+            "exitPrice": 4454.97,
+            "direction": "LONG",
+            "pnl": -11.498126421364068,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4466.69,
+            "exitPrice": 4460.66,
+            "direction": "LONG",
+            "pnl": -2.699985895595954,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4468.41,
+            "exitPrice": 4475.69,
+            "direction": "SHORT",
+            "pnl": -3.25842973227602,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4477.71,
+            "exitPrice": 4477.4,
+            "direction": "LONG",
+            "pnl": -0.13846363431325395,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4468.76,
+            "exitPrice": 4492.52,
+            "direction": "LONG",
+            "pnl": 10.633822357880135,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4497,
+            "exitPrice": 4474.03,
+            "direction": "SHORT",
+            "pnl": 10.215699355125754,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4470.42,
+            "exitPrice": 4445.37,
+            "direction": "SHORT",
+            "pnl": 11.207000684499524,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4454.53,
+            "exitPrice": 4358.65,
+            "direction": "SHORT",
+            "pnl": 43.04831261659484,
+            "holdingTime": 56,
+            "reason": "止盈"
+          },
+          {
+            "entryPrice": 4358.65,
+            "exitPrice": 4323.44,
+            "direction": "LONG",
+            "pnl": -16.156378695238224,
+            "holdingTime": 107,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4282.35,
+            "exitPrice": 4300.94,
+            "direction": "LONG",
+            "pnl": 8.6821488201568,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4286,
+            "exitPrice": 4219.39,
+            "direction": "LONG",
+            "pnl": -31.082594493700267,
+            "holdingTime": 52,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4174.32,
+            "exitPrice": 4210.9,
+            "direction": "SHORT",
+            "pnl": -17.52620786140015,
+            "holdingTime": 45,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4193.8,
+            "exitPrice": 4179.64,
+            "direction": "SHORT",
+            "pnl": 6.752825599694718,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4170.4,
+            "exitPrice": 4175.24,
+            "direction": "LONG",
+            "pnl": 2.321120276232566,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4179.18,
+            "exitPrice": 4206.55,
+            "direction": "LONG",
+            "pnl": 13.09826329567039,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4198.93,
+            "exitPrice": 4164.85,
+            "direction": "LONG",
+            "pnl": -16.232706903901672,
+            "holdingTime": 71,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4164.67,
+            "exitPrice": 4165.97,
+            "direction": "SHORT",
+            "pnl": -0.6242991641595526,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4165.97,
+            "exitPrice": 4144.66,
+            "direction": "SHORT",
+            "pnl": 10.230510541362708,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4139.4,
+            "exitPrice": 4191.9,
+            "direction": "LONG",
+            "pnl": 25.36599507174953,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4190,
+            "exitPrice": 4200.11,
+            "direction": "SHORT",
+            "pnl": -4.825775656324426,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4200.11,
+            "exitPrice": 4166.26,
+            "direction": "LONG",
+            "pnl": -16.118625464570908,
+            "holdingTime": 102,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4183.02,
+            "exitPrice": 4148.26,
+            "direction": "LONG",
+            "pnl": -16.61957150575432,
+            "holdingTime": 42,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4148.86,
+            "exitPrice": 4173.79,
+            "direction": "LONG",
+            "pnl": 12.017759095269685,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4176.12,
+            "exitPrice": 4214,
+            "direction": "SHORT",
+            "pnl": -18.141241152074226,
+            "holdingTime": 78,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4206.35,
+            "exitPrice": 4209.65,
+            "direction": "SHORT",
+            "pnl": -1.569056307724879,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4209.27,
+            "exitPrice": 4194.27,
+            "direction": "LONG",
+            "pnl": -7.127126556386261,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4182.38,
+            "exitPrice": 4196.43,
+            "direction": "LONG",
+            "pnl": 6.7186625796796,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4194.58,
+            "exitPrice": 4194.99,
+            "direction": "SHORT",
+            "pnl": -0.19549037090714896,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4188.35,
+            "exitPrice": 4158.38,
+            "direction": "LONG",
+            "pnl": -14.311124905989352,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4143.71,
+            "exitPrice": 4155.42,
+            "direction": "LONG",
+            "pnl": 5.651939928228586,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4155.42,
+            "exitPrice": 4184.76,
+            "direction": "LONG",
+            "pnl": 14.121316256840533,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4185.91,
+            "exitPrice": 4165.21,
+            "direction": "SHORT",
+            "pnl": 9.890322534407009,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4165.97,
+            "exitPrice": 4188.73,
+            "direction": "SHORT",
+            "pnl": -10.926626932022701,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4188.01,
+            "exitPrice": 4154.15,
+            "direction": "LONG",
+            "pnl": -16.169970940852853,
+            "holdingTime": 72,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4143.16,
+            "exitPrice": 4081.74,
+            "direction": "LONG",
+            "pnl": -29.648867048339948,
+            "holdingTime": 48,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4108.07,
+            "exitPrice": 4176.7,
+            "direction": "LONG",
+            "pnl": 33.41228362710475,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4172.4,
+            "exitPrice": 4169.83,
+            "direction": "LONG",
+            "pnl": -1.2319048988590304,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4169.84,
+            "exitPrice": 4168.14,
+            "direction": "SHORT",
+            "pnl": 0.8153790073479166,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4173.8,
+            "exitPrice": 4182.79,
+            "direction": "LONG",
+            "pnl": 4.307825003593742,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4185.43,
+            "exitPrice": 4180.5,
+            "direction": "SHORT",
+            "pnl": 2.3557914001669076,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4194.99,
+            "exitPrice": 4161.24,
+            "direction": "LONG",
+            "pnl": -16.090622385273864,
+            "holdingTime": 71,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4168.9,
+            "exitPrice": 4175.4,
+            "direction": "LONG",
+            "pnl": 3.118328575883327,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4178.84,
+            "exitPrice": 4159.88,
+            "direction": "SHORT",
+            "pnl": 9.074288558547364,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4164.15,
+            "exitPrice": 4156.96,
+            "direction": "SHORT",
+            "pnl": 3.453285784613715,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4155.48,
+            "exitPrice": 4137.29,
+            "direction": "SHORT",
+            "pnl": 8.754704630993098,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4131.81,
+            "exitPrice": 4098.55,
+            "direction": "LONG",
+            "pnl": -16.099481825156634,
+            "holdingTime": 36,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4099.26,
+            "exitPrice": 4064.99,
+            "direction": "LONG",
+            "pnl": -16.720090943243626,
+            "holdingTime": 94,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4056.85,
+            "exitPrice": 4020.01,
+            "direction": "LONG",
+            "pnl": -18.16187436064912,
+            "holdingTime": 54,
+            "reason": "止损"
+          },
+          {
+            "entryPrice": 4020.75,
+            "exitPrice": 4010.07,
+            "direction": "SHORT",
+            "pnl": 5.312441708636367,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4011.6,
+            "exitPrice": 4031.19,
+            "direction": "LONG",
+            "pnl": 9.766676637750596,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4031.19,
+            "exitPrice": 4028.95,
+            "direction": "SHORT",
+            "pnl": 1.1113343702481084,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 4022.13,
+            "exitPrice": 3989.17,
+            "direction": "SHORT",
+            "pnl": 16.38932605360843,
+            "holdingTime": 121,
+            "reason": "超时"
+          },
+          {
+            "entryPrice": 3993.94,
+            "exitPrice": 3959.75,
+            "direction": "LONG",
+            "pnl": -17.120938221405456,
+            "holdingTime": 17,
+            "reason": "止损"
+          }
+        ]
+      },
+      "score": 40.55555555555556
+    }
+  ]
+}
